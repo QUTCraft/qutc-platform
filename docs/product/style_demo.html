@@ -4,178 +4,1653 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>QUTCraft Commons · MD3 Portal Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <!--
-    DESIGN SYSTEM CONTRACT
-    Surface: #f7f5fa / #fffbff; ink: #1b1b1f; primary: #4f46a5; accent: #0b6b58.
-    Type: Noto Sans SC / system sans for content, ui-monospace for metadata.
-    Rhythm: 4px base, 8/12/16/24/32 spacing; 12px controls, 20px surfaces.
-    Motion: 160–240ms transitions; no motion is required to understand the page.
-    This file is a visual contract for the neutral, competition-ready portal and admin UI.
+    DESIGN SYSTEM CONTRACT (MD3 Spec Compliant)
+    Surface: Dynamic light/dark theme using Material You palettes.
+    Type: Outfit for English/Numbers, Noto Sans SC for Chinese content.
+    Motion: 250ms - 400ms cubic-bezier(0.2, 0.8, 0.2, 1) transitions.
   -->
   <style>
     :root {
-      --surface: #fffbff; --surface-low: #f7f5fa; --surface-high: #edeaf2;
-      --surface-highest: #e7e4ec; --ink: #1b1b1f; --muted: #625f68;
-      --primary: #4f46a5; --primary-soft: #e4e1ff; --on-primary: #fff;
-      --secondary: #006b5b; --secondary-soft: #b6f2e2; --outline: #77747e;
-      --danger: #ba1a1a; --shadow: 0 3px 10px #2d29340d, 0 12px 28px #2d29340a;
-      --radius-sm: 12px; --radius-md: 20px; --radius-lg: 28px;
+      /* Light Dynamic Theme */
+      --primary: #4f46a5;
+      --on-primary: #ffffff;
+      --primary-container: #e4e1ff;
+      --on-primary-container: #120066;
+      --secondary: #5c5d72;
+      --on-secondary: #ffffff;
+      --secondary-container: #e1e1f9;
+      --on-secondary-container: #191a2c;
+      --tertiary: #77536d;
+      --on-tertiary: #ffffff;
+      --tertiary-container: #ffd8ee;
+      --on-tertiary-container: #2e1128;
+      
+      --background: #fdfbff;
+      --on-background: #1b1b1f;
+      --surface: #fdfbff;
+      --on-surface: #1b1b1f;
+      --surface-variant: #e4e1ec;
+      --on-surface-variant: #46464f;
+      
+      --surface-container-lowest: #ffffff;
+      --surface-container-low: #f5f2fa;
+      --surface-container: #f0edf5;
+      --surface-container-high: #eae7ef;
+      --surface-container-highest: #e4e1e9;
+      
+      --outline: #777680;
+      --outline-variant: #c8c5d0;
+      --error: #ba1a1a;
+      --on-error: #ffffff;
+      --success: #006b5b;
+      --on-success: #ffffff;
+      
+      --radius-xs: 4px;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 24px;
+      --radius-full: 9999px;
+      
+      --shadow-1: 0px 1px 3px 1px rgba(0, 0, 0, 0.15), 0px 1px 2px 0px rgba(0, 0, 0, 0.30);
+      --shadow-2: 0px 2px 6px 2px rgba(0, 0, 0, 0.15), 0px 1px 2px 0px rgba(0, 0, 0, 0.30);
+      --shadow-3: 0px 4px 8px 3px rgba(0, 0, 0, 0.15), 0px 1px 3px 0px rgba(0, 0, 0, 0.30);
+      
+      --transition-default: all 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      --transition-spring: all 450ms cubic-bezier(0.34, 1.56, 0.64, 1);
     }
-    * { box-sizing: border-box; }
-    html { background: #e9e6ee; scroll-behavior: smooth; }
-    body { margin: 0; color: var(--ink); background: var(--surface-low); font-family: "Noto Sans SC", "Source Sans 3", system-ui, sans-serif; }
-    button, input { font: inherit; }
-    button { border: 0; cursor: pointer; }
-    button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid #8c86e8; outline-offset: 3px; }
-    a { color: inherit; text-decoration: none; }
-    .appbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 24px; min-height: 72px; padding: 12px clamp(20px, 5vw, 72px); background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(18px); border-bottom: 1px solid #e6e1e9; }
-    .brand { display: flex; align-items: center; gap: 12px; min-width: max-content; }
-    .brand-mark { display: grid; place-items: center; width: 40px; height: 40px; color: var(--on-primary); background: var(--primary); border-radius: 14px; font-weight: 800; letter-spacing: -1px; }
-    .brand strong { font-size: 16px; letter-spacing: .02em; }
-    .brand small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
-    .topnav { display: flex; align-items: center; gap: 4px; flex: 1; }
-    .topnav button { padding: 11px 16px; color: var(--muted); background: transparent; border-radius: 999px; }
-    .topnav button:hover, .topnav button.active { color: var(--primary); background: var(--primary-soft); }
-    .top-actions { display: flex; align-items: center; gap: 10px; }
-    .text-btn { padding: 10px 14px; color: var(--primary); background: transparent; border-radius: 999px; font-weight: 700; }
-    .filled-btn { padding: 11px 18px; color: var(--on-primary); background: var(--primary); border-radius: 999px; font-weight: 700; box-shadow: 0 2px 5px #4f46a544; }
-    .filled-btn:hover { background: #403795; }
-    .outline-btn { padding: 10px 17px; color: var(--primary); background: transparent; border: 1px solid var(--outline); border-radius: 999px; font-weight: 700; }
-    .page { max-width: 1360px; margin: auto; padding: 34px clamp(20px, 5vw, 72px) 72px; }
-    .view { display: none; }
-    .view.active { display: block; }
-    .eyebrow { color: var(--primary); font: 700 12px ui-monospace, monospace; letter-spacing: .14em; text-transform: uppercase; }
-    .hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, .75fr); gap: 28px; align-items: stretch; margin-bottom: 32px; }
-    .hero-copy { padding: clamp(24px, 5vw, 62px) 0; }
-    h1 { max-width: 800px; margin: 12px 0 18px; font-size: clamp(38px, 6vw, 76px); line-height: 1.04; letter-spacing: -.055em; text-wrap: balance; }
-    h2 { margin: 0; font-size: clamp(24px, 3vw, 36px); letter-spacing: -.04em; }
-    h3 { margin: 0; font-size: 17px; }
-    .hero-copy p { max-width: 650px; color: var(--muted); font-size: 18px; line-height: 1.75; }
-    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
-    .hero-panel { display: flex; flex-direction: column; justify-content: space-between; min-height: 290px; padding: 26px; color: #f8f5ff; background: #26233e; border-radius: var(--radius-lg); box-shadow: var(--shadow); overflow: hidden; position: relative; }
-    .hero-panel::after { content: ""; position: absolute; width: 230px; height: 230px; right: -64px; bottom: -92px; border: 32px solid #8e87f055; border-radius: 50%; }
-    .panel-label { color: #c8c2ff; font: 700 12px ui-monospace, monospace; letter-spacing: .12em; }
-    .panel-title { max-width: 250px; margin-top: auto; font-size: 28px; line-height: 1.25; letter-spacing: -.04em; }
-    .panel-foot { display: flex; justify-content: space-between; color: #c9c5d9; font-size: 12px; }
-    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin: 42px 0 16px; }
-    .section-head p { margin: 0; color: var(--muted); }
-    .link { color: var(--primary); font-weight: 700; }
-    .card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-    .surface-card { padding: 22px; background: var(--surface); border: 1px solid #e8e3eb; border-radius: var(--radius-md); box-shadow: 0 1px 2px #00000005; }
-    .surface-card:hover { border-color: #beb8d4; box-shadow: var(--shadow); transform: translateY(-2px); transition: 180ms ease; }
-    .card-meta { color: var(--muted); font: 12px ui-monospace, monospace; }
-    .card-icon { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 20px; color: var(--primary); background: var(--primary-soft); border-radius: 14px; font-size: 21px; font-weight: 800; }
-    .surface-card p { color: var(--muted); line-height: 1.65; }
-    .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-    .chip { padding: 6px 10px; color: var(--secondary); background: #e5f7f2; border-radius: 8px; font-size: 12px; font-weight: 700; }
-    .split { display: grid; grid-template-columns: 1.25fr .75fr; gap: 14px; }
-    .resource-list { display: grid; gap: 2px; margin-top: 14px; }
-    .resource { display: flex; align-items: center; gap: 14px; padding: 13px 6px; border-bottom: 1px solid #eeeaf0; }
-    .resource:last-child { border-bottom: 0; }
-    .resource .mini-icon { display: grid; place-items: center; width: 34px; height: 34px; color: var(--secondary); background: var(--secondary-soft); border-radius: 10px; font-weight: 800; }
-    .resource strong { display: block; font-size: 14px; }
-    .resource span { color: var(--muted); font-size: 12px; }
-    .status-list { display: grid; gap: 16px; margin-top: 20px; }
-    .status-line { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
-    .status-line span:first-child { color: var(--muted); }
-    .good { color: var(--secondary); font-weight: 800; }
-    .portal-note { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 28px; padding: 18px 20px; color: #24213d; background: var(--primary-soft); border-radius: var(--radius-md); }
-    .portal-note p { margin: 4px 0 0; color: #5a5579; font-size: 13px; }
-    .admin-shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 700px; margin-top: 8px; overflow: hidden; background: var(--surface); border: 1px solid #e3dfe8; border-radius: var(--radius-lg); box-shadow: var(--shadow); }
-    .admin-rail { padding: 24px 14px; background: #f0edf5; border-right: 1px solid #e4e0e8; }
-    .rail-title { padding: 0 12px 20px; color: var(--muted); font: 700 11px ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; }
-    .rail-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 13px 14px; margin: 3px 0; color: var(--muted); background: transparent; border-radius: 14px; text-align: left; }
-    .rail-item:hover, .rail-item.active { color: var(--primary); background: var(--primary-soft); font-weight: 700; }
-    .rail-item .rail-symbol { width: 20px; text-align: center; font-weight: 800; }
-    .admin-main { padding: clamp(24px, 4vw, 48px); background: var(--surface-low); }
-    .admin-top { display: flex; justify-content: space-between; align-items: start; gap: 20px; margin-bottom: 28px; }
-    .admin-top p { margin: 8px 0 0; color: var(--muted); }
-    .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-    .metric { padding: 18px; background: var(--surface); border-radius: var(--radius-md); border: 1px solid #e8e3eb; }
-    .metric-label { color: var(--muted); font-size: 12px; }
-    .metric-value { margin: 10px 0 6px; font-size: 30px; letter-spacing: -.06em; }
-    .metric-delta { color: var(--secondary); font-size: 12px; font-weight: 700; }
-    .admin-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 14px; margin-top: 14px; }
-    .table { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 13px; }
-    .table th { color: var(--muted); font-size: 11px; font-weight: 700; text-align: left; }
-    .table th, .table td { padding: 13px 8px; border-bottom: 1px solid #ece8ef; }
-    .table td:last-child, .table th:last-child { text-align: right; }
-    .avatar { display: inline-grid; place-items: center; width: 30px; height: 30px; margin-right: 8px; color: var(--primary); background: var(--primary-soft); border-radius: 50%; font-weight: 800; vertical-align: middle; }
-    .tiny-btn { padding: 7px 10px; color: var(--primary); background: var(--primary-soft); border-radius: 999px; font-size: 12px; font-weight: 700; }
-    .progress { height: 8px; margin-top: 8px; background: var(--surface-highest); border-radius: 10px; overflow: hidden; }
-    .progress i { display: block; height: 100%; background: var(--secondary); border-radius: inherit; }
-    .footer { padding-top: 42px; color: var(--muted); font: 12px ui-monospace, monospace; }
-    @media (max-width: 900px) { .topnav { display: none; } .hero, .split, .admin-grid { grid-template-columns: 1fr; } .card-grid { grid-template-columns: repeat(2, 1fr); } .metric-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 620px) { .appbar { padding-inline: 16px; } .top-actions .text-btn { display: none; } .page { padding-inline: 16px; } .hero-copy { padding-top: 22px; } .card-grid { grid-template-columns: 1fr; } .admin-shell { display: block; } .admin-rail { display: flex; overflow-x: auto; gap: 4px; } .rail-title { display: none; } .rail-item { min-width: max-content; } .admin-main { padding: 22px 16px; } .admin-top { display: block; } }
-    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+
+    body.dark-theme {
+      /* Dark Dynamic Theme */
+      --primary: #c4c0ff;
+      --on-primary: #1f0875;
+      --primary-container: #372d8c;
+      --on-primary-container: #e4e1ff;
+      --secondary: #c5c4dd;
+      --on-secondary: #2d2e42;
+      --secondary-container: #444459;
+      --on-secondary-container: #e1e1f9;
+      --tertiary: #e6bad7;
+      --on-tertiary: #45263d;
+      --tertiary-container: #5d3c54;
+      --on-tertiary-container: #ffd8ee;
+      
+      --background: #131318;
+      --on-background: #e4e1e9;
+      --surface: #131318;
+      --on-surface: #e4e1e9;
+      --surface-variant: #46464f;
+      --on-surface-variant: #c8c5d0;
+      
+      --surface-container-lowest: #0e0e13;
+      --surface-container-low: #1b1b20;
+      --surface-container: #1f1f25;
+      --surface-container-high: #2a292f;
+      --surface-container-highest: #35343a;
+      
+      --outline: #91909a;
+      --outline-variant: #46464f;
+      --error: #ffb4ab;
+      --on-error: #690005;
+      --success: #5bdbbf;
+      --on-success: #00382e;
+      
+      --shadow-1: 0px 1px 3px 1px rgba(0, 0, 0, 0.25), 0px 1px 2px 0px rgba(0, 0, 0, 0.40);
+      --shadow-2: 0px 2px 6px 2px rgba(0, 0, 0, 0.25), 0px 1px 2px 0px rgba(0, 0, 0, 0.40);
+      --shadow-3: 0px 4px 8px 3px rgba(0, 0, 0, 0.25), 0px 1px 3px 0px rgba(0, 0, 0, 0.40);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background-color: var(--background);
+      transition: background-color 300ms ease;
+    }
+
+    body {
+      color: var(--on-background);
+      background-color: var(--background);
+      font-family: "Outfit", "Noto Sans SC", system-ui, -apple-system, sans-serif;
+      overflow-x: hidden;
+      line-height: 1.5;
+      transition: color 300ms ease, background-color 300ms ease;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--surface-container);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--outline-variant);
+      border-radius: var(--radius-full);
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--outline);
+    }
+
+    /* Focus styling */
+    button:focus-visible, a:focus-visible, input:focus-visible {
+      outline: 3px solid var(--primary);
+      outline-offset: 3px;
+    }
+
+    /* Common Layout & Shell */
+    .appbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 80px;
+      padding: 12px clamp(20px, 5vw, 72px);
+      background: color-mix(in srgb, var(--surface) 85%, transparent);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--outline-variant);
+      transition: var(--transition-default);
+    }
+    
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      text-decoration: none;
+      color: var(--on-surface);
+    }
+
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 48px;
+      height: 48px;
+      color: var(--on-primary);
+      background: linear-gradient(135deg, var(--primary), #7c72f7);
+      border-radius: 16px;
+      font-weight: 800;
+      font-size: 20px;
+      box-shadow: 0 4px 12px color-mix(in srgb, var(--primary) 30%, transparent);
+      transition: var(--transition-spring);
+    }
+    .brand:hover .brand-mark {
+      transform: rotate(-8deg) scale(1.08);
+    }
+
+    .brand-info strong {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .brand-info small {
+      display: block;
+      color: var(--on-surface-variant);
+      font-size: 12px;
+      opacity: 0.8;
+      margin-top: 1px;
+    }
+
+    .topnav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background-color: var(--surface-container-low);
+      padding: 6px;
+      border-radius: var(--radius-full);
+      border: 1px solid var(--outline-variant);
+    }
+
+    .topnav button {
+      padding: 10px 20px;
+      color: var(--on-surface-variant);
+      background: transparent;
+      border: 0;
+      border-radius: var(--radius-full);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: var(--transition-default);
+    }
+    .topnav button:hover {
+      background-color: var(--surface-container-high);
+      color: var(--on-surface);
+    }
+    .topnav button.active {
+      color: var(--on-primary-container);
+      background-color: var(--primary-container);
+      font-weight: 700;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* Buttons Style (MD3 Spec) */
+    .btn {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: var(--radius-full);
+      font-size: 14px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: var(--transition-default);
+      overflow: hidden;
+      text-decoration: none;
+    }
+    .btn::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-color: currentColor;
+      opacity: 0;
+      transition: opacity 150ms linear;
+    }
+    .btn:hover::after {
+      opacity: 0.08;
+    }
+    .btn:focus::after {
+      opacity: 0.12;
+    }
+    .btn:active {
+      transform: scale(0.96);
+    }
+    .btn:active::after {
+      opacity: 0.16;
+    }
+
+    .btn-filled {
+      background-color: var(--primary);
+      color: var(--on-primary);
+      box-shadow: 0 2px 6px color-mix(in srgb, var(--primary) 20%, transparent);
+    }
+    .btn-tonal {
+      background-color: var(--secondary-container);
+      color: var(--on-secondary-container);
+    }
+    .btn-outlined {
+      background-color: transparent;
+      border: 1px solid var(--outline);
+      color: var(--primary);
+      padding: 11px 23px;
+    }
+    .btn-text {
+      background-color: transparent;
+      color: var(--primary);
+      padding: 12px 16px;
+    }
+
+    .theme-toggle-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: var(--radius-full);
+      background-color: var(--surface-container-high);
+      color: var(--on-surface);
+      border: none;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      transition: var(--transition-default);
+    }
+    .theme-toggle-btn:hover {
+      background-color: var(--surface-container-highest);
+      transform: rotate(15deg);
+    }
+    .theme-toggle-btn svg {
+      width: 22px;
+      height: 22px;
+      fill: currentColor;
+    }
+    .dark-icon { display: block; }
+    .light-icon { display: none; }
+    body.dark-theme .dark-icon { display: none; }
+    body.dark-theme .light-icon { display: block; }
+
+    /* Page container */
+    .page {
+      max-width: 1400px;
+      margin: auto;
+      padding: 40px clamp(20px, 5vw, 72px) 80px;
+      animation: fadeIn 600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .view {
+      display: none;
+    }
+    .view.active {
+      display: block;
+    }
+    /* This file is the public portal preview only. The admin application has its own route and shell. */
+    #admin {
+      display: none !important;
+    }
+
+    /* Typography & Titles */
+    .eyebrow {
+      color: var(--primary);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    h1 {
+      font-size: clamp(34px, 5vw, 64px);
+      font-weight: 900;
+      line-height: 1.1;
+      letter-spacing: -0.04em;
+      color: var(--on-background);
+      margin: 8px 0 20px;
+      text-wrap: balance;
+    }
+
+    h2 {
+      font-size: clamp(24px, 3.5vw, 36px);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--on-background);
+      margin-bottom: 8px;
+    }
+
+    h3 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--on-background);
+      margin-bottom: 6px;
+    }
+
+    p {
+      color: var(--on-surface-variant);
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    /* Hero Section */
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+      gap: 32px;
+      align-items: center;
+      margin-bottom: 48px;
+    }
+    .hero-copy {
+      padding: 24px 0;
+    }
+    .hero-copy p {
+      max-width: 600px;
+      font-size: 18px;
+      margin-bottom: 32px;
+    }
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .hero-panel {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 340px;
+      padding: 32px;
+      color: var(--on-primary-container);
+      background: linear-gradient(135deg, var(--primary-container) 0%, color-mix(in srgb, var(--primary-container) 70%, var(--tertiary-container)) 100%);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-2);
+      overflow: hidden;
+      position: relative;
+      border: 1px solid var(--outline-variant);
+    }
+    .hero-panel::after {
+      content: "";
+      position: absolute;
+      width: 250px;
+      height: 250px;
+      right: -80px;
+      bottom: -80px;
+      border: 40px solid color-mix(in srgb, var(--primary) 20%, transparent);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .hero-panel::before {
+      content: "";
+      position: absolute;
+      width: 150px;
+      height: 150px;
+      left: -50px;
+      top: -50px;
+      border: 20px solid color-mix(in srgb, var(--tertiary) 15%, transparent);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .panel-label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--primary);
+    }
+    .panel-title {
+      font-size: 32px;
+      font-weight: 800;
+      line-height: 1.2;
+      letter-spacing: -0.03em;
+      margin-top: auto;
+      margin-bottom: 24px;
+      color: var(--on-primary-container);
+      z-index: 1;
+    }
+    .panel-foot {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--on-surface-variant);
+      z-index: 1;
+    }
+
+    /* Section Header */
+    .section-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      margin: 56px 0 24px;
+    }
+    .section-header-copy {
+      max-width: 600px;
+    }
+    .text-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--primary);
+      font-weight: 700;
+      text-decoration: none;
+      font-size: 15px;
+      transition: var(--transition-default);
+    }
+    .text-link:hover {
+      gap: 8px;
+      opacity: 0.85;
+    }
+
+    /* Cards Grid & Cards */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    /* MD3 Card Styles */
+    .card {
+      padding: 28px;
+      border-radius: var(--radius-xl);
+      transition: var(--transition-spring);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid transparent;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .card-elevated {
+      background-color: var(--surface-container-low);
+      box-shadow: var(--shadow-1);
+    }
+    .card-elevated:hover {
+      background-color: var(--surface-container);
+      box-shadow: var(--shadow-2);
+      transform: translateY(-4px);
+    }
+
+    .card-filled {
+      background-color: var(--surface-container-high);
+    }
+    .card-filled:hover {
+      background-color: var(--surface-container-highest);
+      transform: translateY(-4px);
+    }
+
+    .card-outlined {
+      background-color: var(--surface);
+      border: 1px solid var(--outline-variant);
+    }
+    .card-outlined:hover {
+      border-color: var(--outline);
+      box-shadow: var(--shadow-1);
+      transform: translateY(-4px);
+    }
+
+    .card-icon {
+      display: grid;
+      place-items: center;
+      width: 48px;
+      height: 48px;
+      margin-bottom: 24px;
+      color: var(--primary);
+      background-color: var(--primary-container);
+      border-radius: 14px;
+      transition: var(--transition-default);
+    }
+    .card:hover .card-icon {
+      background-color: var(--primary);
+      color: var(--on-primary);
+    }
+
+    .card-meta {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--primary);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+    .card p {
+      font-size: 14px;
+      margin-top: 8px;
+      margin-bottom: 16px;
+      flex-grow: 1;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .chip {
+      padding: 6px 14px;
+      color: var(--on-secondary-container);
+      background-color: var(--secondary-container);
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 600;
+      transition: var(--transition-default);
+    }
+    .card:hover .chip {
+      background-color: var(--outline-variant);
+    }
+
+    /* Split Section Layout */
+    .split-layout {
+      display: grid;
+      grid-template-columns: 1.25fr 0.75fr;
+      gap: 20px;
+      margin-top: 24px;
+    }
+
+    /* Resource List style */
+    .resource-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .resource-item {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px;
+      border-radius: var(--radius-lg);
+      background-color: var(--surface-container-lowest);
+      border: 1px solid var(--outline-variant);
+      text-decoration: none;
+      color: inherit;
+      transition: var(--transition-default);
+    }
+    .resource-item:hover {
+      border-color: var(--outline);
+      background-color: var(--surface-container-low);
+      transform: translateX(4px);
+    }
+
+    .resource-icon {
+      display: grid;
+      place-items: center;
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      font-weight: 800;
+      font-size: 12px;
+      background-color: var(--tertiary-container);
+      color: var(--on-tertiary-container);
+    }
+    .resource-content {
+      display: flex;
+      flex-direction: column;
+      flex-grow: 1;
+    }
+    .resource-content strong {
+      font-size: 15px;
+      color: var(--on-surface);
+    }
+    .resource-content span {
+      font-size: 12px;
+      color: var(--on-surface-variant);
+      margin-top: 2px;
+    }
+
+    /* Status Info List */
+    .status-list {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-top: 20px;
+    }
+    .status-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--outline-variant);
+    }
+    .status-item:last-child {
+      border-bottom: none;
+    }
+    .status-label {
+      color: var(--on-surface-variant);
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .status-value {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--on-surface);
+    }
+    .status-good {
+      color: var(--success);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-good::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      background-color: currentColor;
+      border-radius: 50%;
+    }
+
+    /* whitelisting simulator widget */
+    .whitelist-widget {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .widget-row {
+      display: flex;
+      gap: 8px;
+    }
+    .widget-input {
+      flex: 1;
+      padding: 12px 16px;
+      border-radius: var(--radius-full);
+      border: 1px solid var(--outline);
+      background-color: var(--surface);
+      color: var(--on-surface);
+      font-family: inherit;
+      font-size: 14px;
+      transition: var(--transition-default);
+    }
+    .widget-input:focus {
+      border-color: var(--primary);
+      outline: 2px solid var(--primary);
+    }
+    .loading-spinner {
+      display: none;
+      width: 20px;
+      height: 20px;
+      border: 3px solid var(--primary-container);
+      border-top: 3px solid var(--primary);
+      border-radius: 50%;
+      animation: spin 800ms linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .widget-result {
+      margin-top: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      min-height: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Portal Banner Note */
+    .portal-note {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      margin-top: 40px;
+      padding: 32px;
+      background-color: var(--primary-container);
+      color: var(--on-primary-container);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-1);
+    }
+    .portal-note-text h3 {
+      color: var(--on-primary-container);
+      font-size: 20px;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+    .portal-note-text p {
+      color: var(--on-primary-container);
+      opacity: 0.85;
+      font-size: 14px;
+    }
+
+    /* Admin Workspace Shell */
+    .admin-shell {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      min-height: 760px;
+      margin-top: 16px;
+      background-color: var(--surface-container-low);
+      border: 1px solid var(--outline-variant);
+      border-radius: var(--radius-xl);
+      overflow: hidden;
+      box-shadow: var(--shadow-2);
+    }
+
+    /* Admin Rail Drawer (MD3 Spec) */
+    .admin-rail {
+      padding: 24px 12px;
+      background-color: var(--surface-container-low);
+      border-right: 1px solid var(--outline-variant);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .rail-header {
+      padding: 12px 16px 20px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--primary);
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+    }
+    .rail-item {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      width: 100%;
+      padding: 12px 20px;
+      color: var(--on-surface-variant);
+      background-color: transparent;
+      border: none;
+      border-radius: var(--radius-full);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: left;
+      transition: var(--transition-default);
+      position: relative;
+    }
+    .rail-item::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      background-color: var(--on-surface);
+      border-radius: inherit;
+      opacity: 0;
+      transition: opacity 150ms linear;
+    }
+    .rail-item:hover::before {
+      opacity: 0.08;
+    }
+    .rail-item.active {
+      color: var(--on-primary-container);
+      background-color: var(--primary-container);
+      font-weight: 700;
+    }
+    .rail-item.active:hover::before {
+      background-color: var(--on-primary-container);
+      opacity: 0.08;
+    }
+    .rail-item svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+      z-index: 1;
+    }
+    .rail-item span {
+      z-index: 1;
+    }
+
+    /* Admin Main Content Dashboard */
+    .admin-main {
+      padding: clamp(24px, 4vw, 48px);
+      background-color: var(--surface-container-lowest);
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+    .admin-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+    }
+    .admin-top-copy h2 {
+      margin-bottom: 6px;
+    }
+    .admin-top-copy p {
+      font-size: 14px;
+    }
+
+    /* Metrics Widgets */
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+    .metric-card {
+      padding: 24px;
+      background-color: var(--surface-container-low);
+      border-radius: var(--radius-xl);
+      border: 1px solid var(--outline-variant);
+      display: flex;
+      flex-direction: column;
+      transition: var(--transition-default);
+    }
+    .metric-card:hover {
+      background-color: var(--surface-container);
+      box-shadow: var(--shadow-1);
+    }
+    .metric-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--on-surface-variant);
+    }
+    .metric-value {
+      font-size: 36px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      margin: 12px 0 8px;
+      color: var(--on-surface);
+    }
+    .metric-delta {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--success);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .metric-delta.danger {
+      color: var(--error);
+    }
+
+    /* Admin Content Grid */
+    .admin-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 20px;
+    }
+
+    .admin-card {
+      padding: 24px;
+      background-color: var(--surface-container-low);
+      border-radius: var(--radius-xl);
+      border: 1px solid var(--outline-variant);
+    }
+    .admin-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    /* Table Styles */
+    .table-container {
+      overflow-x: auto;
+    }
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      text-align: left;
+    }
+    .table th {
+      color: var(--on-surface-variant);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 12px 16px;
+      border-bottom: 2px solid var(--outline-variant);
+    }
+    .table td {
+      padding: 16px;
+      border-bottom: 1px solid var(--outline-variant);
+      color: var(--on-surface);
+    }
+    .table tr:last-child td {
+      border-bottom: none;
+    }
+    .table tbody tr {
+      transition: background-color 150ms ease;
+    }
+    .table tbody tr:hover {
+      background-color: var(--surface-container);
+    }
+    
+    .applicant-cell {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 600;
+    }
+    .avatar {
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-full);
+      background-color: var(--primary-container);
+      color: var(--on-primary-container);
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    /* Progress Indicators (MD3 Spec) */
+    .progress-bar-container {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+    }
+    .progress-bar-info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--on-surface);
+    }
+    .progress-bar-track {
+      height: 8px;
+      background-color: var(--surface-container-highest);
+      border-radius: var(--radius-full);
+      overflow: hidden;
+      position: relative;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      border-radius: inherit;
+      background-color: var(--primary);
+      width: 0%;
+      transition: width 1s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    /* Footer */
+    .footer {
+      padding: 40px 0;
+      border-top: 1px solid var(--outline-variant);
+      margin-top: 80px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--on-surface-variant);
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .footer-brand span {
+      font-weight: 700;
+    }
+
+    /* Responsive */
+    @media (max-width: 1080px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+      .hero-copy {
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .hero-actions {
+        justify-content: center;
+      }
+      .card-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .metric-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .admin-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .topnav {
+        display: none; /* Hide default topnav, show mobile menu drawer if built */
+      }
+      .admin-shell {
+        grid-template-columns: 1fr;
+      }
+      .admin-rail {
+        flex-direction: row;
+        overflow-x: auto;
+        padding: 12px;
+      }
+      .rail-header {
+        display: none;
+      }
+      .rail-item {
+        padding: 10px 16px;
+        min-width: max-content;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .appbar {
+        padding-inline: 16px;
+      }
+      .page {
+        padding: 24px 16px 60px;
+      }
+      .card-grid {
+        grid-template-columns: 1fr;
+      }
+      .split-layout {
+        grid-template-columns: 1fr;
+      }
+      .portal-note {
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+        padding: 24px;
+      }
+      .portal-note .btn {
+        width: 100%;
+      }
+      .metric-grid {
+        grid-template-columns: 1fr;
+      }
+      .admin-top {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .admin-top .btn {
+        width: 100%;
+      }
+      .footer {
+        flex-direction: column;
+        gap: 16px;
+        text-align: center;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-delay: -1ms !important;
+        animation-duration: 1ms !important;
+        animation-iteration-count: 1 !important;
+        background-attachment: initial !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0s !important;
+        transition-delay: 0s !important;
+      }
+    }
   </style>
 </head>
 <body>
+
+  <!-- Top App Bar -->
   <header class="appbar">
     <a class="brand" href="#portal" aria-label="QUTCraft Commons 首页">
-      <span class="brand-mark">Q</span><span><strong>QUTCraft Commons</strong><small>组织数字化管理平台</small></span>
+      <div class="brand-mark">Q</div>
+      <div class="brand-info">
+        <strong>QUTCraft Commons</strong>
+        <small>组织公共门户</small>
+      </div>
     </a>
     <nav class="topnav" aria-label="主导航">
-      <button class="active" data-view="portal">门户</button>
-      <button data-view="admin">管理端</button>
-      <button onclick="document.getElementById('resources').scrollIntoView({block:'start'})">资源</button>
-      <button onclick="document.getElementById('knowledge').scrollIntoView({block:'start'})">知识库</button>
+      <button class="active" data-view="portal">首页门户</button>
+      <button onclick="document.getElementById('resources').scrollIntoView({block:'start'})">资源中心</button>
+      <button onclick="document.getElementById('knowledge').scrollIntoView({block:'start'})">公共知识库</button>
     </nav>
-    <div class="top-actions"><button class="text-btn" onclick="alert('登录流程占位')">登录</button><button class="filled-btn" onclick="alert('注册流程占位')">加入组织</button></div>
+    <div class="top-actions">
+      <button class="theme-toggle-btn" id="theme-toggle" aria-label="切换深色/浅色模式">
+        <!-- Sun icon -->
+        <svg class="light-icon" viewBox="0 0 24 24"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58c-.39-.39-1.03-.39-1.41 0s-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37c-.39-.39-1.03-.39-1.41 0s-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41l-1.06-1.06zm1.06-12.37c-.39-.39-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06c.39-.38.39-1.02 0-1.41zm-12.37 12.37c-.39-.39-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06c.39-.38.39-1.02 0-1.41z"/></svg>
+        <!-- Moon icon -->
+        <svg class="dark-icon" viewBox="0 0 24 24"><path d="M12.3 22h-.1c-5.5 0-10-4.5-10-10 0-4.8 3.5-8.9 8.2-9.8.6-.1 1.2.3 1.3.9.1.6-.2 1.2-.8 1.4-3.5 1-6 4.1-6 7.7 0 4.4 3.6 8 8 8 3.6 0 6.7-2.5 7.7-6 .2-.6.8-.9 1.4-.8.6.1 1 .7.9 1.3-.9 4.7-5 8.2-9.8 8.2z"/></svg>
+      </button>
+      <button class="btn btn-text" onclick="alert('登录流程占位')">登录</button>
+      <button class="btn btn-filled" onclick="alert('注册流程占位')">加入组织</button>
+    </div>
   </header>
 
+  <!-- Main View Container -->
   <main class="page">
+    
+    <!-- Portal View -->
     <section id="portal" class="view active" aria-label="门户预览">
+      <!-- Hero Area -->
       <div class="hero">
         <div class="hero-copy">
-          <div class="eyebrow">ORGANIZATION / PORTAL V0.1</div>
-          <h1>让组织的内容、成员与项目，拥有一个真正可用的家。</h1>
-          <p>QUTCraft Commons 面向校园社团与民间组织，把门户展示、资源分发和后台管理放进一套可扩展的系统里。这里先用 MD3 作为所有组织的默认起点。</p>
-          <div class="hero-actions"><button class="filled-btn" onclick="document.getElementById('projects').scrollIntoView({block:'start'})">浏览公开项目</button><button class="outline-btn" onclick="document.getElementById('custom').scrollIntoView({block:'center'})">了解自定义门户</button></div>
+          <div class="eyebrow">ORGANIZATION / PORTAL V0.2</div>
+          <h1>让内容、成员与项目，<br>拥有一个真正可用的家。</h1>
+          <p>QUTCraft Commons 面向社团与民间组织，先把组织故事、项目进展、知识经验和资源下载呈现给访客。系统预置 Material Design 3 宣传门户，也允许组织接入自己的视觉主题。</p>
+          <div class="hero-actions">
+            <button class="btn btn-filled" onclick="document.getElementById('projects').scrollIntoView({block:'start'})">
+              <svg style="width:18px;height:18px;fill:currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.04-.42 1.99-1.07 2.75z"/></svg>
+              浏览公开项目
+            </button>
+            <button class="btn btn-outlined" onclick="document.getElementById('custom').scrollIntoView({block:'center'})">了解自定义门户</button>
+          </div>
         </div>
-        <aside class="hero-panel"><div class="panel-label">PLATFORM STATUS / 07.14</div><div class="panel-title">把一次活动，变成可持续的组织资产。</div><div class="panel-foot"><span>MD3 DEFAULT PORTAL</span><span>v0.1.0</span></div></aside>
+        <aside class="hero-panel">
+          <div class="panel-label">PLATFORM STATUS / ONLINE</div>
+          <div class="panel-title">把一次精彩活动，<br>沉淀为组织的数字资产。</div>
+          <div class="panel-foot">
+            <span>MD3 DIRECT PORTAL</span>
+            <span>v0.2.0</span>
+          </div>
+        </aside>
       </div>
 
-      <div class="section-head" id="projects"><div><div class="eyebrow">OPEN PROJECTS</div><h2>正在发生的项目</h2></div><a class="link" href="#">查看全部 →</a></div>
+      <!-- Projects Section -->
+      <div class="section-header" id="projects">
+        <div class="section-header-copy">
+          <div class="eyebrow">OPEN PROJECTS</div>
+          <h2>正在发生的项目</h2>
+          <p>共同协作，构建有趣而实用的校园数字生态系统。</p>
+        </div>
+        <a class="text-link" href="#">查看全部活动项目 &rarr;</a>
+      </div>
+      
       <div class="card-grid">
-        <article class="surface-card"><div class="card-icon">01</div><div class="card-meta">PROJECT / ACTIVE</div><h3>校园数字化工具箱</h3><p>为社团提供成员、项目、内容与资源的统一工作台。</p><div class="chip-row"><span class="chip">产品设计</span><span class="chip">开放参与</span></div></article>
-        <article class="surface-card"><div class="card-icon">02</div><div class="card-meta">PROJECT / RESEARCH</div><h3>知识库迁移计划</h3><p>把零散的经验与文档整理成可检索、可维护的公共知识。</p><div class="chip-row"><span class="chip">知识库</span><span class="chip">协作中</span></div></article>
-        <article class="surface-card"><div class="card-icon">03</div><div class="card-meta">PROJECT / QUTCRAFT</div><h3>Minecraft 服务器门户</h3><p>同一套平台能力的第一方适配：资源、白名单与服务器状态。</p><div class="chip-row"><span class="chip">Minecraft</span><span class="chip">适配器</span></div></article>
+        <article class="card card-elevated">
+          <div class="card-icon">
+            <svg style="width:24px;height:24px;fill:currentColor" viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.3C.5 6.7.9 9.8 2.9 11.8c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.1z"/></svg>
+          </div>
+          <div class="card-meta">PROJECT / ACTIVE</div>
+          <h3>校园数字化工具箱</h3>
+          <p>为社团与团队提供成员、项目、内容与资源的统一协同工作台，解决交接难题。</p>
+          <div class="chip-row">
+            <span class="chip">产品设计</span>
+            <span class="chip">社区共建</span>
+          </div>
+        </article>
+
+        <article class="card card-filled">
+          <div class="card-icon" style="color: var(--tertiary); background-color: var(--tertiary-container)">
+            <svg style="width:24px;height:24px;fill:currentColor" viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
+          </div>
+          <div class="card-meta" style="color: var(--tertiary)">PROJECT / RESEARCH</div>
+          <h3>知识库迁移计划</h3>
+          <p>将多年累积的零散资料、Word文档整理成可在线检索、协同维护的公共知识库。</p>
+          <div class="chip-row">
+            <span class="chip">信息架构</span>
+            <span class="chip">Wiki迁移</span>
+          </div>
+        </article>
+
+        <article class="card card-outlined">
+          <div class="card-icon" style="color: var(--success); background-color: color-mix(in srgb, var(--success) 12%, var(--surface))">
+            <svg style="width:24px;height:24px;fill:currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>
+          </div>
+          <div class="card-meta" style="color: var(--success)">PROJECT / QUTCRAFT</div>
+          <h3>Minecraft 门户联动</h3>
+          <p>同一套公开内容能力的第一方主题适配：包括资源包下载、服务器公开状态与白名单申请入口。</p>
+          <div class="chip-row">
+            <span class="chip">Minecraft</span>
+            <span class="chip">服务器适配</span>
+          </div>
+        </article>
       </div>
 
-      <div class="split" id="resources">
-        <section class="surface-card"><div class="eyebrow">LATEST RESOURCES</div><div class="section-head"><h2>最近更新的资源</h2><a class="link" href="#">资源中心 →</a></div><div class="resource-list"><a class="resource" href="#"><span class="mini-icon">PDF</span><span><strong>平台产品说明 v0.1</strong><span>文档 · 2.4 MB · 7 月 14 日</span></span></a><a class="resource" href="#"><span class="mini-icon">KIT</span><span><strong>社团活动策划模板</strong><span>模板 · 480 KB · 7 月 12 日</span></span></a><a class="resource" href="#"><span class="mini-icon">API</span><span><strong>Portal API 快速开始</strong><span>开发资料 · 1.1 MB · 7 月 10 日</span></span></a></div></section>
-        <section class="surface-card"><div class="eyebrow">ORGANIZATION HEALTH</div><div class="section-head"><h2>平台状态</h2></div><div class="status-list"><div class="status-line"><span>门户服务</span><strong class="good">正常运行</strong></div><div class="status-line"><span>资源存储</span><strong class="good">可用</strong></div><div class="status-line"><span>最近发布</span><strong>今天 18:40</strong></div><div class="status-line"><span>当前门户</span><strong>默认 MD3</strong></div></div></section>
+      <!-- Split Layout Section -->
+      <div class="split-layout" id="resources">
+        <!-- Resource Center -->
+        <section class="card card-outlined">
+          <div class="eyebrow">DOWNLOADABLE RESOURCES</div>
+          <div class="section-header" style="margin: 12px 0 8px;">
+            <h2>最近更新的共享资源</h2>
+            <a class="text-link" href="#">资源中心 &rarr;</a>
+          </div>
+          <div class="resource-list">
+            <a class="resource-item" href="#">
+              <span class="resource-icon">PDF</span>
+              <div class="resource-content">
+                <strong>平台产品说明书 v0.2</strong>
+                <span>官方文档 &middot; 2.6 MB &middot; 今天发布</span>
+              </div>
+            </a>
+            <a class="resource-item" href="#">
+              <span class="resource-icon" style="background-color: var(--secondary-container); color: var(--on-secondary-container)">KIT</span>
+              <div class="resource-content">
+                <strong>社团招新与活动策划方案模板</strong>
+                <span>资源包 &middot; 540 KB &middot; 2 天前更新</span>
+              </div>
+            </a>
+            <a class="resource-item" href="#">
+              <span class="resource-icon" style="background-color: var(--primary-container); color: var(--on-primary-container)">API</span>
+              <div class="resource-content">
+                <strong>Portal API 开放接入SDK & 说明</strong>
+                <span>开发资料 &middot; 1.4 MB &middot; 5 天前更新</span>
+              </div>
+            </a>
+          </div>
+        </section>
+
+        <!-- Status & Whitelist Simulation -->
+        <section class="card card-filled" style="justify-content: flex-start;">
+          <div class="eyebrow">LIVE OPERATIONS</div>
+            <h2>公开服务状态</h2>
+          
+          <div class="status-list">
+            <div class="status-item">
+              <span class="status-label">门户 API 网关</span>
+              <span class="status-value status-good">正常服务中</span>
+            </div>
+            <div class="status-item">
+              <span class="status-label">资源存储节点</span>
+              <span class="status-value status-good">可用 (延迟 12ms)</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">白名单申请入口</span>
+                <span class="status-value">开放申请</span>
+            </div>
+          </div>
+
+          <!-- Dynamic whitelisting checker simulator widget -->
+          <div style="margin-top: 28px; border-top: 1px solid var(--outline-variant); padding-top: 20px;">
+            <h3 style="font-size: 15px; margin-bottom: 8px;">Minecraft 公开状态查询 (模拟)</h3>
+            <div class="whitelist-widget">
+              <div class="widget-row">
+                <input type="text" class="widget-input" id="whitelist-input" placeholder="输入游戏角色 ID" aria-label="游戏角色ID">
+                <button class="btn btn-filled" id="whitelist-btn" style="padding: 10px 20px;">查询</button>
+              </div>
+              <div class="widget-result" id="whitelist-result">
+                <!-- Loaded status will appear here -->
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
 
-      <div class="section-head" id="knowledge"><div><div class="eyebrow">KNOWLEDGE BASE</div><h2>从经验开始积累</h2></div><a class="link" href="#">进入知识库 →</a></div>
-      <div class="card-grid"><article class="surface-card"><div class="card-meta">GUIDE / PLATFORM</div><h3>如何建立一个可交接的社团项目</h3><p>从目标、角色到发布记录，把一次性工作变成可以复用的流程。</p></article><article class="surface-card"><div class="card-meta">REFERENCE / API</div><h3>Portal API 的公开能力边界</h3><p>自定义门户可以读取什么、不能触碰什么，以及如何安全回退。</p></article><article class="surface-card"><div class="card-meta">LOG / QUTCRAFT</div><h3>服务器联动设计记录</h3><p>为什么 RCON 应该是适配器，而不是写进所有业务模块。</p></article></div>
-      <div class="portal-note" id="custom"><div><strong>想保留组织自己的表达方式？</strong><p>按 Portal Manifest v1 接入自定义门户；系统默认提供 MD3，加载失败自动回退。</p></div><button class="outline-btn" onclick="location.href='style_mc.html'">查看 QUTCraft 门户</button></div>
-      <div class="footer">QUTCraft Commons / visual contract / default portal</div>
+      <!-- Knowledge Base Section -->
+      <div class="section-header" id="knowledge">
+        <div class="section-header-copy">
+          <div class="eyebrow">PUBLIC KNOWLEDGE</div>
+          <h2>公共经验库</h2>
+          <p>在这里，有价值的经验被沉淀为可复用的协作知识文档。</p>
+        </div>
+        <a class="text-link" href="#">前往知识中心 &rarr;</a>
+      </div>
+
+      <div class="card-grid">
+        <article class="card card-elevated">
+          <div class="card-meta">GUIDE / COLLABORATION</div>
+          <h3>如何建立一个可平稳交接的社团项目</h3>
+          <p>打破“人走茶凉”魔咒。从项目立项、权限分配、资产收集到发布历史记录，把组织经验规整为标准化交接清单。</p>
+        </article>
+
+        <article class="card card-elevated">
+          <div class="card-meta">REFERENCE / API</div>
+          <h3>自定义 Portal API 的接入规则</h3>
+          <p>了解如何拉取 Commons 的组织项目列表、人员数据与资源包列表，以及在网络异常时如何进行本地缓存和回退渲染。</p>
+        </article>
+
+        <article class="card card-elevated">
+          <div class="card-meta">DESIGN / ARCHITECTURE</div>
+          <h3>服务器联动模块设计记录</h3>
+            <p>介绍服务器公开状态、白名单申请与服务端适配器之间的关系；门户只消费公开结果，不接触管理指令。</p>
+        </article>
+      </div>
+
+      <!-- Call to Action Banner -->
+      <div class="portal-note" id="custom">
+        <div class="portal-note-text">
+          <h3>想要展示组织自己的视觉风格？</h3>
+          <p>Commons 支持通过 Portal Manifest API 标准快速载入外部自定义前端门户。页面响应超时会自动无缝切换回默认 MD3 界面。</p>
+        </div>
+        <a class="btn btn-tonal" href="style_mc.html" style="background-color: var(--on-primary); color: var(--primary);">
+          查看 Minecraft 第一方主题门户
+        </a>
+      </div>
+
+      <!-- Footer -->
+      <footer class="footer">
+        <div class="footer-brand">
+          <strong>QUTCraft Commons</strong>
+          <span>&middot; Material Design 3 Spec Portal</span>
+        </div>
+        <div>Visual design contract &copy; 2026. Open sourced on Github.</div>
+      </footer>
     </section>
 
+    <!-- Admin Section -->
     <section id="admin" class="view" aria-label="管理端预览">
       <div class="admin-shell">
-        <aside class="admin-rail"><div class="rail-title">Workspace</div><button class="rail-item active"><span class="rail-symbol">▦</span>Dashboard</button><button class="rail-item"><span class="rail-symbol">♙</span>用户与成员</button><button class="rail-item"><span class="rail-symbol">◇</span>项目管理</button><button class="rail-item"><span class="rail-symbol">▤</span>内容管理</button><button class="rail-item"><span class="rail-symbol">↥</span>资源分发</button><button class="rail-item"><span class="rail-symbol">✓</span>审核队列</button><button class="rail-item"><span class="rail-symbol">⚙</span>系统设置</button></aside>
-        <div class="admin-main"><div class="admin-top"><div><div class="eyebrow">ADMIN / OVERVIEW</div><h2>组织工作台</h2><p>今天是 2026 年 7 月 14 日，先处理 6 项待办。</p></div><button class="filled-btn" onclick="alert('创建内容流程占位')">＋ 创建内容</button></div>
-          <div class="metric-grid"><div class="metric"><div class="metric-label">公开内容</div><div class="metric-value">128</div><div class="metric-delta">↑ 12 本月</div></div><div class="metric"><div class="metric-label">组织成员</div><div class="metric-value">46</div><div class="metric-delta">↑ 4 本周</div></div><div class="metric"><div class="metric-label">进行中项目</div><div class="metric-value">08</div><div class="metric-delta">稳定</div></div><div class="metric"><div class="metric-label">待审核申请</div><div class="metric-value">06</div><div class="metric-delta" style="color:var(--danger)">需要处理</div></div></div>
-          <div class="admin-grid"><section class="surface-card"><div class="section-head"><h3>待处理申请</h3><a class="link" href="#">查看全部</a></div><table class="table"><thead><tr><th>申请人</th><th>类型</th><th>提交时间</th><th>操作</th></tr></thead><tbody><tr><td><span class="avatar">L</span>Linus_07</td><td>成员加入</td><td>18 分钟前</td><td><button class="tiny-btn" onclick="this.textContent='已通过'; this.disabled=true">审核</button></td></tr><tr><td><span class="avatar">M</span>Maple Studio</td><td>资源发布</td><td>1 小时前</td><td><button class="tiny-btn" onclick="this.textContent='已通过'; this.disabled=true">审核</button></td></tr><tr><td><span class="avatar">Q</span>QUTCraft</td><td>白名单申请</td><td>昨天</td><td><button class="tiny-btn" onclick="this.textContent='已通过'; this.disabled=true">审核</button></td></tr></tbody></table></section><section class="surface-card"><div class="section-head"><h3>项目进度</h3><a class="link" href="#">项目列表</a></div><div class="resource-list"><div class="resource"><span class="mini-icon">01</span><span style="flex:1"><strong>平台核心 MVP</strong><span>后端接口与权限</span><div class="progress"><i style="width:72%"></i></div></span><b>72%</b></div><div class="resource"><span class="mini-icon">02</span><span style="flex:1"><strong>QUTCraft 门户</strong><span>视觉与数据接入</span><div class="progress"><i style="width:48%"></i></div></span><b>48%</b></div><div class="resource"><span class="mini-icon">03</span><span style="flex:1"><strong>比赛材料</strong><span>文档与演示</span><div class="progress"><i style="width:18%"></i></div></span><b>18%</b></div></div></section></div>
-          <div class="footer">Admin preview / RBAC, audit and content operations are server-authoritative.</div>
+        <!-- Sidebar Navigation Rail -->
+        <aside class="admin-rail">
+          <div class="rail-header">工作空间</div>
+          <button class="rail-item active">
+            <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>
+            <span>仪表盘</span>
+          </button>
+          <button class="rail-item">
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.04-.42 1.99-1.07 2.75z"/></svg>
+            <span>成员管理</span>
+          </button>
+          <button class="rail-item">
+            <svg viewBox="0 0 24 24"><path d="M3.55 18.54l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8zM11 22.45h2V19.5h-2v2.95zM4.96 4.96L3.55 6.37l1.79 1.8 1.41-1.41-1.79-1.8zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 10h-2V7h2v5z"/></svg>
+            <span>项目发布</span>
+          </button>
+          <button class="rail-item">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+            <span>内容编辑</span>
+          </button>
+          <button class="rail-item">
+            <svg viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM19 18H6c-2.21 0-4-1.79-4-4 0-2.05 1.53-3.76 3.56-3.97l1.07-.11.5-.95C8.08 7.14 9.94 6 12 6c2.62 0 4.88 1.86 5.39 4.43l.3 1.5 1.53.11c1.56.1 2.78 1.41 2.78 2.96 0 1.65-1.35 3-3 3z"/></svg>
+            <span>云端分发</span>
+          </button>
+          <button class="rail-item">
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+            <span>审批流水</span>
+          </button>
+          <button class="rail-item">
+            <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+            <span>系统设置</span>
+          </button>
+        </aside>
+
+        <!-- Admin Dashboard Content -->
+        <div class="admin-main">
+          <!-- Top bar -->
+          <div class="admin-top">
+            <div class="admin-top-copy">
+              <div class="eyebrow">ADMIN WORKSPACE / DASHBOARD</div>
+              <h2>工作流仪表盘</h2>
+              <p>今天是 2026 年 7 月 14 日，团队目前有 6 项待审核的发布与申请事项需要您处理。</p>
+            </div>
+            <button class="btn btn-filled" onclick="alert('创建内容流程占位')">
+              <svg style="width:18px;height:18px;fill:currentColor" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+              新建项目内容
+            </button>
+          </div>
+
+          <!-- Metrics Widgets -->
+          <div class="metric-grid">
+            <div class="metric-card">
+              <span class="metric-label">公开内容页面</span>
+              <span class="metric-value">128</span>
+              <span class="metric-delta">
+                <svg style="width:14px;height:14px;fill:currentColor" viewBox="0 0 24 24"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>
+                本月 +12 篇
+              </span>
+            </div>
+
+            <div class="metric-card">
+              <span class="metric-label">组织实名成员</span>
+              <span class="metric-value">46</span>
+              <span class="metric-delta">
+                <svg style="width:14px;height:14px;fill:currentColor" viewBox="0 0 24 24"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>
+                本周 +4 人
+              </span>
+            </div>
+
+            <div class="metric-card">
+              <span class="metric-label">持续推进中项目</span>
+              <span class="metric-value">08</span>
+              <span class="metric-delta" style="color: var(--on-surface-variant)">
+                稳定无变动
+              </span>
+            </div>
+
+            <div class="metric-card" style="border-color: var(--error); background-color: color-mix(in srgb, var(--error) 5%, var(--surface-container-low))">
+              <span class="metric-label" style="color: var(--error)">待审核申请</span>
+              <span class="metric-value" style="color: var(--error)">06</span>
+              <span class="metric-delta danger">
+                需尽快处理
+              </span>
+            </div>
+          </div>
+
+          <!-- Bottom Grid Split -->
+          <div class="admin-grid">
+            <!-- Review Queue -->
+            <section class="admin-card">
+              <div class="admin-card-head">
+                <h3>待处理审批申请</h3>
+                <a class="text-link" href="#">查看完整流水 &rarr;</a>
+              </div>
+              <div class="table-container">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>申请主体</th>
+                      <th>申请类型</th>
+                      <th>提交时间</th>
+                      <th style="text-align: right;">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>
+                        <div class="applicant-cell">
+                          <span class="avatar">L</span>
+                          <span>Linus_07</span>
+                        </div>
+                      </td>
+                      <td>加入团队申请</td>
+                      <td>18 分钟前</td>
+                      <td style="text-align: right;">
+                        <button class="btn btn-tonal" style="padding: 6px 16px; font-size: 13px;" onclick="this.textContent='已通过'; this.disabled=true; this.style.backgroundColor='var(--success)'; this.style.color='var(--on-success)';">通过</button>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <div class="applicant-cell">
+                          <span class="avatar" style="background-color: var(--tertiary-container); color: var(--on-tertiary-container)">M</span>
+                          <span>Maple Studio</span>
+                        </div>
+                      </td>
+                      <td>资源包发布许可</td>
+                      <td>1 小时前</td>
+                      <td style="text-align: right;">
+                        <button class="btn btn-tonal" style="padding: 6px 16px; font-size: 13px;" onclick="this.textContent='已通过'; this.disabled=true; this.style.backgroundColor='var(--success)'; this.style.color='var(--on-success)';">通过</button>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <div class="applicant-cell">
+                          <span class="avatar" style="background-color: color-mix(in srgb, var(--success) 20%, transparent); color: var(--success)">Q</span>
+                          <span>QUTCraft 生存服</span>
+                        </div>
+                      </td>
+                      <td>跨服白名单同步</td>
+                      <td>昨天 21:10</td>
+                      <td style="text-align: right;">
+                        <button class="btn btn-tonal" style="padding: 6px 16px; font-size: 13px;" onclick="this.textContent='已通过'; this.disabled=true; this.style.backgroundColor='var(--success)'; this.style.color='var(--on-success)';">通过</button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <!-- Projects Progress -->
+            <section class="admin-card">
+              <div class="admin-card-head">
+                <h3>重点工作进度</h3>
+                <a class="text-link" href="#">项目管理 &rarr;</a>
+              </div>
+              <div class="resource-list" style="margin-top: 0;">
+                <div class="resource-item" style="background-color: var(--surface-container-low); border: none;">
+                  <div class="progress-bar-container">
+                    <div class="progress-bar-info">
+                      <span>平台核心功能开发 (MVP)</span>
+                      <strong>72%</strong>
+                    </div>
+                    <div class="progress-bar-track">
+                      <div class="progress-bar-fill" style="width: 72%"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="resource-item" style="background-color: var(--surface-container-low); border: none;">
+                  <div class="progress-bar-container">
+                    <div class="progress-bar-info">
+                      <span>QUTCraft Minecraft 门户适配</span>
+                      <strong>48%</strong>
+                    </div>
+                    <div class="progress-bar-track">
+                      <div class="progress-bar-fill" style="width: 48%; background-color: var(--tertiary);"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="resource-item" style="background-color: var(--surface-container-low); border: none;">
+                  <div class="progress-bar-container">
+                    <div class="progress-bar-info">
+                      <span>数字社团申报材料整备</span>
+                      <strong>18%</strong>
+                    </div>
+                    <div class="progress-bar-track">
+                      <div class="progress-bar-fill" style="width: 18%; background-color: var(--error);"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <!-- Footer status -->
+          <div class="footer" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--outline-variant);">
+            <span>系统状态：只读模拟预览</span>
+            <span>操作动作由服务端安全过滤与校验</span>
+          </div>
         </div>
       </div>
     </section>
+
   </main>
+
   <script>
-    const viewButtons = [...document.querySelectorAll('[data-view]')];
-    const views = [...document.querySelectorAll('.view')];
-    viewButtons.forEach((button) => button.addEventListener('click', () => {
-      const target = button.dataset.view;
-      viewButtons.forEach((item) => item.classList.toggle('active', item === button));
-      views.forEach((view) => view.classList.toggle('active', view.id === target));
-      history.replaceState(null, '', `#${target}`);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }));
-    if (location.hash === '#admin') document.querySelector('[data-view="admin"]').click();
+    // Tab switching script (Views)
+    const viewButtons = Array.from(document.querySelectorAll('[data-view]'));
+    const views = Array.from(document.querySelectorAll('.view'));
+    
+    viewButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        const targetView = button.dataset.view;
+        
+        // Update active tab buttons
+        viewButtons.forEach(btn => btn.classList.toggle('active', btn === button));
+        
+        // Toggle views
+        views.forEach(v => {
+          if (v.id === targetView) {
+            v.classList.add('active');
+            // Trigger animation re-play
+            v.style.animation = 'none';
+            v.offsetHeight; /* trigger reflow */
+            v.style.animation = null;
+          } else {
+            v.classList.remove('active');
+          }
+        });
+        
+        // Update hash in URL
+        history.replaceState(null, '', `#${targetView}`);
+      });
+    });
+
+    // Handle hash on initial load
+    if (location.hash === '#admin') {
+      const adminBtn = document.querySelector('[data-view="admin"]');
+      if (adminBtn) adminBtn.click();
+    }
+
+    // Dynamic light/dark theme toggle
+    const themeToggle = document.getElementById('theme-toggle');
+    const bodyClass = document.body.classList;
+    
+    // Check user preference or local storage
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      bodyClass.add('dark-theme');
+    }
+    
+    themeToggle.addEventListener('click', () => {
+      bodyClass.toggle('dark-theme');
+      const currentTheme = bodyClass.contains('dark-theme') ? 'dark' : 'light';
+      localStorage.setItem('theme', currentTheme);
+    });
+
+    // Whitelist Simulator Logic
+    const whitelistBtn = document.getElementById('whitelist-btn');
+    const whitelistInput = document.getElementById('whitelist-input');
+    const whitelistResult = document.getElementById('whitelist-result');
+
+    whitelistBtn.addEventListener('click', () => {
+      const username = whitelistInput.value.trim();
+      if (!username) {
+        whitelistResult.style.color = 'var(--error)';
+        whitelistResult.innerHTML = `请输入有效的角色 ID！`;
+        return;
+      }
+
+      // Show loader
+      whitelistResult.style.color = 'var(--on-surface-variant)';
+      whitelistResult.innerHTML = `<span class="loading-spinner" style="display:inline-block"></span> 正在与云端服务器进行安全校验...`;
+
+      // Simulated network request (1s delay)
+      setTimeout(() => {
+        if (username.toLowerCase() === 'admin' || username.toLowerCase() === 'error') {
+          whitelistResult.style.color = 'var(--error)';
+          whitelistResult.innerHTML = `<strong>⚠️ 校验失败:</strong> 角色名属于系统保留字或已失效。`;
+        } else {
+          // Success
+          whitelistResult.style.color = 'var(--success)';
+          whitelistResult.innerHTML = `<strong>&check; 白名单状态:</strong> ${username} 校验通过 (生存服: 已激活 / 建筑服: 已授权)`;
+        }
+      }, 1000);
+    });
   </script>
 </body>
 </html>
