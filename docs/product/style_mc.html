@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QUTCraft Minecraft Portal · Style Preview</title>
+  <!--
+    DESIGN SYSTEM CONTRACT
+    Direction: Minecraft Wiki-like information architecture with a louder QUTCraft identity.
+    Surfaces: sky #73c8f2, grass #65ad2a, dirt #6c432b, paper #e8edf0, ink #17202a.
+    Geometry: 0px–4px corners, 3D bevels, hard 2px rules, pixel-pattern textures.
+    Type: system Chinese sans for readability; condensed labels and block-like headings.
+    Motion: hover lift and tab feedback only; the page remains useful without animation.
+    The visual is inspired by block-world material language, not a copy of any third-party site.
+  -->
+  <style>
+    :root { --sky:#72c9f4; --grass:#65ac2b; --grass-dark:#337314; --dirt:#714b31; --stone:#c8ced1; --stone-dark:#58636a; --paper:#eef3f4; --paper-2:#dce5e8; --ink:#17202a; --blue:#1464b1; --gold:#ffce3d; --red:#c44835; --shadow: 4px 5px 0 #20262a55; }
+    * { box-sizing: border-box; }
+    html { background: #243039; }
+    body { margin: 0; color: var(--ink); background: var(--paper); font-family: "Noto Sans SC", system-ui, sans-serif; }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    a { color: inherit; text-decoration: none; }
+    button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+    .skyline { height: 74px; position: relative; background: var(--sky); overflow: hidden; border-bottom: 4px solid #5d9c34; }
+    .skyline::before { content:""; position:absolute; inset: 12px 0 auto; height:8px; background: repeating-linear-gradient(90deg, #b8e6fc 0 36px, transparent 36px 78px); opacity:.7; }
+    .skyline::after { content:""; position:absolute; left:0; right:0; bottom:0; height:20px; background: var(--grass); box-shadow: inset 0 -8px #4b8c20, inset 0 -12px #86c643; }
+    .topbar { position: absolute; top: 7px; right: 20px; z-index: 3; display: flex; gap: 3px; padding: 4px; background: #1a2024; border: 2px solid #56636a; color: #fff; box-shadow: 3px 3px 0 #111; }
+    .topbar button { padding: 5px 10px; color: #fff; background: transparent; border: 0; font-size: 12px; }
+    .topbar button:hover { color: var(--gold); }
+    .site { display: grid; grid-template-columns: 188px minmax(0, 1fr); max-width: 1500px; margin: 0 auto; background: var(--paper); min-height: calc(100vh - 74px); }
+    .sidebar { position: relative; padding: 0 14px 30px; background: linear-gradient(#313b40 0 116px, #22292d 116px 100%); color: #d9e2e6; border-right: 5px solid #101518; }
+    .logo { display: grid; place-items: center; height: 116px; padding: 12px 4px; color: #fff; font-weight: 950; font-size: 25px; line-height: .9; letter-spacing: -.08em; text-align: center; text-shadow: 3px 3px 0 #263238, 5px 5px 0 #121719; background: linear-gradient(145deg, #65d5ff 0 35%, #2d8cce 35% 68%, #3a6d2c 68%); border-bottom: 5px solid #111; }
+    .logo small { display:block; margin-top: 8px; font-size: 10px; letter-spacing: .1em; color: var(--gold); }
+    .side-block { margin-top: 20px; padding: 12px 10px; background: #171c20; border: 2px solid #667178; box-shadow: inset 0 0 0 2px #0c1012; }
+    .side-block h3 { margin: 0 0 10px; color: var(--gold); font-size: 13px; }
+    .side-block a { display:block; padding: 5px 4px; color: #d6e1e5; font-size: 12px; border-top: 1px solid #344047; }
+    .side-block a:hover { color: #fff; background: #3f4c53; }
+    .content { min-width: 0; padding: 0 20px 50px; background: #e9f0f2; }
+    .nav-row { display: flex; gap: 4px; align-items: end; min-height: 54px; margin: 0 -20px 18px; padding-left: 20px; background: #d2dde1; border-bottom: 4px solid #8d9aa0; overflow-x: auto; }
+    .nav-row button { min-width: 100px; padding: 14px 17px 12px; color: #30383c; background: #b7c0c4; border: 2px solid #768188; border-bottom: 0; box-shadow: inset 2px 2px #e8f0f2; font-weight: 900; white-space: nowrap; }
+    .nav-row button.active, .nav-row button:hover { color: #1f2a2f; background: #eef3f4; }
+    .announcement { max-width: 560px; margin: 0 auto 20px; padding: 11px 18px; color: #155a2b; background: #c6ffc5; border-left: 8px solid #4bcd52; text-align: center; font-size: 13px; box-shadow: 2px 3px 0 #96b89b; }
+    .hero { display: grid; grid-template-columns: 1.35fr .65fr; gap: 10px; }
+    .feature { min-height: 260px; padding: 22px; color: #fff; position: relative; overflow: hidden; background: linear-gradient(120deg, #a15e34 0 30%, #513626 30% 60%, #2c2c2c 60%); border: 4px solid #657177; box-shadow: inset 0 0 0 2px #eef2f2, var(--shadow); }
+    .feature::before { content:""; position:absolute; inset: 0; opacity: .33; background: repeating-linear-gradient(45deg, #ffdb61 0 10px, transparent 10px 24px), repeating-linear-gradient(-45deg, #4c80a8 0 10px, transparent 10px 30px); mix-blend-mode: multiply; }
+    .feature > * { position: relative; z-index: 1; }
+    .feature h1 { max-width: 420px; margin: 20px 0 12px; color: #fff; font-size: clamp(30px, 4vw, 56px); line-height: .98; letter-spacing: -.08em; text-shadow: 4px 4px #262323; }
+    .feature p { max-width: 460px; font-size: 14px; line-height: 1.65; text-shadow: 2px 2px #222; }
+    .pixel-btn { padding: 10px 15px; color: #fff; background: var(--grass); border: 3px solid #20500d; box-shadow: inset 3px 3px #a8df65, inset -3px -3px #25500f, 3px 3px 0 #202b2f; font-weight: 900; }
+    .pixel-btn:hover { background: #81c73f; transform: translate(-1px,-1px); }
+    .server-card { padding: 18px; background: var(--paper); border: 4px solid #69767c; box-shadow: inset 0 0 0 2px #fff, var(--shadow); }
+    .server-card h2 { margin: 0 0 14px; font-size: 22px; }
+    .server-state { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; color: var(--grass-dark); font-weight: 900; }
+    .dot { width: 12px; height: 12px; background: #5dcc3c; border: 2px solid #286d1d; box-shadow: 1px 1px 0 #111; }
+    .server-row { display: flex; justify-content: space-between; padding: 9px 0; border-top: 2px solid #c4cdd0; font-size: 13px; }
+    .server-row span { color: #56636a; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 10px; padding: 9px 12px; background: #bdc7ca; border: 3px solid #68747a; box-shadow: inset 2px 2px #eff4f4; }
+    .toolbar strong { font-size: 17px; }
+    .search { width: min(280px, 50%); padding: 8px 10px; color: var(--ink); background: #fff; border: 2px solid #68747a; }
+    .tile-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 7px; }
+    .tile { min-height: 106px; padding: 8px 5px; background: #c8ced0; border: 3px solid #69767c; box-shadow: inset 2px 2px #f4f6f6, inset -2px -2px #9aa3a6; text-align: center; font-weight: 900; }
+    .tile:hover { background: #dce6a2; transform: translateY(-2px); }
+    .block { display: grid; place-items: center; width: 50px; height: 50px; margin: 0 auto 10px; color: #fff; background: #5eaf35; border: 3px solid #326b1c; box-shadow: inset 4px 4px #a7db57, inset -4px -4px #285114; font-size: 11px; text-shadow: 1px 1px #223; }
+    .block.blue { background:#3f8ecc; border-color:#205b86; box-shadow: inset 4px 4px #a7e1ff, inset -4px -4px #234d70; }
+    .block.purple { background:#8c5bc4; border-color:#4d2f74; box-shadow: inset 4px 4px #d0a8f5, inset -4px -4px #43245f; }
+    .block.red { background:#c54d36; border-color:#79301f; box-shadow: inset 4px 4px #f49b79, inset -4px -4px #6b291b; }
+    .lower-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+    .panel { padding: 18px; background: var(--paper); border: 4px solid #69767c; box-shadow: inset 0 0 0 2px #fff; }
+    .panel h2 { margin: 0 0 10px; font-size: 21px; }
+    .news { display: grid; gap: 6px; }
+    .news a { display: flex; justify-content: space-between; gap: 10px; padding: 10px 8px; border-bottom: 2px solid #cbd4d7; color: var(--blue); font-weight: 800; }
+    .news time { color: #68747a; font-size: 11px; font-weight: 400; white-space: nowrap; }
+    .cta { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; padding: 18px; color: #fff; background: linear-gradient(90deg, #273e4d, #355f73); border: 4px solid #15262e; box-shadow: inset 3px 3px #91c4d8, inset -3px -3px #182b32, var(--shadow); }
+    .cta h2 { margin: 0 0 4px; font-size: 20px; }
+    .cta p { margin: 0; color: #d5eef7; font-size: 13px; }
+    .cta .pixel-btn { flex-shrink: 0; background: #d79428; border-color: #77480d; box-shadow: inset 3px 3px #ffe29a, inset -3px -3px #70420b, 3px 3px 0 #162127; }
+    .footer { padding: 22px 0; color: #59666c; font: 11px ui-monospace, monospace; }
+    @media (max-width: 1040px) { .site { grid-template-columns: 160px minmax(0,1fr); } .tile-grid { grid-template-columns: repeat(4, 1fr); } }
+    @media (max-width: 760px) { .site { display: block; } .sidebar { display: grid; grid-template-columns: 130px 1fr; gap: 10px; padding: 0 10px 10px; background: #22292d; border-right: 0; border-bottom: 5px solid #101518; } .logo { height: 80px; font-size: 19px; } .side-block { margin-top: 10px; max-height: 64px; overflow: hidden; } .side-block h3 { margin-bottom: 2px; } .side-block a { display: inline-block; margin-right: 7px; border: 0; } .content { padding-inline: 12px; } .nav-row { margin-inline: -12px; padding-left: 12px; } .hero, .lower-grid { grid-template-columns: 1fr; } .tile-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 480px) { .topbar { right: 8px; } .topbar button { padding-inline: 6px; } .toolbar { align-items: stretch; flex-direction: column; } .search { width: 100%; } .tile-grid { grid-template-columns: repeat(2, 1fr); } .cta { align-items: flex-start; flex-direction: column; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+  </style>
+</head>
+<body>
+  <div class="skyline"><div class="topbar"><button onclick="alert('创建账号流程占位')">创建账号</button><button onclick="alert('登录流程占位')">登录</button></div></div>
+  <div class="site">
+    <aside class="sidebar">
+      <a class="logo" href="#top">QUTCRAFT<small>MINECRAFT PORTAL</small></a>
+      <div class="side-block"><h3>社团导航</h3><a href="#news">参与贡献</a><a href="#news">最近更改</a><a href="#portal">随机构页</a><a href="#server">服务器社区</a></div>
+      <div class="side-block"><h3>项目与世界</h3><a href="#projects">生存服</a><a href="#projects">建筑计划</a><a href="#projects">技术资料</a><a href="#projects">资源包</a></div>
+    </aside>
+    <main class="content" id="top">
+      <nav class="nav-row" aria-label="Minecraft 门户导航"><button class="active" data-tab="home">首页</button><button data-tab="discuss">讨论</button><button data-tab="read">阅读</button><button data-tab="history">查看历史</button><button data-tab="more">更多</button><input class="search" aria-label="搜索内容" placeholder="搜索 QUTCraft Wiki 内容"></nav>
+      <div class="announcement">欢迎来到 QUTCraft Minecraft 门户　<strong>查看迁移通知</strong><br>这是社团官网、资源分发与服务器入口的同一个起点。</div>
+      <section id="portal" class="hero"><article class="feature"><div class="eyebrow">QUTCRAFT SURVIVAL / SEASON 01</div><h1>从方块世界，<br>开始一起建造。</h1><p>社团项目、服务器动态、知识库和资源下载集中在这里。先看世界，再加入我们。</p><button class="pixel-btn" onclick="document.getElementById('server').scrollIntoView({block:'center'})">申请服务器白名单</button></article><aside class="server-card" id="server"><h2>服务器状态</h2><div class="server-state"><i class="dot"></i>在线 · 可加入</div><div class="server-row"><span>在线玩家</span><strong>18 / 60</strong></div><div class="server-row"><span>版本</span><strong>Java 1.21.x</strong></div><div class="server-row"><span>最近同步</span><strong>2 分钟前</strong></div><button class="pixel-btn" style="width:100%; margin-top:18px" onclick="alert('白名单申请流程占位')">进入申请</button></aside></section>
+      <div class="toolbar" id="projects"><strong>QUTCraft 项目与资料</strong><span style="font-size:12px">按主题浏览 →</span></div>
+      <section class="tile-grid" aria-label="项目分类"><button class="tile"><span class="block">生存</span>服务器</button><button class="tile"><span class="block blue">建筑</span>建筑计划</button><button class="tile"><span class="block purple">红石</span>技术资料</button><button class="tile"><span class="block red">社团</span>成员活动</button><button class="tile"><span class="block">WIKI</span>知识库</button><button class="tile"><span class="block blue">API</span>开发文档</button><button class="tile"><span class="block purple">MOD</span>资源分发</button></section>
+      <div class="lower-grid"><section class="panel" id="news"><h2>最新动态</h2><div class="news"><a href="#">QUTCraft CMS 项目正式启动 <time>2026-07-14</time></a><a href="#">服务器白名单申请规则更新 <time>2026-07-13</time></a><a href="#">建筑组：主城公共区域规划 <time>2026-07-11</time></a><a href="#">Portal API 开发者预览 <time>2026-07-09</time></a></div></section><section class="panel"><h2>最近编辑</h2><div class="news"><a href="#">自定义门户接入指南 <time>QUTCraft 技术部</time></a><a href="#">服务器行为准则 <time>管理组</time></a><a href="#">项目：校园数字化工具箱 <time>产品组</time></a><a href="#">资源包上传说明 <time>资源组</time></a></div></section></div>
+      <section class="cta"><div><h2>想把你的组织带进这个世界？</h2><p>报名参与项目，或者按照 Portal Manifest 创建自己的门户。</p></div><button class="pixel-btn" onclick="alert('加入社团流程占位')">加入 QUTCraft</button></section>
+      <div class="footer">QUTCraft Minecraft Portal / first-party theme / powered by QUTCraft CMS</div>
+    </main>
+  </div>
+  <script>
+    document.querySelectorAll('[data-tab]').forEach((button) => button.addEventListener('click', () => {
+      document.querySelectorAll('[data-tab]').forEach((item) => item.classList.toggle('active', item === button));
+      document.querySelector('.announcement').textContent = `${button.textContent} 页面预览 · 这里将接入 QUTCraft CMS 的公开 Portal API。`;
+    }));
+  </script>
+</body>
+</html>
