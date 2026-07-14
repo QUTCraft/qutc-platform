@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QUT MC 前端网页样式演示 (MC 游戏菜单 & MD3 后台)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 引入 Google Fonts: Press Start 2P 模拟 MC 像素风, Roboto 用于 MD3 -->
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            mc: ['"Press Start 2P"', 'cursive'],
+            md3: ['Roboto', 'sans-serif'],
+          },
+          colors: {
+            // MD3 (Material Design 3) Light Theme 调色盘
+            md3: {
+              surface: '#FEF7FF',
+              surfaceContainerLow: '#F7F2FA',
+              surfaceContainer: '#F3EDF7',
+              surfaceContainerHigh: '#ECE6F0',
+              primary: '#6750A4',
+              onPrimary: '#FFFFFF',
+              primaryContainer: '#EADDFF',
+              onPrimaryContainer: '#21005D',
+              secondaryContainer: '#E8DEF8',
+              onSecondaryContainer: '#1D192B',
+              outline: '#79747E',
+              onSurface: '#1D1B20',
+              onSurfaceVariant: '#49454F'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #E2E8F0;
+    }
+
+    /* ================= 纯正 Minecraft 游戏菜单风格 ================= */
+    /* MC 泥土/背景材质 (使用 CSS 模拟全屏全景图模糊效果) */
+    .mc-panorama {
+      background: url('data:image/svg+xml;utf8,<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="50" height="50" fill="%235d4037"/><rect x="50" y="50" width="50" height="50" fill="%235d4037"/><rect x="50" width="50" height="50" fill="%234e342e"/><rect y="50" width="50" height="50" fill="%234e342e"/></svg>');
+      background-size: 64px 64px;
+      image-rendering: pixelated;
+      position: relative;
+    }
+    .mc-panorama::after {
+      /* 给泥土背景盖一层暗色滤镜，模拟旧版 MC 菜单的黑底 */
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.4);
+      z-index: 1;
+    }
+
+    /* 完美的 MC 按钮 1:1 复刻 */
+    .mc-menu-btn {
+      background-color: #A0A0A0; /* 内部灰 */
+      border: 2px solid #000;    /* 黑色极细外边框 */
+      position: relative;
+      color: #E0E0E0;
+      text-align: center;
+      font-family: '"Press Start 2P"', cursive;
+      text-shadow: 2px 2px 0px #3F3F3F;
+      font-size: 14px;
+      cursor: pointer;
+      box-shadow: 
+        inset 2px 2px 0px #FFFFFF,
+        inset -2px -2px 0px #555555;
+      padding: 12px 20px;
+      z-index: 20;
+    }
+    .mc-menu-btn:hover {
+      background-color: #7171C6; /* Hover 时的淡蓝紫色 */
+      color: #FFFFAA;            /* Hover 时的黄色字体 */
+      box-shadow: 
+        inset 2px 2px 0px #A0A0E0,
+        inset -2px -2px 0px #3F3F8C;
+    }
+    .mc-menu-btn:active {
+      box-shadow: 
+        inset -2px -2px 0px #A0A0E0,
+        inset 2px 2px 0px #3F3F8C;
+    }
+    
+    .mc-menu-btn-disabled {
+      background-color: #A0A0A0;
+      color: #7A7A7A;
+      text-shadow: 2px 2px 0px #C6C6C6;
+      cursor: not-allowed;
+      box-shadow: 
+        inset 2px 2px 0px #FFFFFF,
+        inset -2px -2px 0px #555555;
+    }
+
+    /* MC 标题 3D 阴影特效 */
+    .mc-title-shadow {
+      text-shadow: 
+        6px 6px 0px #3F3F3F,
+        -2px -2px 0px #000,
+        2px -2px 0px #000,
+        -2px 2px 0px #000,
+        2px 2px 0px #000;
+    }
+
+    .mc-text-shadow {
+      text-shadow: 2px 2px 0px #3F3F3F;
+    }
+
+
+    /* ================= Material Design 3 (MD3) ================= */
+    .md3-card {
+      border-radius: 24px;
+      transition: background-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    .md3-nav-pill {
+      border-radius: 9999px; /* Pill shape */
+      transition: background-color 0.2s;
+    }
+    
+    .md3-fab {
+      border-radius: 16px;
+      box-shadow: 0 4px 8px 3px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.3);
+      transition: box-shadow 0.2s, background-color 0.2s;
+    }
+    .md3-fab:hover {
+      box-shadow: 0 6px 10px 4px rgba(0,0,0,0.15), 0 2px 3px rgba(0,0,0,0.3);
+    }
+  </style>
+</head>
+<body class="flex flex-col items-center pb-20">
+
+  <div class="w-full max-w-6xl mx-auto px-4 pt-10">
+    <h1 class="text-3xl font-bold text-center mb-10 text-slate-800">QUT MC 视觉分离演示</h1>
+
+    <div class="space-y-16">
+
+      <!-- ================= 门户官网：纯正 Minecraft 游戏主菜单复刻 ================= -->
+      <section>
+        <h2 class="text-xl font-bold mb-4 text-slate-600">风格一：C端门户 (纯正 Minecraft 游戏菜单体验)</h2>
+        
+        <div class="mc-panorama rounded-lg overflow-hidden shadow-2xl relative border-4 border-[#111]" style="height: 550px;">
+          
+          <div class="relative z-10 h-full flex flex-col justify-between pt-16 pb-4">
+            
+            <!-- 顶部标志区 -->
+            <div class="flex flex-col items-center relative">
+              <h1 class="font-mc text-5xl md:text-7xl text-[#F2F2F2] mc-title-shadow tracking-widest relative z-10 text-center leading-tight">
+                QUT<br>MINECRAFT
+              </h1>
+              
+              <!-- 经典黄色飞字 (Splash text) -->
+              <div class="absolute right-10 md:right-32 bottom-0 transform -rotate-12 z-20 hover:scale-110 transition-transform cursor-default">
+                <span class="text-[#FFFF55] font-mc text-xl md:text-2xl animate-pulse mc-text-shadow">
+                  4C 竞赛冲刺中!
+                </span>
+              </div>
+            </div>
+
+            <!-- 中间按钮列表区 -->
+            <div class="flex flex-col items-center gap-3 mt-10">
+              <!-- 加入服务器 -->
+              <button class="mc-menu-btn w-3/4 max-w-sm">
+                申请白名单 (Whitelist)
+              </button>
+              
+              <!-- 服务器介绍 -->
+              <button class="mc-menu-btn w-3/4 max-w-sm">
+                服务器介绍 (About)
+              </button>
+
+              <div class="flex gap-3 w-3/4 max-w-sm">
+                <button class="mc-menu-btn w-1/2">
+                  玩家社区
+                </button>
+                <button class="mc-menu-btn w-1/2">
+                  赞助我们
+                </button>
+              </div>
+
+              <!-- 模拟灰色禁用按钮 -->
+              <button class="mc-menu-btn mc-menu-btn-disabled w-3/4 max-w-sm mt-4">
+                进入后台管理...
+              </button>
+            </div>
+
+            <!-- 底部版本与版权 -->
+            <div class="flex justify-between items-end px-4 w-full">
+              <span class="font-mc text-white mc-text-shadow text-[10px]">
+                QUT MC 1.20.4
+              </span>
+              <span class="font-mc text-white mc-text-shadow text-[10px]">
+                Copyright QUT. Do not distribute!
+              </span>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+
+      <!-- ================= 后台管理：Material Design 3 (MD3) ================= -->
+      <section>
+        <h2 class="text-xl font-bold mb-4 text-slate-600">风格二：B端后台管理 (标准 Material Design 3)</h2>
+        
+        <div class="bg-md3-surface rounded-3xl overflow-hidden shadow-xl font-md3 flex border border-slate-200" style="height: 600px;">
+          
+          <!-- Navigation Rail (侧边栏) -->
+          <div class="w-24 bg-md3-surface border-r border-slate-200 flex flex-col items-center py-6 gap-8 flex-shrink-0">
+            <!-- 汉堡菜单 -->
+            <button class="p-2 text-md3-onSurfaceVariant">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            </button>
+
+            <!-- 导航项 -->
+            <div class="flex flex-col gap-4">
+              <div class="flex flex-col items-center gap-1 cursor-pointer">
+                <div class="md3-nav-pill bg-md3-secondaryContainer text-md3-onSecondaryContainer px-5 py-1">
+                  <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+                </div>
+                <span class="text-[12px] font-medium text-md3-onSurface">大盘</span>
+              </div>
+              <div class="flex flex-col items-center gap-1 cursor-pointer group">
+                <div class="md3-nav-pill px-5 py-1 text-md3-onSurfaceVariant group-hover:bg-slate-100">
+                  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                </div>
+                <span class="text-[12px] font-medium text-md3-onSurfaceVariant">白名单</span>
+              </div>
+              <div class="flex flex-col items-center gap-1 cursor-pointer group">
+                <div class="md3-nav-pill px-5 py-1 text-md3-onSurfaceVariant group-hover:bg-slate-100">
+                  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                </div>
+                <span class="text-[12px] font-medium text-md3-onSurfaceVariant">CMS</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 主内容区域 -->
+          <div class="flex-1 p-8 bg-md3-surfaceContainerLow overflow-y-auto relative">
+            <h2 class="text-3xl text-md3-onSurface mb-8 font-medium">服务概览</h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <!-- MD3 Card 1 -->
+              <div class="md3-card bg-md3-primaryContainer text-md3-onPrimaryContainer p-6">
+                <h3 class="text-sm font-medium mb-2">服务器状态</h3>
+                <div class="text-4xl mb-4">20.0 TPS</div>
+                <div class="text-sm opacity-80">运行十分流畅，内存占用 12.4 GB</div>
+              </div>
+
+              <!-- MD3 Card 2 -->
+              <div class="md3-card bg-md3-surfaceContainerHigh text-md3-onSurface p-6">
+                <h3 class="text-sm font-medium mb-2 text-md3-onSurfaceVariant">在线玩家</h3>
+                <div class="text-4xl mb-4 text-md3-onSurface">42 <span class="text-lg text-md3-onSurfaceVariant">/ 100</span></div>
+                <button class="bg-md3-secondaryContainer text-md3-onSecondaryContainer px-4 py-2 rounded-full text-sm font-medium hover:bg-slate-200 transition">
+                  管理名单
+                </button>
+              </div>
+            </div>
+
+            <!-- 列表视图 -->
+            <div class="md3-card bg-md3-surface p-4 border border-slate-100 shadow-sm">
+              <div class="flex justify-between items-center p-2 mb-2">
+                <h3 class="text-lg text-md3-onSurface font-medium">白名单审批队列</h3>
+                <button class="text-md3-primary font-medium text-sm px-2">查看全部</button>
+              </div>
+              <div class="space-y-1">
+                <div class="flex justify-between items-center p-3 rounded-xl hover:bg-md3-surfaceContainer transition cursor-pointer">
+                  <div class="flex items-center gap-4">
+                    <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-medium">S</div>
+                    <div>
+                      <div class="text-md3-onSurface text-sm font-medium">Steve_99</div>
+                      <div class="text-md3-onSurfaceVariant text-xs">申请理由：来自计科专业大二</div>
+                    </div>
+                  </div>
+                  <div class="flex gap-2">
+                    <button class="text-md3-primary text-sm font-medium px-4 py-2 rounded-full hover:bg-md3-primaryContainer transition">通过 (RCON)</button>
+                  </div>
+                </div>
+                <div class="flex justify-between items-center p-3 rounded-xl hover:bg-md3-surfaceContainer transition cursor-pointer">
+                  <div class="flex items-center gap-4">
+                    <div class="w-10 h-10 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center font-medium">A</div>
+                    <div>
+                      <div class="text-md3-onSurface text-sm font-medium">Alex_xyz</div>
+                      <div class="text-md3-onSurfaceVariant text-xs">申请理由：擅长红石与机器</div>
+                    </div>
+                  </div>
+                  <div class="flex gap-2">
+                    <button class="text-md3-primary text-sm font-medium px-4 py-2 rounded-full hover:bg-md3-primaryContainer transition">通过 (RCON)</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Floating Action Button (FAB) -->
+            <button class="md3-fab absolute bottom-8 right-8 w-14 h-14 bg-md3-primaryContainer text-md3-onPrimaryContainer flex items-center justify-center hover:bg-[#E0D4F5] transition-colors shadow-lg">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+            </button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+</body>
+</html>

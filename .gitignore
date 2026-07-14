@@ -1,0 +1,30 @@
+# Operating-system files
+.DS_Store
+Thumbs.db
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Go
+bin/
+*.test
+coverage.out
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.vite/
+.cache/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local tooling
+tmp/
+logs/
