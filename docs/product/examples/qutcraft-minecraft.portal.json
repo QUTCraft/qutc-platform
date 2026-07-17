@@ -1,0 +1,20 @@
+{
+  "schema": "qutc.portal/v1",
+  "id": "qutcraft-minecraft",
+  "version": "0.1.0",
+  "display_name": "QUTCraft Minecraft Portal",
+  "entry": "/portals/qutcraft-minecraft/index.html",
+  "theme": {
+    "mode": "custom",
+    "tokens": "/portals/qutcraft-minecraft/theme.json"
+  },
+  "capabilities": [
+    "organization.read",
+    "public_content.read",
+    "projects.read",
+    "assets.read",
+    "knowledge.read",
+    "server.status.read"
+  ],
+  "fallback": "md3"
+}

@@ -3,6 +3,8 @@
 > 状态：草案冻结，适用于 2026-07-14 至 2026-08-31 的 MVP 与比赛演示。
 >
 > 适用对象：QUTCraft 技术部门、通用组织管理平台、QUTCraft Minecraft 第一方门户及未来第三方自定义门户。
+>
+> 关联交付物：[需求范围](../product/requirements-v1.md)、[RBAC 权限矩阵](rbac-matrix.md)、[信息架构](../product/information-architecture.md)、[Portal Manifest v1](../product/portal-manifest-v1.md)。
 
 ## 1. 设计原则
 
@@ -66,7 +68,7 @@ docs/product              # 产品文档与页面演示
 核心实体至少包括：`Organization`、`User`、`Role`、`Permission`、`Membership`、`Project`、`Page`、`Post`、`KnowledgeArticle`、`Asset`、`Application`、`AuditEvent`、`Portal`、`ServerAdapter`。
 
 - 所有组织级数据必须带 `organization_id`，查询必须带租户范围。
-- 公共内容使用 `draft`、`published`、`archived` 状态，不用物理删除代替下线。
+- 公共内容使用 `draft`、`review`、`published`、`archived` 状态，不用物理删除代替下线；只有 `published` 且公开范围允许的数据可进入 Portal。
 - 审核申请使用 `pending`、`approved`、`rejected`、`cancelled`，状态变化必须有操作者和时间。
 - 资源保存原始文件名、MIME、大小、哈希、对象键、上传者、可见范围和引用关系。
 - 外部适配器的状态只能作为同步结果保存，不能覆盖通用成员/用户事实。
@@ -182,7 +184,7 @@ docs/product              # 产品文档与页面演示
     "mode": "custom",
     "tokens": "/portals/qutcraft/theme.json"
   },
-  "capabilities": ["public_content.read", "projects.read", "assets.read", "server.status.read"],
+  "capabilities": ["organization.read", "public_content.read", "projects.read", "assets.read", "knowledge.read", "server.status.read"],
   "fallback": "md3"
 }
 ```

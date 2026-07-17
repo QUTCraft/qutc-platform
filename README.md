@@ -151,7 +151,13 @@ tests/integration/                # 集成测试
 | 文档 | 用途 |
 | --- | --- |
 | [项目排期](schedule.md) | 2026 年 7 月 14 日至 8 月 31 日的 MVP 路线、验收门与风险取舍。 |
+| [需求范围 v1](docs/product/requirements-v1.md) | MVP 边界、角色、用户故事、优先级与非功能要求。 |
+| [MVP 验收清单](docs/product/mvp-acceptance.md) | 截至 7 月 17 日的冻结检查点及后续可执行验收用例。 |
+| [比赛叙事一页纸](docs/product/competition-narrative.md) | 产品价值、技术亮点与演示路径。 |
 | [平台统一规范](docs/architecture/platform-standard.md) | 前后端、接口、权限、门户扩展和质量规范。 |
+| [RBAC 权限矩阵](docs/architecture/rbac-matrix.md) | 角色、权限名称、范围限制和后台路由建议。 |
+| [信息架构](docs/product/information-architecture.md) | Portal/Admin 路由、状态字典与页面组件边界。 |
+| [Portal Manifest v1](docs/product/portal-manifest-v1.md) | 自定义门户注册、主题 Token、能力边界与回退规则。 |
 | [完整 API 文档](docs/api/API.md) | 当前 API 的可读说明与安全约束。 |
 | [OpenAPI 契约](docs/api/openapi.yaml) | 可导入 Apifox / Swagger 的事实来源。 |
 | [MD3 门户演示](docs/product/style_demo.html) | 默认门户视觉演示。 |
