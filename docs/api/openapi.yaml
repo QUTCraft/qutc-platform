@@ -1,0 +1,314 @@
+openapi: 3.1.1
+info:
+  title: QUTCraft CMS Public Portal API
+  version: 0.1.0
+  description: |
+    面向公开门户的只读 API 契约。门户只读取已发布、可公开的数据；认证、草稿、成员隐私、审核与 RCON 命令属于独立管理 API，不在本文件暴露。
+    本文件是 Swagger UI 与 Apifox 的共同导入源。
+  license:
+    name: Proprietary
+    url: https://github.com/QUTCraft/qutc-platform
+servers:
+  - url: https://api.qutcraft.local
+    description: 部署时由 Apifox 环境或运行环境变量覆盖
+security: []
+tags:
+  - name: Portal
+    description: 公开门户内容与状态
+paths:
+  /api/v1/portal/organizations/{organization_slug}:
+    get:
+      tags: [Portal]
+      operationId: getPortalOrganization
+      summary: 获取组织公开资料
+      parameters:
+        - $ref: '#/components/parameters/OrganizationSlug'
+      responses:
+        '200':
+          description: 组织公开资料
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/portal/organizations/{organization_slug}/posts:
+    get:
+      tags: [Portal]
+      operationId: listPortalPosts
+      summary: 获取已发布的新闻、公告与活动
+      parameters:
+        - $ref: '#/components/parameters/OrganizationSlug'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: category
+          in: query
+          schema: { type: string, maxLength: 64 }
+          description: 按公开分类筛选
+      responses:
+        '200':
+          description: 已发布内容列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/portal/organizations/{organization_slug}/projects:
+    get:
+      tags: [Portal]
+      operationId: listPortalProjects
+      summary: 获取公开项目
+      parameters:
+        - $ref: '#/components/parameters/OrganizationSlug'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ProjectStatus' }
+      responses:
+        '200':
+          description: 公开项目列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/portal/organizations/{organization_slug}/resources:
+    get:
+      tags: [Portal]
+      operationId: listPortalResources
+      summary: 获取可公开分发的资源
+      parameters:
+        - $ref: '#/components/parameters/OrganizationSlug'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: kind
+          in: query
+          schema: { $ref: '#/components/schemas/ResourceKind' }
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 128 }
+          description: 标题和描述的公开全文检索词
+      responses:
+        '200':
+          description: 公开资源列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/portal/organizations/{organization_slug}/knowledge/articles:
+    get:
+      tags: [Portal]
+      operationId: listPortalKnowledgeArticles
+      summary: 获取已发布的知识库文章
+      parameters:
+        - $ref: '#/components/parameters/OrganizationSlug'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: category
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 128 }
+      responses:
+        '200':
+          description: 已发布知识文章列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KnowledgeArticleListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/portal/organizations/{organization_slug}/server-status:
+    get:
+      tags: [Portal]
+      operationId: getPortalServerStatus
+      summary: 获取服务器公开状态
+      description: 只返回允许公开展示的状态；不会返回 RCON 连接、命令、TPS 原始监控或审核数据。
+      parameters:
+        - $ref: '#/components/parameters/OrganizationSlug'
+      responses:
+        '200':
+          description: 服务器公开状态；未启用服务器适配器时 enabled 为 false
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerStatusResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  parameters:
+    OrganizationSlug:
+      name: organization_slug
+      in: path
+      required: true
+      description: 组织公开标识，仅允许小写字母、数字和连字符。
+      schema:
+        type: string
+        pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        example: qutcraft
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+  responses:
+    NotFound:
+      description: 当前组织不存在或没有公开门户
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+  schemas:
+    Meta:
+      type: object
+      required: [request_id]
+      properties:
+        request_id: { type: string, example: req_01J0QUTC9B7ABCD }
+    ListMeta:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [page, page_size, total]
+          properties:
+            page: { type: integer, minimum: 1, example: 1 }
+            page_size: { type: integer, minimum: 1, maximum: 100, example: 20 }
+            total: { type: integer, minimum: 0, example: 3 }
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code: { type: string, example: portal.organization_not_found }
+            message: { type: string, example: 未找到可公开展示的组织。 }
+            details: { type: object, additionalProperties: true }
+            request_id: { type: string, example: req_01J0QUTC9B7ABCD }
+    Organization:
+      type: object
+      required: [id, slug, name, short_name, tagline, introduction, contact_email, social_links]
+      properties:
+        id: { type: string, example: org_qutcraft }
+        slug: { type: string, example: qutcraft }
+        name: { type: string, example: QUTCraft Commons }
+        short_name: { type: string, example: QUTCraft }
+        tagline: { type: string, example: 把社团正在发生的事，认真地呈现出来。 }
+        introduction: { type: string }
+        contact_email: { type: string, format: email }
+        social_links:
+          type: array
+          items:
+            type: object
+            required: [label, href]
+            properties:
+              label: { type: string }
+              href: { type: string, format: uri-reference }
+    Post:
+      type: object
+      required: [id, title, excerpt, category, published_at, reading_minutes]
+      properties:
+        id: { type: string }
+        title: { type: string, maxLength: 160 }
+        excerpt: { type: string, maxLength: 500 }
+        cover_url: { type: [string, 'null'], format: uri }
+        category: { type: string, maxLength: 64 }
+        published_at: { type: string, format: date-time }
+        reading_minutes: { type: integer, minimum: 1 }
+    ProjectStatus:
+      type: string
+      enum: [active, research, completed]
+    Project:
+      type: object
+      required: [id, title, summary, status, tags, updated_at]
+      properties:
+        id: { type: string }
+        title: { type: string, maxLength: 160 }
+        summary: { type: string, maxLength: 500 }
+        status: { $ref: '#/components/schemas/ProjectStatus' }
+        tags: { type: array, maxItems: 8, items: { type: string, maxLength: 32 } }
+        updated_at: { type: string, format: date-time }
+        public_url: { type: [string, 'null'], format: uri-reference }
+    ResourceKind:
+      type: string
+      enum: [document, template, package, video]
+    Resource:
+      type: object
+      required: [id, title, description, kind, size_bytes, updated_at, download_url]
+      properties:
+        id: { type: string }
+        title: { type: string, maxLength: 160 }
+        description: { type: string, maxLength: 500 }
+        kind: { $ref: '#/components/schemas/ResourceKind' }
+        size_bytes: { type: integer, minimum: 0, format: int64 }
+        updated_at: { type: string, format: date-time }
+        download_url:
+          type: string
+          format: uri
+          description: 短时、受控下载地址；前端不得自行拼接对象存储 URL。
+    KnowledgeArticle:
+      type: object
+      required: [id, title, summary, category, updated_at, reading_minutes]
+      properties:
+        id: { type: string }
+        title: { type: string, maxLength: 160 }
+        summary: { type: string, maxLength: 500 }
+        category: { type: string, maxLength: 64 }
+        updated_at: { type: string, format: date-time }
+        reading_minutes: { type: integer, minimum: 1 }
+    ServerStatus:
+      type: object
+      required: [enabled, label, state, updated_at]
+      properties:
+        enabled: { type: boolean }
+        label: { type: string, maxLength: 100 }
+        state: { type: string, enum: [online, maintenance, offline] }
+        version: { type: [string, 'null'] }
+        online_players: { type: [integer, 'null'], minimum: 0 }
+        max_players: { type: [integer, 'null'], minimum: 1 }
+        updated_at: { type: string, format: date-time }
+        apply_url: { type: [string, 'null'], format: uri-reference }
+    OrganizationResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/Organization' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    PostListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Post' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    ProjectListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Project' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    ResourceListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Resource' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    KnowledgeArticleListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/KnowledgeArticle' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    ServerStatusResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/ServerStatus' }
+        meta: { $ref: '#/components/schemas/Meta' }
