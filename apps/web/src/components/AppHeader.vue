@@ -31,10 +31,11 @@ const links = [
       <el-button class="menu-button" text circle :icon="Menu" aria-label="打开导航" @click="mobileOpen = true" />
     </div>
 
-    <el-drawer v-model="mobileOpen" direction="rtl" size="min(86vw, 360px)" title="导航">
-      <nav class="mobile-nav" aria-label="移动端公开门户导航">
-        <RouterLink v-for="link in links" :key="link.to" :to="link.to" @click="mobileOpen = false">{{ link.label }}</RouterLink>
-      </nav>
-    </el-drawer>
   </header>
+
+  <el-drawer v-model="mobileOpen" append-to-body direction="rtl" size="min(86vw, 360px)" title="导航">
+    <nav class="mobile-nav" aria-label="移动端公开门户导航">
+      <RouterLink v-for="link in links" :key="link.to" :to="link.to" @click="mobileOpen = false">{{ link.label }}</RouterLink>
+    </nav>
+  </el-drawer>
 </template>
