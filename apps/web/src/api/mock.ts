@@ -1,4 +1,9 @@
 import type {
+  AdminApplication,
+  AdminContent,
+  AdminDashboard,
+  AdminServerStatus,
+  AdminUser,
   KnowledgeArticle,
   Organization,
   Page,
@@ -57,16 +62,86 @@ const serverStatus: ServerStatus = {
   apply_url: '#join',
 }
 
+let adminContent: AdminContent[] = [
+  { id: 'content_001', title: 'QUTCraft CMS 项目正式启动', type: 'news', status: 'published', author: 'BBKarasu', updated_at: '2026-07-17T03:00:00Z' },
+  { id: 'content_002', title: '暑期建筑活动资源包', type: 'resource', status: 'review', author: 'Lin', updated_at: '2026-07-16T08:00:00Z' },
+  { id: 'content_003', title: '自定义门户接入约定', type: 'knowledge', status: 'draft', author: 'Mori', updated_at: '2026-07-15T03:00:00Z' },
+]
+
+const adminUsers: AdminUser[] = [
+  { id: 'user_bk', name: 'BBKarasu', email: 'gdd233@qq.com', role: 'owner', state: 'active', joined_at: '2026-07-14T01:00:00Z' },
+  { id: 'user_lin', name: 'Lin', email: 'lin@qutcraft.example', role: 'editor', state: 'active', joined_at: '2026-07-15T01:00:00Z' },
+  { id: 'user_mori', name: 'Mori', email: 'mori@qutcraft.example', role: 'administrator', state: 'active', joined_at: '2026-07-15T01:00:00Z' },
+  { id: 'user_nova', name: 'Nova', email: 'nova@qutcraft.example', role: 'member', state: 'invited', joined_at: '2026-07-16T01:00:00Z' },
+]
+
+let applications: AdminApplication[] = [
+  { id: 'application_001', applicant: 'Yukino', type: 'whitelist', submitted_at: '2026-07-17T02:30:00Z', note: '希望参与周末建筑测试。', status: 'pending' },
+  { id: 'application_002', applicant: 'Dawn', type: 'membership', submitted_at: '2026-07-16T10:00:00Z', note: '想加入资源整理与 Wiki 维护。', status: 'pending' },
+  { id: 'application_003', applicant: 'Kite', type: 'whitelist', submitted_at: '2026-07-15T08:00:00Z', note: '已参加过新生联机活动。', status: 'approved' },
+]
+
+const adminServer: AdminServerStatus = {
+  enabled: true,
+  label: 'QUTCraft Java 生存服',
+  state: 'online',
+  online_players: 18,
+  max_players: 60,
+}
+
 const page = <T>(items: T[]): Page<T> => ({ items, page: 1, page_size: 20, total: items.length })
 const wait = () => new Promise((resolve) => window.setTimeout(resolve, 160))
 
 export async function mockGet<T>(path: string): Promise<T> {
   await wait()
+  if (path.endsWith('/admin/dashboard')) {
+    const dashboard: AdminDashboard = {
+      organization_name: organization.name,
+      updated_at: '2026-07-17T04:10:00Z',
+      metrics: [
+        { label: '活跃成员', value: 24, change: '较上周 +3', tone: 'primary' },
+        { label: '已发布内容', value: 38, change: '本周 +5', tone: 'secondary' },
+        { label: '待处理申请', value: applications.filter((item) => item.status === 'pending').length, change: '需要你的处理', tone: 'warning' },
+        { label: '在线玩家', value: adminServer.online_players, change: '服务器状态正常', tone: 'neutral' },
+      ],
+      pending_applications: applications.filter((item) => item.status === 'pending'),
+      recent_content: adminContent,
+      server: adminServer,
+    }
+    return dashboard as T
+  }
+  if (path.endsWith('/admin/content')) return page(adminContent) as T
+  if (path.endsWith('/admin/users')) return page(adminUsers) as T
+  if (path.endsWith('/admin/applications')) return page(applications) as T
+  if (path.endsWith('/admin/server/status')) return adminServer as T
   if (/\/organizations\/[^/]+$/.test(path)) return organization as T
   if (path.endsWith('/posts')) return page(posts) as T
   if (path.endsWith('/projects')) return page(projects) as T
   if (path.endsWith('/resources')) return page(resources) as T
   if (path.endsWith('/knowledge/articles')) return page(knowledge) as T
   if (path.endsWith('/server-status')) return serverStatus as T
+  throw new Error(`Mock endpoint not implemented: ${path}`)
+}
+
+export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
+  await wait()
+  if (path.endsWith('/admin/content')) {
+    const payload = body as Pick<AdminContent, 'title' | 'type'>
+    const content: AdminContent = { id: `content_${Date.now()}`, title: payload.title, type: payload.type, status: 'draft', author: 'BBKarasu', updated_at: new Date().toISOString() }
+    adminContent = [content, ...adminContent]
+    return content as T
+  }
+  const decision = path.match(/\/admin\/applications\/([^/]+)\/(approve|reject)$/)
+  if (decision) {
+    const application = applications.find((item) => item.id === decision[1])
+    if (!application) throw new Error('Application not found')
+    application.status = decision[2] === 'approve' ? 'approved' : 'rejected'
+    return application as T
+  }
+  if (path.endsWith('/admin/server/commands')) {
+    const command = (body as { command: string }).command
+    adminServer.last_command_at = new Date().toISOString()
+    return { accepted: true, message: `命令“${command}”已被模拟环境记录。`, executed_at: adminServer.last_command_at } as T
+  }
   throw new Error(`Mock endpoint not implemented: ${path}`)
 }

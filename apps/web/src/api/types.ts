@@ -77,3 +77,54 @@ export interface ServerStatus {
   updated_at: string
   apply_url?: string
 }
+
+export interface AdminDashboard {
+  organization_name: string
+  updated_at: string
+  metrics: Array<{ label: string; value: number; change?: string; tone: 'primary' | 'secondary' | 'warning' | 'neutral' }>
+  pending_applications: AdminApplication[]
+  recent_content: AdminContent[]
+  server: AdminServerStatus
+}
+
+export interface AdminContent {
+  id: string
+  title: string
+  type: 'news' | 'resource' | 'knowledge'
+  status: 'draft' | 'published' | 'review'
+  author: string
+  updated_at: string
+}
+
+export interface AdminUser {
+  id: string
+  name: string
+  email: string
+  role: 'owner' | 'administrator' | 'editor' | 'member'
+  state: 'active' | 'invited' | 'disabled'
+  joined_at: string
+}
+
+export interface AdminApplication {
+  id: string
+  applicant: string
+  type: 'whitelist' | 'membership'
+  submitted_at: string
+  note: string
+  status: 'pending' | 'approved' | 'rejected'
+}
+
+export interface AdminServerStatus {
+  enabled: boolean
+  label: string
+  state: 'online' | 'maintenance' | 'offline'
+  online_players: number
+  max_players: number
+  last_command_at?: string
+}
+
+export interface ServerCommandResult {
+  accepted: boolean
+  message: string
+  executed_at: string
+}

@@ -1,10 +1,10 @@
 openapi: 3.1.1
 info:
-  title: QUTCraft CMS Public Portal API
+  title: QUTCraft CMS API
   version: 0.1.0
   description: |
-    面向公开门户的只读 API 契约。门户只读取已发布、可公开的数据；认证、草稿、成员隐私、审核与 RCON 命令属于独立管理 API，不在本文件暴露。
-    本文件是 Swagger UI 与 Apifox 的共同导入源。
+    公开门户与受认证后台共享的 API 契约。门户只读取已发布、可公开的数据；草稿、成员隐私、审核与 RCON 命令仅通过独立的管理前缀暴露。
+    本文件是 Swagger UI 与 Apifox 的共同导入源；公开接口无认证，管理接口要求 Bearer JWT 与 RBAC 授权。
   license:
     name: Proprietary
     url: https://github.com/QUTCraft/qutc-platform
@@ -15,6 +15,8 @@ security: []
 tags:
   - name: Portal
     description: 公开门户内容与状态
+  - name: Admin
+    description: 受认证的后台管理能力
 paths:
   /api/v1/portal/organizations/{organization_slug}:
     get:
@@ -141,7 +143,165 @@ paths:
                 $ref: '#/components/schemas/ServerStatusResponse'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/admin/dashboard:
+    get:
+      tags: [Admin]
+      operationId: getAdminDashboard
+      summary: 获取后台概览
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 当前管理员可见的聚合数据
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminDashboardResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/admin/content:
+    get:
+      tags: [Admin]
+      operationId: listAdminContent
+      summary: 获取内容工作区条目
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 管理范围内的内容（含草稿）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminContentListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      operationId: createAdminContent
+      summary: 创建内容草稿
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAdminContentRequest' }
+      responses:
+        '201':
+          description: 草稿已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminContentResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/users:
+    get:
+      tags: [Admin]
+      operationId: listAdminUsers
+      summary: 获取组织成员与角色
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 成员列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminUserListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/applications:
+    get:
+      tags: [Admin]
+      operationId: listAdminApplications
+      summary: 获取白名单与成员申请
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 申请列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminApplicationListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/applications/{application_id}/approve:
+    post:
+      tags: [Admin]
+      operationId: approveAdminApplication
+      summary: 通过申请
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        '200':
+          description: 已通过并写入审计记录
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminApplicationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/applications/{application_id}/reject:
+    post:
+      tags: [Admin]
+      operationId: rejectAdminApplication
+      summary: 拒绝申请
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        '200':
+          description: 已拒绝并写入审计记录
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminApplicationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/server/status:
+    get:
+      tags: [Admin]
+      operationId: getAdminServerStatus
+      summary: 获取服务器适配器状态
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 包含仅限后台可见的适配器状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminServerStatusResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/server/commands:
+    post:
+      tags: [Admin]
+      operationId: executeRestrictedServerCommand
+      summary: 执行受限 RCON 命令
+      description: 仅允许服务端白名单中定义的命令；服务端必须记录操作者、命令、结果与 request_id。
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServerCommandRequest' }
+      responses:
+        '200':
+          description: 命令已受理或执行
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServerCommandResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 后台访问令牌；服务端必须基于组织成员身份与 RBAC 进行二次授权。
   parameters:
     OrganizationSlug:
       name: organization_slug
@@ -160,9 +320,34 @@ components:
       name: page_size
       in: query
       schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    ApplicationId:
+      name: application_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 64 }
   responses:
     NotFound:
       description: 当前组织不存在或没有公开门户
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: 缺少、失效或无法验证的访问令牌
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: 当前角色没有执行此管理操作的权限
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ValidationError:
+      description: 请求数据未通过校验
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: 资源状态已发生变化，无法重复执行操作
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -311,4 +496,151 @@ components:
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/ServerStatus' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    AdminContentType:
+      type: string
+      enum: [news, resource, knowledge]
+    AdminContentStatus:
+      type: string
+      enum: [draft, review, published]
+    AdminContent:
+      type: object
+      required: [id, title, type, status, author, updated_at]
+      properties:
+        id: { type: string }
+        title: { type: string, maxLength: 160 }
+        type: { $ref: '#/components/schemas/AdminContentType' }
+        status: { $ref: '#/components/schemas/AdminContentStatus' }
+        author: { type: string, maxLength: 80 }
+        updated_at: { type: string, format: date-time }
+    CreateAdminContentRequest:
+      type: object
+      required: [title, type]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 160 }
+        type: { $ref: '#/components/schemas/AdminContentType' }
+    AdminRole:
+      type: string
+      enum: [owner, administrator, editor, member]
+    AdminUserState:
+      type: string
+      enum: [active, invited, disabled]
+    AdminUser:
+      type: object
+      required: [id, name, email, role, state, joined_at]
+      properties:
+        id: { type: string }
+        name: { type: string, maxLength: 80 }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/AdminRole' }
+        state: { $ref: '#/components/schemas/AdminUserState' }
+        joined_at: { type: string, format: date-time }
+    ApplicationType:
+      type: string
+      enum: [whitelist, membership]
+    ApplicationStatus:
+      type: string
+      enum: [pending, approved, rejected]
+    AdminApplication:
+      type: object
+      required: [id, applicant, type, submitted_at, note, status]
+      properties:
+        id: { type: string }
+        applicant: { type: string, maxLength: 80 }
+        type: { $ref: '#/components/schemas/ApplicationType' }
+        submitted_at: { type: string, format: date-time }
+        note: { type: string, maxLength: 500 }
+        status: { $ref: '#/components/schemas/ApplicationStatus' }
+    AdminServerStatus:
+      type: object
+      required: [enabled, label, state, online_players, max_players]
+      properties:
+        enabled: { type: boolean }
+        label: { type: string, maxLength: 100 }
+        state: { type: string, enum: [online, maintenance, offline] }
+        online_players: { type: integer, minimum: 0 }
+        max_players: { type: integer, minimum: 1 }
+        last_command_at: { type: [string, 'null'], format: date-time }
+    DashboardMetric:
+      type: object
+      required: [label, value, tone]
+      properties:
+        label: { type: string, maxLength: 48 }
+        value: { type: integer, minimum: 0 }
+        change: { type: [string, 'null'], maxLength: 80 }
+        tone: { type: string, enum: [primary, secondary, warning, neutral] }
+    AdminDashboard:
+      type: object
+      required: [organization_name, updated_at, metrics, pending_applications, recent_content, server]
+      properties:
+        organization_name: { type: string }
+        updated_at: { type: string, format: date-time }
+        metrics: { type: array, maxItems: 12, items: { $ref: '#/components/schemas/DashboardMetric' } }
+        pending_applications: { type: array, items: { $ref: '#/components/schemas/AdminApplication' } }
+        recent_content: { type: array, items: { $ref: '#/components/schemas/AdminContent' } }
+        server: { $ref: '#/components/schemas/AdminServerStatus' }
+    ServerCommandRequest:
+      type: object
+      required: [command]
+      properties:
+        command:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: 仅传入服务端命令白名单允许的命令及参数。
+          example: list
+    ServerCommandResult:
+      type: object
+      required: [accepted, message, executed_at]
+      properties:
+        accepted: { type: boolean }
+        message: { type: string }
+        executed_at: { type: string, format: date-time }
+    AdminContentResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AdminContent' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    AdminContentListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AdminContent' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    AdminUserListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AdminUser' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    AdminApplicationResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AdminApplication' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    AdminApplicationListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AdminApplication' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    AdminServerStatusResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AdminServerStatus' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    AdminDashboardResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AdminDashboard' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    ServerCommandResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/ServerCommandResult' }
         meta: { $ref: '#/components/schemas/Meta' }
