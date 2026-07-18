@@ -10,9 +10,11 @@ info:
     url: https://github.com/QUTCraft/qutc-platform
 servers:
   - url: https://api.qutcraft.local
-    description: 部署时由 Apifox 环境或运行环境变量覆盖
+    description: 示例部署地址；由 Apifox 环境或运行环境变量覆盖
 security: []
 tags:
+  - name: Auth
+    description: 注册、登录、令牌刷新与当前会话
   - name: Portal
     description: 公开门户内容与状态
   - name: Admin
@@ -143,6 +145,105 @@ paths:
                 $ref: '#/components/schemas/ServerStatusResponse'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      operationId: registerAuthUser
+      summary: 注册用户并加入默认组织
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: 注册成功，返回访问与刷新令牌
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPairResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      operationId: loginAuthUser
+      summary: 使用邮箱和密码登录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: 登录成功，返回访问与刷新令牌
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPairResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshAuthSession
+      summary: 轮换刷新令牌并获取新的令牌对
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: 新令牌对
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPairResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutAuthSession
+      summary: 撤销刷新令牌
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LogoutRequest' }
+      responses:
+        '200':
+          description: 刷新令牌已撤销或不存在
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LogoutResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      operationId: getAuthCurrentUser
+      summary: 获取当前会话用户与当前组织角色
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 当前用户
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthUserResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/admin/session:
+    get:
+      tags: [Admin]
+      operationId: getAdminSession
+      summary: 验证后台会话与组织读取权限
+      description: 基础设施探针路由；用于验证 Bearer JWT、成员关系与 `organization:read` RBAC 权限，不返回业务工作台数据。
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 当前后台会话用户
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthUserResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/dashboard:
     get:
       tags: [Admin]
@@ -596,11 +697,79 @@ components:
         accepted: { type: boolean }
         message: { type: string }
         executed_at: { type: string, format: date-time }
+    AuthRole:
+      type: string
+      enum: [owner, administrator, editor, member]
+    AuthUser:
+      type: object
+      required: [id, email, display_name, organization_id, roles]
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        display_name: { type: string, maxLength: 80 }
+        organization_id: { type: string }
+        roles:
+          type: array
+          items: { $ref: '#/components/schemas/AuthRole' }
+    RegisterRequest:
+      type: object
+      required: [email, display_name, password]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        display_name: { type: string, minLength: 1, maxLength: 80 }
+        password: { type: string, minLength: 12, maxLength: 128, writeOnly: true }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 1, maxLength: 128, writeOnly: true }
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string, minLength: 1, writeOnly: true }
+    LogoutRequest:
+      type: object
+      properties:
+        refresh_token: { type: string, writeOnly: true }
+    TokenPair:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in, user]
+      properties:
+        access_token: { type: string, writeOnly: true }
+        refresh_token: { type: string, writeOnly: true }
+        token_type: { type: string, enum: [Bearer] }
+        expires_in: { type: integer, minimum: 1, description: Access Token 剩余秒数。 }
+        user: { $ref: '#/components/schemas/AuthUser' }
+    LogoutResult:
+      type: object
+      required: [revoked]
+      properties:
+        revoked: { type: boolean }
     AdminContentResponse:
       type: object
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/AdminContent' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    AuthUserResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AuthUser' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    TokenPairResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/TokenPair' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    LogoutResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/LogoutResult' }
         meta: { $ref: '#/components/schemas/Meta' }
     AdminContentListResponse:
       type: object

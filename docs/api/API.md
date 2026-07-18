@@ -4,7 +4,9 @@
 > 契约源：[openapi.yaml](openapi.yaml)（OpenAPI 3.1.1）  
 > 适用对象：Go 后端、Vue 前端、Apifox 测试、Swagger UI、自定义门户开发者
 
-本文说明当前已开发的公开门户（Portal）与后台工作台（Admin）接口。它是对 OpenAPI 契约的可读补充：**路径、字段类型、必填性和状态码以 `openapi.yaml` 为最终事实来源**。本文不会把尚未实现的登录、内容正文编辑、文件上传、成员邀请或设置保存接口伪装成已存在能力。
+本文说明当前已开发的认证（Auth）、公开门户（Portal）与后台工作台（Admin）接口。它是对 OpenAPI 契约的可读补充：**路径、字段类型、必填性和状态码以 `openapi.yaml` 为最终事实来源**。本文不会把尚未实现的内容正文编辑、文件上传、成员邀请或设置保存接口伪装成已存在能力。
+
+> 实现状态：`/api/v1/auth/*` 已在 Go API 底座中实现。Portal 与 Admin 的内容/资源/项目/审核端点已冻结为前端 Mock 和 OpenAPI 契约，将在后续内容闭环阶段接入持久化 handler；不要因契约已存在而假定当前远程 API 已完成这些业务路由。
 
 ## 1. 设计边界
 
@@ -12,6 +14,7 @@
 
 | API 面 | 前缀 | 使用者 | 数据范围 | 认证 |
 | --- | --- | --- | --- | --- |
+| Auth API | `/api/v1/auth` | 登录页、会话恢复 | 注册、登录、刷新、退出与当前用户 | 视端点而定 |
 | Portal API | `/api/v1/portal` | 官网、资源页、Wiki、自定义门户 | 已发布且可公开的数据 | 无 |
 | Admin API | `/api/v1/admin` | 内部后台 | 草稿、成员、审批、受限服务器能力 | Bearer JWT + RBAC |
 
@@ -130,7 +133,7 @@ curl "http://localhost:8080/api/v1/admin/dashboard" \
 | 状态码 | 含义 | 客户端处理 |
 | --- | --- | --- |
 | `400` | 请求字段、长度、枚举值或命令格式不合法 | 就地展示校验信息，不重试。 |
-| `401` | 未带 token、token 失效或签名无法验证 | 清理会话并进入登录流程（登录 API 尚未定义）。 |
+| `401` | 未带 token、token 失效或签名无法验证 | 清理会话并进入登录或刷新流程。 |
 | `403` | 已登录但 RBAC 角色无权操作 | 保留页面上下文，提示权限不足。 |
 | `404` | 公开组织或资源不存在 | Portal 显示未找到页；不要暴露内部存在性信息。 |
 | `409` | 审批对象已被其他操作处理，状态冲突 | 刷新列表后重新决定，不自动重试。 |
@@ -174,7 +177,52 @@ OpenAPI 当前将具体权限决策留给服务端 RBAC 策略，因此不能把
 
 Portal 通过 `organization_slug` 定位组织。Admin 当前为“当前 token 所属组织”的工作台，因此 URL 中不暴露组织标识；服务端必须从认证上下文取组织 ID，绝不可接受客户端随意提交的组织 ID 来越权切换数据。
 
-## 5. Portal API（公开只读）
+## 5. Auth API（身份与会话）
+
+公共前缀：`/api/v1/auth`。注册、登录、刷新与退出使用 JSON 请求体；`/me` 必须携带 Bearer JWT。当前开发环境返回令牌对供前端联调，生产部署应优先将刷新令牌置于 `HttpOnly`、`Secure`、`SameSite` Cookie，并避免将其长期存入浏览器存储。
+
+| 方法与路径 | 认证 | 说明 |
+| --- | --- | --- |
+| `POST /register` | 无 | 注册用户并作为 `member` 加入默认组织。 |
+| `POST /login` | 无 | 验证邮箱和密码，签发访问/刷新令牌对。 |
+| `POST /refresh` | 刷新令牌 | 轮换刷新令牌，签发新令牌对。 |
+| `POST /logout` | 无 | 撤销提交的刷新令牌；重复调用应保持安全。 |
+| `GET /me` | Bearer JWT | 返回当前用户、当前组织和角色。 |
+
+注册请求：
+
+```json
+{
+  "email": "member@example.com",
+  "display_name": "Member",
+  "password": "at-least-12-characters"
+}
+```
+
+登录与刷新成功均返回：
+
+```json
+{
+  "data": {
+    "access_token": "<jwt>",
+    "refresh_token": "<opaque-token>",
+    "token_type": "Bearer",
+    "expires_in": 900,
+    "user": {
+      "id": "user_...",
+      "email": "member@example.com",
+      "display_name": "Member",
+      "organization_id": "org_...",
+      "roles": ["member"]
+    }
+  },
+  "meta": { "request_id": "req_example" }
+}
+```
+
+访问令牌短时有效；刷新令牌只以哈希形式保存在服务端，并在刷新时轮换。密码最少 12 个字符。认证失败、禁用用户或失效刷新令牌均不得泄露账户是否存在以外的敏感细节。
+
+## 6. Portal API（公开只读）
 
 公共前缀：`/api/v1/portal/organizations/{organization_slug}`。其中 `organization_slug` 必填，格式为小写字母、数字与连字符：`^[a-z0-9]+(?:-[a-z0-9]+)*$`，例如 `qutcraft`。
 
@@ -318,7 +366,7 @@ Operation ID：`getPortalServerStatus`
 
 绝不返回 RCON 主机、端口、密码、白名单账户、命令记录、TPS 原始指标或管理端审批信息。
 
-## 6. Admin API（受认证后台）
+## 7. Admin API（受认证后台）
 
 公共前缀：`/api/v1/admin`。本节所有接口均要求 `Authorization: Bearer <JWT>`，并可能返回 `401` 或 `403`。
 
@@ -484,7 +532,7 @@ Operation ID：`executeRestrictedServerCommand`
 
 当前 Vue mock 环境只记录命令并返回模拟成功，**不会连接任何 Minecraft 服务器**。
 
-## 7. 前端路由与接口映射
+## 8. 前端路由与接口映射
 
 | 页面路由 | 页面用途 | 当前调用接口 |
 | --- | --- | --- |
@@ -492,13 +540,14 @@ Operation ID：`executeRestrictedServerCommand`
 | `/projects` | 公开项目 | 项目列表。 |
 | `/resources` | 资源中心 | 资源列表。 |
 | `/knowledge` | 知识库列表 | 知识库文章列表。 |
+| `/login` | 管理端登录 | 登录、刷新与当前会话接口。 |
 | `/admin` | 后台概览 | `GET /admin/dashboard`。 |
 | `/admin/content` | 内容工作区 | `GET/POST /admin/content`。 |
 | `/admin/users` | 成员与权限 | `GET /admin/users`。 |
 | `/admin/reviews` | 审批与 RCON | 申请列表、批准/拒绝、服务器状态、受限命令。 |
 | `/admin/settings` | 组织设置 UI | 当前无持久化 API；仅 mock 页面状态。 |
 
-## 8. 自定义门户接入规范
+## 9. 自定义门户接入规范
 
 自定义门户是可替换的公开展示层，不是第三方后台：
 
@@ -509,7 +558,7 @@ Operation ID：`executeRestrictedServerCommand`
 - 对外链 `href` 做常规 URL 安全校验；对服务端文本按纯文本渲染或经过可信 HTML 清洗。
 - 不在自定义门户中嵌入管理员 token，也不调用 `/api/v1/admin/*`。
 
-## 9. 变更流程与兼容性
+## 10. 变更流程与兼容性
 
 1. 先修改 [openapi.yaml](openapi.yaml)，并为每个接口维护稳定 `operationId`。
 2. 更新本文的字段说明、示例和安全边界。
@@ -519,11 +568,11 @@ Operation ID：`executeRestrictedServerCommand`
 
 `/api/v1` 内不得删除或改变已发布字段的类型、语义或必填性。需要破坏性变更时，新增 `v2` 前缀或保留旧字段直至迁移完成。新增可选字段通常兼容，但客户端仍应忽略未知字段、容忍可选字段缺失。
 
-## 10. 当前未定义能力清单
+## 11. 当前未定义能力清单
 
 以下能力可能是后续 CMS 所需功能，但**不是当前 API**：
 
-- 登录、刷新 token、注销、密码/SSO 与会话管理。
+- 密码重置、SSO、多组织主动切换与基于 Cookie 的刷新令牌投递。
 - 内容正文详情、编辑、审核、发布、撤回、删除与版本历史。
 - 文件直传、分片上传、资源签发、下载刷新与病毒扫描回调。
 - 成员邀请、角色修改、停用/恢复、成员资料编辑。

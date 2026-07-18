@@ -1,4 +1,5 @@
 import { mockGet, mockPost } from '@/api/mock'
+import { getAccessToken } from '@/auth/token-storage'
 import type { ApiEnvelope, Page } from '@/api/types'
 
 const apiMode = import.meta.env.VITE_API_MODE ?? 'mock'
@@ -11,11 +12,21 @@ export class ApiClientError extends Error {
   }
 }
 
+function headers(json = false) {
+  const token = getAccessToken()
+  return {
+    Accept: 'application/json',
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }
+}
+
 export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   if (apiMode === 'mock') return mockGet<T>(path)
 
   const response = await fetch(`${apiBaseUrl}${path}`, {
-    headers: { Accept: 'application/json' },
+    headers: headers(),
+    credentials: 'include',
     signal,
   })
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
@@ -30,7 +41,8 @@ export async function getPage<T>(path: string, signal?: AbortSignal): Promise<Pa
   if (apiMode === 'mock') return mockGet<Page<T>>(path)
 
   const response = await fetch(`${apiBaseUrl}${path}`, {
-    headers: { Accept: 'application/json' },
+    headers: headers(),
+    credentials: 'include',
     signal,
   })
   const payload = await response.json().catch(() => null) as ApiEnvelope<T[]> | { error?: { code?: string; message?: string } } | null
@@ -51,7 +63,8 @@ export async function post<T>(path: string, body?: unknown): Promise<T> {
 
   const response = await fetch(`${apiBaseUrl}${path}`, {
     method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    headers: headers(true),
+    credentials: 'include',
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null

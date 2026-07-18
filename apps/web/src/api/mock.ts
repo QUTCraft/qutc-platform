@@ -4,6 +4,7 @@ import type {
   AdminDashboard,
   AdminServerStatus,
   AdminUser,
+  AuthUser,
   KnowledgeArticle,
   Organization,
   Page,
@@ -11,6 +12,7 @@ import type {
   PublicPost,
   Resource,
   ServerStatus,
+  TokenPair,
 } from '@/api/types'
 
 const organization: Organization = {
@@ -89,11 +91,20 @@ const adminServer: AdminServerStatus = {
   max_players: 60,
 }
 
+const mockUserKey = 'qutc.mock_user'
+const savedMockUser = () => { try { return JSON.parse(window.localStorage.getItem(mockUserKey) ?? 'null') as AuthUser | null } catch { return null } }
+let mockUser: AuthUser | null = savedMockUser()
+const saveMockUser = (user: AuthUser | null) => { mockUser = user; if (user) window.localStorage.setItem(mockUserKey, JSON.stringify(user)); else window.localStorage.removeItem(mockUserKey) }
+const authPair = (user: AuthUser): TokenPair => ({ access_token: 'mock-access-token', refresh_token: 'mock-refresh-token', token_type: 'Bearer', expires_in: 900, user })
+const requireMockAdmin = () => { if (!mockUser) throw new Error('请先登录后再访问管理工作台。') }
+
 const page = <T>(items: T[]): Page<T> => ({ items, page: 1, page_size: 20, total: items.length })
 const wait = () => new Promise((resolve) => window.setTimeout(resolve, 160))
 
 export async function mockGet<T>(path: string): Promise<T> {
   await wait()
+  if (path.endsWith('/auth/me')) { if (!mockUser) throw new Error('当前会话已失效。'); return mockUser as T }
+  if (path.includes('/admin/')) requireMockAdmin()
   if (path.endsWith('/admin/dashboard')) {
     const dashboard: AdminDashboard = {
       organization_name: organization.name,
@@ -125,9 +136,25 @@ export async function mockGet<T>(path: string): Promise<T> {
 
 export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
   await wait()
+  if (path.endsWith('/auth/login')) {
+    const payload = body as { email: string; password: string }
+    if (payload.email !== 'admin@qutcraft.local' || payload.password !== 'demo-admin-pass') throw new Error('演示账号或密码错误。')
+    const user: AuthUser = { id: 'user_bk', email: payload.email, display_name: 'BBKarasu', organization_id: 'org_qutcraft', roles: ['owner'] }
+    saveMockUser(user)
+    return authPair(user) as T
+  }
+  if (path.endsWith('/auth/register')) {
+    const payload = body as { email: string; display_name: string }
+    const user: AuthUser = { id: `user_${Date.now()}`, email: payload.email, display_name: payload.display_name, organization_id: 'org_qutcraft', roles: ['member'] }
+    saveMockUser(user)
+    return authPair(user) as T
+  }
+  if (path.endsWith('/auth/refresh')) { if (!mockUser) throw new Error('刷新令牌已失效。'); return authPair(mockUser) as T }
+  if (path.endsWith('/auth/logout')) { saveMockUser(null); return { revoked: true } as T }
+  if (path.includes('/admin/')) requireMockAdmin()
   if (path.endsWith('/admin/content')) {
     const payload = body as Pick<AdminContent, 'title' | 'type'>
-    const content: AdminContent = { id: `content_${Date.now()}`, title: payload.title, type: payload.type, status: 'draft', author: 'BBKarasu', updated_at: new Date().toISOString() }
+    const content: AdminContent = { id: `content_${Date.now()}`, title: payload.title, type: payload.type, status: 'draft', author: mockUser?.display_name ?? 'BBKarasu', updated_at: new Date().toISOString() }
     adminContent = [content, ...adminContent]
     return content as T
   }

@@ -4,7 +4,7 @@ QUTCraft Platform 是一个面向校园社团与民间组织的可扩展内容�
 
 青岛理工大学 QUTCraft Minecraft 社团是本项目的首个真实落地场景。它验证了平台既可以保持通用的组织数字化能力，也可以通过公开 API 构建具有社团特色的门户，而不会让 Minecraft 服务器能力污染通用业务核心。
 
-> 当前仓库处于 MVP 开发阶段。前端已提供可运行的门户与后台工作台，默认使用契约 Mock 数据；Go API、数据库、认证与部署链路仍按项目排期逐步建设。
+> 当前仓库处于 MVP 开发阶段。前端默认使用契约 Mock 数据；Go API、MySQL 基础迁移、JWT/RBAC、Compose 开发环境已落地为源码。内容发布、资源上传、完整管理 API 与真实服务器适配仍按项目排期逐步建设。
 
 ## 核心原则
 
@@ -33,15 +33,26 @@ QUTCraft Platform 是一个面向校园社团与民间组织的可扩展内容�
 
 > 后台当前为前端 Mock 实现。页面操作会更新浏览器运行时 Mock 数据，但不会连接 Minecraft 服务器或写入真实数据库。
 
+### 身份与工程底座
+
+- Go + Gin + GORM API 服务，包含健康检查与统一 JSON 响应。
+- MySQL 初始迁移：组织、用户、角色、权限、成员关系、刷新令牌与审计事件。
+- 注册、登录、刷新令牌轮换、退出撤销与当前会话接口。
+- JWT Bearer 鉴权与基于 `resource:action` 的 RBAC 中间件。
+- 前端登录页、会话恢复、后台路由守卫与 Mock 演示账号。
+- MySQL、Redis、API、Web 及可选 MinIO 的 Docker Compose 开发环境。
+
+> Auth API 已由 `apps/api` 实现；Portal/Admin 的内容、资源、项目和审核业务端点在后续“内容发布闭环”阶段落地。当前 Web 的这些页面仍由契约 Mock 支撑演示。
+
 ## 技术栈
 
 | 层级 | 当前选型 |
 | --- | --- |
 | Web | Vue 3、Vite、TypeScript、Vue Router、Element Plus、Material Design 3 设计语言 |
-| API（规划） | Go、Gin、GORM、Swagger / OpenAPI |
-| 数据（规划） | MySQL、Redis、MinIO |
-| 认证与授权（规划） | JWT、RBAC |
-| 部署（规划） | Docker Compose、Nginx / OpenResty |
+| API | Go、Gin、GORM、Swagger / OpenAPI |
+| 数据 | MySQL、Redis、MinIO（可选服务） |
+| 认证与授权 | JWT、RBAC |
+| 部署 | Docker Compose、Nginx / OpenResty |
 | 接口协作 | OpenAPI 3.1、Apifox、Swagger UI |
 
 ## 快速开始
@@ -50,6 +61,8 @@ QUTCraft Platform 是一个面向校园社团与民间组织的可扩展内容�
 
 - Node.js 20 或更高版本
 - pnpm 9 或更高版本
+- Go 1.22 或更高版本（运行 API）
+- Docker Compose v2（运行完整本地依赖环境）
 
 ### 启动前端
 
@@ -79,6 +92,13 @@ http://localhost:5173
 | `/admin/reviews` | 申请审核与服务器适配 |
 | `/admin/settings` | 组织设置 |
 
+访问 `/admin` 会先进入登录页。默认 Mock 演示账号为：
+
+```text
+邮箱：admin@qutcraft.local
+密码：demo-admin-pass
+```
+
 ### 校验前端
 
 ```bash
@@ -100,6 +120,41 @@ VITE_ORGANIZATION_SLUG=qutcraft
 ```
 
 只有后端实现并可用后才应切换为 `VITE_API_MODE=remote`。不要将生产 token、数据库连接、RCON 凭据或对象存储密钥写入任何 `VITE_*` 变量；这些变量会被打包到浏览器端。
+
+### 启动 API（本机 Go）
+
+```bash
+cd apps/api
+copy .env.example .env
+go mod tidy
+go run ./cmd/server
+```
+
+API 默认监听 `http://localhost:8080`，健康检查地址为 `GET /healthz`。首次启动会创建基础表、默认组织、角色与权限；开发环境可使用 `.env` 中的 `BOOTSTRAP_ADMIN_*` 创建第一个所有者。生产环境必须替换 JWT 密钥和引导密码，且不得提交 `.env`。
+
+### 启动完整开发环境（Docker Compose）
+
+```bash
+cd deploy/compose
+copy .env.example .env
+docker compose up --build
+```
+
+默认启动 MySQL、Redis、API 与 Web。需要对象存储时使用：
+
+```bash
+docker compose --profile storage up --build
+```
+
+需要本地 Swagger UI 时使用：
+
+```bash
+docker compose --profile docs up
+```
+
+随后访问 `http://localhost:8081`。Swagger UI 加载仓库中的 `docs/api/openapi.yaml`，因此它与 Apifox 的事实来源一致；本地联调时在 Swagger/Apifox 中将 API Server 覆盖为 `http://localhost:8080`。
+
+当前电脑若未安装 Go 或 Docker，可继续使用前端 Mock 模式；安装工具链后按以上命令验证 API 和 Compose。
 
 ## API 与接口协作
 

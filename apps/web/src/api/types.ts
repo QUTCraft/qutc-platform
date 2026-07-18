@@ -128,3 +128,19 @@ export interface ServerCommandResult {
   message: string
   executed_at: string
 }
+
+export interface AuthUser {
+  id: string
+  email: string
+  display_name: string
+  organization_id: string
+  roles: Array<'owner' | 'administrator' | 'editor' | 'member'>
+}
+
+export interface TokenPair {
+  access_token: string
+  refresh_token: string
+  token_type: 'Bearer'
+  expires_in: number
+  user: AuthUser
+}
