@@ -1,0 +1,180 @@
+/* Material Design 3 (MD3) Design System Tokens */
+:root {
+  /* MD3 Color System - Light Theme */
+  --md-sys-color-primary: #5d45db;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #e0e0ff;
+  --md-sys-color-on-primary-container: #190065;
+
+  --md-sys-color-secondary: #006a60;
+  --md-sys-color-on-secondary: #ffffff;
+  --md-sys-color-secondary-container: #9cf1e4;
+  --md-sys-color-on-secondary-container: #00201c;
+
+  --md-sys-color-tertiary: #7c4d79;
+  --md-sys-color-on-tertiary: #ffffff;
+  --md-sys-color-tertiary-container: #ffd7f6;
+  --md-sys-color-on-tertiary-container: #310732;
+
+  --md-sys-color-error: #ba1a1a;
+  --md-sys-color-on-error: #ffffff;
+  --md-sys-color-error-container: #ffdad6;
+  --md-sys-color-on-error-container: #410002;
+
+  --md-sys-color-surface-dim: #ded8e1;
+  --md-sys-color-surface: #fef7ff;
+  --md-sys-color-surface-bright: #fef7ff;
+
+  --md-sys-color-surface-container-lowest: #ffffff;
+  --md-sys-color-surface-container-low: #f7f2fa;
+  --md-sys-color-surface-container: #f3edf7;
+  --md-sys-color-surface-container-high: #ece6f0;
+  --md-sys-color-surface-container-highest: #e6e0e9;
+
+  --md-sys-color-on-surface: #1d1b20;
+  --md-sys-color-on-surface-variant: #49454f;
+  --md-sys-color-outline: #79747e;
+  --md-sys-color-outline-variant: #cac4d0;
+
+  --md-sys-color-scrim: #000000;
+  --md-sys-color-shadow: #000000;
+
+  --md-sys-color-inverse-surface: #322f35;
+  --md-sys-color-inverse-on-surface: #f5eff7;
+  --md-sys-color-inverse-primary: #c3c0ff;
+
+  /* Backward Compatibility Aliases */
+  --md-primary: var(--md-sys-color-primary);
+  --md-on-primary: var(--md-sys-color-on-primary);
+  --md-primary-container: var(--md-sys-color-primary-container);
+  --md-on-primary-container: var(--md-sys-color-on-primary-container);
+  --md-secondary: var(--md-sys-color-secondary);
+  --md-secondary-container: var(--md-sys-color-secondary-container);
+  --md-surface: var(--md-sys-color-surface);
+  --md-surface-low: var(--md-sys-color-surface-container-low);
+  --md-surface-high: var(--md-sys-color-surface-container-high);
+  --md-surface-highest: var(--md-sys-color-surface-container-highest);
+  --md-on-surface: var(--md-sys-color-on-surface);
+  --md-on-surface-variant: var(--md-sys-color-on-surface-variant);
+  --md-outline: var(--md-sys-color-outline);
+  --md-outline-variant: var(--md-sys-color-outline-variant);
+
+  /* MD3 Shape System */
+  --md-shape-none: 0px;
+  --md-shape-xs: 4px;
+  --md-shape-sm: 8px;
+  --md-shape-md: 12px;
+  --md-shape-lg: 16px;
+  --md-shape-xl: 28px;
+  --md-shape-full: 9999px;
+
+  --md-radius-sm: var(--md-shape-md);
+  --md-radius-md: var(--md-shape-lg);
+  --md-radius-lg: var(--md-shape-xl);
+
+  /* MD3 Typography */
+  --md-font-family: "Plus Jakarta Sans", "Inter", "Noto Sans SC", system-ui, -apple-system, sans-serif;
+  --md-font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
+
+  /* MD3 Elevation Levels */
+  --md-elevation-0: none;
+  --md-elevation-1: 0px 1px 3px 1px rgba(0, 0, 0, 0.07), 0px 1px 2px 0px rgba(0, 0, 0, 0.1);
+  --md-elevation-2: 0px 2px 6px 2px rgba(0, 0, 0, 0.08), 0px 1px 2px 0px rgba(0, 0, 0, 0.12);
+  --md-elevation-3: 0px 4px 12px 3px rgba(0, 0, 0, 0.09), 0px 1px 3px 0px rgba(0, 0, 0, 0.14);
+  --md-elevation-4: 0px 6px 16px 4px rgba(0, 0, 0, 0.1), 0px 2px 4px 0px rgba(0, 0, 0, 0.14);
+  --md-elevation-5: 0px 8px 24px 6px rgba(0, 0, 0, 0.12), 0px 4px 4px 0px rgba(0, 0, 0, 0.15);
+
+  /* MD3 State Layer Opacity */
+  --md-state-hover-opacity: 0.08;
+  --md-state-focus-opacity: 0.12;
+  --md-state-pressed-opacity: 0.12;
+  --md-state-dragged-opacity: 0.16;
+
+  /* Element Plus Theme Mapping (Light) */
+  --el-color-primary: var(--md-sys-color-primary);
+  --el-color-primary-light-3: #816ef0;
+  --el-color-primary-light-5: #a193f4;
+  --el-color-primary-light-7: #c3bbf8;
+  --el-color-primary-light-8: #d5cffb;
+  --el-color-primary-light-9: var(--md-sys-color-primary-container);
+  --el-color-primary-dark-2: #4428c3;
+  --el-border-radius-base: var(--md-shape-md);
+  --el-border-color: var(--md-sys-color-outline-variant);
+  --el-text-color-primary: var(--md-sys-color-on-surface);
+  --el-text-color-regular: var(--md-sys-color-on-surface-variant);
+  --el-fill-color-blank: var(--md-sys-color-surface-container-lowest);
+  --el-bg-color: var(--md-sys-color-surface-container-lowest);
+  --el-bg-color-overlay: var(--md-sys-color-surface-container-high);
+}
+
+/* MD3 Dark Theme Tokens */
+html.dark,
+[data-theme="dark"] {
+  --md-sys-color-primary: #c3c0ff;
+  --md-sys-color-on-primary: #290097;
+  --md-sys-color-primary-container: #4428c3;
+  --md-sys-color-on-primary-container: #e0e0ff;
+
+  --md-sys-color-secondary: #80d5c7;
+  --md-sys-color-on-secondary: #003731;
+  --md-sys-color-secondary-container: #005048;
+  --md-sys-color-on-secondary-container: #9cf1e4;
+
+  --md-sys-color-tertiary: #ecb3e6;
+  --md-sys-color-on-tertiary: #481f48;
+  --md-sys-color-tertiary-container: #623560;
+  --md-sys-color-on-tertiary-container: #ffd7f6;
+
+  --md-sys-color-error: #ffb4ab;
+  --md-sys-color-on-error: #690005;
+  --md-sys-color-error-container: #93000a;
+  --md-sys-color-on-error-container: #ffdad6;
+
+  --md-sys-color-surface-dim: #141218;
+  --md-sys-color-surface: #141218;
+  --md-sys-color-surface-bright: #3b383e;
+
+  --md-sys-color-surface-container-lowest: #0f0d13;
+  --md-sys-color-surface-container-low: #1d1b20;
+  --md-sys-color-surface-container: #211f26;
+  --md-sys-color-surface-container-high: #2b2930;
+  --md-sys-color-surface-container-highest: #36343b;
+
+  --md-sys-color-on-surface: #e6e0e9;
+  --md-sys-color-on-surface-variant: #cac4d0;
+  --md-sys-color-outline: #938f99;
+  --md-sys-color-outline-variant: #49454f;
+
+  --md-sys-color-scrim: #000000;
+  --md-sys-color-shadow: #000000;
+
+  --md-sys-color-inverse-surface: #e6e0e9;
+  --md-sys-color-inverse-on-surface: #322f35;
+  --md-sys-color-inverse-primary: #5d45db;
+
+  /* Backward Compatibility Aliases for Dark Theme */
+  --md-primary: var(--md-sys-color-primary);
+  --md-on-primary: var(--md-sys-color-on-primary);
+  --md-primary-container: var(--md-sys-color-primary-container);
+  --md-on-primary-container: var(--md-sys-color-on-primary-container);
+  --md-secondary: var(--md-sys-color-secondary);
+  --md-secondary-container: var(--md-sys-color-secondary-container);
+  --md-surface: var(--md-sys-color-surface-container);
+  --md-surface-low: var(--md-sys-color-surface-container-low);
+  --md-surface-high: var(--md-sys-color-surface-container-high);
+  --md-surface-highest: var(--md-sys-color-surface-container-highest);
+  --md-on-surface: var(--md-sys-color-on-surface);
+  --md-on-surface-variant: var(--md-sys-color-on-surface-variant);
+  --md-outline: var(--md-sys-color-outline);
+  --md-outline-variant: var(--md-sys-color-outline-variant);
+
+  /* Element Plus Theme Mapping (Dark) */
+  --el-color-primary: var(--md-sys-color-primary);
+  --el-border-color: var(--md-sys-color-outline-variant);
+  --el-text-color-primary: var(--md-sys-color-on-surface);
+  --el-text-color-regular: var(--md-sys-color-on-surface-variant);
+  --el-fill-color-blank: var(--md-sys-color-surface-container);
+  --el-bg-color: var(--md-sys-color-surface-container-low);
+  --el-bg-color-overlay: var(--md-sys-color-surface-container-high);
+  --el-mask-color: rgba(0, 0, 0, 0.7);
+}

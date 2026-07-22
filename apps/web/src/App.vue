@@ -10,12 +10,14 @@ import { useRoute } from 'vue-router'
 const route = useRoute()
 const isAdmin = computed(() => route.meta.layout === 'admin')
 const isAuth = computed(() => route.meta.layout === 'auth')
+const isFull = computed(() => route.meta.layout === 'full')
 </script>
 
 <template>
   <el-config-provider :locale="zhCn">
     <AdminLayout v-if="isAdmin"><RouterView /></AdminLayout>
     <main v-else-if="isAuth" class="auth-shell"><RouterView /></main>
+    <RouterView v-else-if="isFull" />
     <template v-else>
       <AppHeader />
       <main class="page-shell"><RouterView /></main>

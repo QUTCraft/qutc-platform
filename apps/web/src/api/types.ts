@@ -144,3 +144,21 @@ export interface TokenPair {
   expires_in: number
   user: AuthUser
 }
+
+export interface ApplicationPayload {
+  class_name: string
+  name: string
+  game_id: string
+  qq_number: string
+  email: string
+}
+
+export interface SmtpSettings {
+  host: string
+  port: number
+  sender_email: string
+  recipient_email: string
+  auth_code: string
+  enable_notification: boolean
+}
+
