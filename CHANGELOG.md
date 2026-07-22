@@ -12,9 +12,9 @@ All notable changes to the QUTCraft Platform will be documented in this file.
   - 侧边栏 (`.admin-rail`): 拓宽至 `270px`，导航项增加充裕间距（`min-height: 48px`）。底部账号卡片 (`.account-chip`) 重构为双行布局与独立 Hover 退出按钮，解决头像、姓名与权限标签拥挤挤叠的问题。
   - 顶栏 (`.admin-topbar`): 清理了杂乱文案，保留规范的页面标题、查看门户快捷按钮与主题切换。
   - 主工作区 (`.admin-content`): 拓宽至 `1360px`，指标卡 (`.metric-grid`) 改为 `auto-fit` 弹性自适应网格，解决卡片挤压变窄的问题。
-- **界面文本精简与 API 规范文档归档 (`docs/API_STANDARDS.md`)**:
+- **界面文本精简与 API 规范整合 (`docs/api/API.md`)**:
   - 彻底清理了管理页面中的技术杂音文案（如 `POST /api/v1/portal/apply` / `RCON 限制` / `认证接口将在...`）。
-  - 在项目根目录创建了规范的 [docs/API_STANDARDS.md](file:///d:/qutc-platform/docs/API_STANDARDS.md) 专门归档 API 接口设计规范、RBAC 角色表与 RCON/SMTP 适配器规范。
+  - 移除了临时创建的 `docs/API_STANDARDS.md`，将 SMTP 邮件适配器与 RCON 审计规范完整补充合并至既有的 [docs/api/API.md](file:///d:/qutc-platform/docs/api/API.md) 中。
 
 ---
 
