@@ -1801,6 +1801,17 @@ h1, h2, h3, h4, h5, h6, p {
   transition: all 800ms cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
+/* The cosmic button uses a white surface in its initial state.  Element
+   Plus' global primary-button rule otherwise forces its label back to the
+   primary-on-color (white), which removes the contrast before hover. */
+.cosmic-submit-btn,
+.cosmic-submit-btn:hover,
+.cosmic-submit-btn:focus,
+.cosmic-submit-btn span,
+.cosmic-submit-btn .el-icon {
+  color: #000000 !important;
+}
+
 /* Blooming State: Monochrome to Cosmic Color Shift Explosion */
 .starlight-wrapper.is-blooming {
   background-color: #0d0726;
@@ -1842,6 +1853,14 @@ h1, h2, h3, h4, h5, h6, p {
   background: linear-gradient(135deg, #5d45db, #006a60) !important;
   color: #ffffff !important;
   box-shadow: 0 0 30px rgba(93, 69, 219, 0.6) !important;
+}
+
+.starlight-wrapper.is-blooming .cosmic-submit-btn,
+.starlight-wrapper.is-blooming .cosmic-submit-btn:hover,
+.starlight-wrapper.is-blooming .cosmic-submit-btn:focus,
+.starlight-wrapper.is-blooming .cosmic-submit-btn span,
+.starlight-wrapper.is-blooming .cosmic-submit-btn .el-icon {
+  color: #ffffff !important;
 }
 
 /* Success Result Screen */
@@ -2210,7 +2229,6 @@ h1, h2, h3, h4, h5, h6, p {
   font-weight: 800;
   text-shadow: 0 0 30px rgba(93, 69, 219, 0.5);
 }
-
 
 
 
