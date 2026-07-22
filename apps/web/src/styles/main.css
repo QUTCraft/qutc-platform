@@ -114,7 +114,7 @@ h1, h2, h3, h4, h5, h6, p {
   text-transform: uppercase;
 }
 
-/* Element Plus Systematic Customization (MD3 Standard) */
+/* Element Plus Systematic Customization (MD3 Standard & High Contrast Readability) */
 
 /* Buttons */
 .el-button {
@@ -131,31 +131,68 @@ h1, h2, h3, h4, h5, h6, p {
   box-shadow: var(--md-elevation-1);
 }
 
+.el-button--primary span,
+.el-button--primary .el-icon {
+  color: var(--md-sys-color-on-primary) !important;
+}
+
 .el-button--primary:hover, .el-button--primary:focus {
-  background-color: color-mix(in srgb, var(--md-sys-color-primary) 92%, white) !important;
-  border-color: color-mix(in srgb, var(--md-sys-color-primary) 92%, white) !important;
+  background-color: color-mix(in srgb, var(--md-sys-color-primary) 90%, white) !important;
+  border-color: color-mix(in srgb, var(--md-sys-color-primary) 90%, white) !important;
+  color: var(--md-sys-color-on-primary) !important;
   box-shadow: var(--md-elevation-2);
 }
 
-.el-button--primary.is-active, .el-button--primary:active {
-  background-color: color-mix(in srgb, var(--md-sys-color-primary) 85%, black) !important;
-  box-shadow: var(--md-elevation-1);
+.el-button--primary:hover span,
+.el-button--primary:hover .el-icon {
+  color: var(--md-sys-color-on-primary) !important;
+}
+
+.el-button--primary.is-disabled,
+.el-button--primary.is-disabled:hover,
+.el-button--primary.is-disabled:focus,
+.el-button--primary:disabled {
+  background-color: color-mix(in srgb, var(--md-sys-color-primary) 30%, var(--md-sys-color-surface-container-high)) !important;
+  border-color: transparent !important;
+  color: color-mix(in srgb, var(--md-sys-color-on-surface) 50%, transparent) !important;
+  opacity: 0.7 !important;
+}
+
+.el-button--primary.is-disabled span,
+.el-button--primary.is-disabled .el-icon {
+  color: color-mix(in srgb, var(--md-sys-color-on-surface) 50%, transparent) !important;
 }
 
 .el-button--default:not(.is-text):not(.is-plain) {
   background-color: var(--md-sys-color-surface-container-high) !important;
-  border-color: transparent !important;
+  border-color: var(--md-sys-color-outline-variant) !important;
+  color: var(--md-sys-color-on-surface) !important;
+}
+
+.el-button--default:not(.is-text):not(.is-plain) span,
+.el-button--default:not(.is-text):not(.is-plain) .el-icon {
   color: var(--md-sys-color-on-surface) !important;
 }
 
 .el-button--default:not(.is-text):not(.is-plain):hover {
-  background-color: var(--md-sys-color-surface-container-highest) !important;
-  color: var(--md-sys-color-primary) !important;
+  background-color: var(--md-sys-color-primary-container) !important;
+  border-color: var(--md-sys-color-primary) !important;
+  color: var(--md-sys-color-on-primary-container) !important;
+}
+
+.el-button--default:not(.is-text):not(.is-plain):hover span,
+.el-button--default:not(.is-text):not(.is-plain):hover .el-icon {
+  color: var(--md-sys-color-on-primary-container) !important;
 }
 
 .el-button.is-plain {
-  background-color: transparent !important;
-  border-color: var(--md-sys-color-outline) !important;
+  background-color: var(--md-sys-color-surface-container) !important;
+  border-color: var(--md-sys-color-outline-variant) !important;
+  color: var(--md-sys-color-primary) !important;
+}
+
+.el-button.is-plain span,
+.el-button.is-plain .el-icon {
   color: var(--md-sys-color-primary) !important;
 }
 
@@ -165,13 +202,40 @@ h1, h2, h3, h4, h5, h6, p {
   color: var(--md-sys-color-on-primary-container) !important;
 }
 
+.el-button.is-plain:hover span,
+.el-button.is-plain:hover .el-icon {
+  color: var(--md-sys-color-on-primary-container) !important;
+}
+
 .el-button.is-text {
+  color: var(--md-sys-color-primary) !important;
+  background-color: transparent !important;
+}
+
+.el-button.is-text span,
+.el-button.is-text .el-icon {
   color: var(--md-sys-color-primary) !important;
 }
 
 .el-button.is-text:hover {
   background-color: var(--md-sys-color-primary-container) !important;
   color: var(--md-sys-color-on-primary-container) !important;
+}
+
+.el-button.is-text:hover span,
+.el-button.is-text:hover .el-icon {
+  color: var(--md-sys-color-on-primary-container) !important;
+}
+
+/* Empty State & Cards */
+.el-empty__description p {
+  color: var(--md-sys-color-on-surface-variant) !important;
+}
+
+.el-card {
+  background-color: var(--md-sys-color-surface-container) !important;
+  border-color: var(--md-sys-color-outline-variant) !important;
+  color: var(--md-sys-color-on-surface) !important;
 }
 
 /* Inputs & Forms */

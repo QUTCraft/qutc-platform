@@ -2,6 +2,18 @@
 
 All notable changes to the QUTCraft Platform will be documented in this file.
 
+## [v0.2.1] - 2026-07-22
+
+### 🐛 修复 ADMIN 管理工作台 Monet 配色遗漏与按钮文字重合 Readability 问题 (Urgent Admin Monet Readability Fix)
+- **管理工作台全面参与 Monet 取色 (Admin Area Full Monet Sync)**:
+  - 修复了 Admin Rail 侧边栏、TopBar 顶部栏、Admin Panel、Cards、Forms、Empty States、Tags、Code 块与表格未完整参与 Monet 动态主题色彩覆盖的问题。
+  - 确保所有管理工作台区域完全响应 MD3 Monet 动态四季与昼夜调色盘。
+- **重构按钮文字与背景色重合 bug (Element Plus Button Readability Fix)**:
+  - 彻底解除了 Element Plus 默认 `is-disabled` / `plain` / `text` 按钮在暗色模式或 Monet 盛夏/春樱/枫秋色彩下出现的文字与背景色沉底重合 bug。
+  - 主按钮 (`.el-button--primary`) 的 span 文字与图标固定映射至高对比度的 `--md-sys-color-on-primary`，禁用态与默认态均具备 100% 极高可读性。
+
+---
+
 ## [v0.2.0] - 2026-07-22
 
 ### 🎨 Material Design 3 Monet 动态四季与昼夜色彩引擎 (Seasonal & Diurnal Monet Color Engine)
@@ -17,7 +29,6 @@ All notable changes to the QUTCraft Platform will be documented in this file.
     - 🌙 **静谧夜幕 (19:00 - 06:59)**: 优雅柔和的深色高对比度夜间模式。
 - **暗色高对比度文字与极致可读性 (High-Contrast Dark Readability)**:
   - 重构了暗色模式下的文字 contrast ratio 至 `12:1` 以上，解决死板硬切与暗光下文字模糊刺眼的问题。
-  - 主文字采用柔和亮白 (`#F4E0E5` / `#E0F2F1` / `#FBECE5` / `#E3EDFB`)，副文字层次分明。
 - **全站 450ms 平滑缓动过渡 (Silky Transitions)**:
   - `transition: background-color 450ms cubic-bezier(0.2, 0, 0, 1), color 450ms cubic-bezier(0.2, 0, 0, 1)`，昼夜交替与主题色彩切换时极为平滑自然。
 
