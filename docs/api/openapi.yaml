@@ -293,6 +293,127 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/content/{content_id}:
+    patch:
+      tags: [Admin]
+      operationId: updateAdminContent
+      summary: 更新内容草稿
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: content_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateAdminContentRequest' }
+      responses:
+        '200':
+          description: 草稿已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminContentResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/content/{content_id}/publish:
+    post:
+      tags: [Admin]
+      operationId: publishAdminContent
+      summary: 发布内容
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: content_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: 内容已发布
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminContentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/content/{content_id}/archive:
+    post:
+      tags: [Admin]
+      operationId: archiveAdminContent
+      summary: 下线内容
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: content_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: 内容已下线
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminContentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/assets:
+    post:
+      tags: [Admin]
+      operationId: uploadAdminAsset
+      summary: 上传媒体资源
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                content_id: { type: string }
+      responses:
+        '201':
+          description: 资产已保存
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaAssetResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/assets/{asset_id}/download:
+    get:
+      tags: [Admin]
+      operationId: downloadAdminAsset
+      summary: 下载管理端媒体资源
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: asset_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200': { description: 文件流 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/portal/organizations/{organization_slug}/assets/{asset_id}/download:
+    get:
+      tags: [Portal]
+      operationId: downloadPortalAsset
+      summary: 下载已公开媒体资源
+      parameters:
+        - $ref: '#/components/parameters/OrganizationSlug'
+        - name: asset_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200': { description: 文件流 }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/admin/users:
     get:
       tags: [Admin]
@@ -603,7 +724,7 @@ components:
       enum: [news, resource, knowledge]
     AdminContentStatus:
       type: string
-      enum: [draft, review, published]
+      enum: [draft, review, published, archived]
     AdminContent:
       type: object
       required: [id, title, type, status, author, updated_at]
@@ -613,6 +734,9 @@ components:
         type: { $ref: '#/components/schemas/AdminContentType' }
         status: { $ref: '#/components/schemas/AdminContentStatus' }
         author: { type: string, maxLength: 80 }
+        excerpt: { type: [string, 'null'], maxLength: 500 }
+        body: { type: [string, 'null'] }
+        published_at: { type: [string, 'null'], format: date-time }
         updated_at: { type: string, format: date-time }
     CreateAdminContentRequest:
       type: object
@@ -620,6 +744,26 @@ components:
       properties:
         title: { type: string, minLength: 1, maxLength: 160 }
         type: { $ref: '#/components/schemas/AdminContentType' }
+        excerpt: { type: string, maxLength: 500 }
+        body: { type: string }
+    UpdateAdminContentRequest:
+      type: object
+      required: [title, type]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 160 }
+        type: { $ref: '#/components/schemas/AdminContentType' }
+        excerpt: { type: string, maxLength: 500 }
+        body: { type: string }
+    MediaAsset:
+      type: object
+      required: [id, original_name, mime_type, size_bytes, download_url]
+      properties:
+        id: { type: string }
+        content_id: { type: [string, 'null'] }
+        original_name: { type: string, maxLength: 255 }
+        mime_type: { type: string }
+        size_bytes: { type: integer, format: int64, minimum: 0 }
+        download_url: { type: string, format: uri-reference }
     AdminRole:
       type: string
       enum: [owner, administrator, editor, member]
@@ -752,6 +896,12 @@ components:
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/AdminContent' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    MediaAssetResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/MediaAsset' }
         meta: { $ref: '#/components/schemas/Meta' }
     AuthUserResponse:
       type: object

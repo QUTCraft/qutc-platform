@@ -13,6 +13,7 @@ const showLoginHint = () => ElMessage.info('认证接口将在 /api/v1/auth 下�
 
 const links = [
   { to: '/', label: '首页' },
+  { to: '/posts', label: '动态' },
   { to: '/projects', label: '项目' },
   { to: '/resources', label: '资源' },
   { to: '/knowledge', label: '知识库' },

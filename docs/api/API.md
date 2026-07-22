@@ -6,7 +6,7 @@
 
 本文说明当前已开发的认证（Auth）、公开门户（Portal）与后台工作台（Admin）接口。它是对 OpenAPI 契约的可读补充：**路径、字段类型、必填性和状态码以 `openapi.yaml` 为最终事实来源**。本文不会把尚未实现的内容正文编辑、文件上传、成员邀请或设置保存接口伪装成已存在能力。
 
-> 实现状态：`/api/v1/auth/*` 已在 Go API 底座中实现。Portal 与 Admin 的内容/资源/项目/审核端点已冻结为前端 Mock 和 OpenAPI 契约，将在后续内容闭环阶段接入持久化 handler；不要因契约已存在而假定当前远程 API 已完成这些业务路由。
+> 实现状态：`/api/v1/auth/*`、Portal 公开动态读取、Admin 内容生命周期和媒体资产接口已在 Go API 底座中实现。项目、资源、知识库和服务器状态当前仍使用开发读模型，后续按对应周计划接入持久化域模型。
 
 ## 1. 设计边界
 
@@ -407,6 +407,8 @@ Operation ID：`listAdminContent`
 | `status` | enum | `draft`、`review`、`published`。 |
 | `author` | string，最多 80 字符 | 当前负责人显示名。 |
 | `updated_at` | date-time | 最后修改时刻。 |
+| `excerpt` | string | 可选门户摘要，最长 500 字符。 |
+| `body` | string | 可选正文；管理端可见，Portal 列表不返回正文。 |
 
 #### 创建内容草稿
 
@@ -427,7 +429,21 @@ Operation ID：`createAdminContent`
 | `title` | 是 | 非空，最长 160 字符。 |
 | `type` | 是 | `news`、`resource`、`knowledge` 之一。 |
 
-成功返回 `201` 和完整 `AdminContent`，其初始状态为 `draft`。当前契约没有“编辑正文、提交审核、发布、删除、上传资源”接口；这些功能开始开发时必须先扩展 OpenAPI，再做 UI 或后端路由。
+成功返回 `201` 和完整 `AdminContent`，其初始状态为 `draft`。
+
+#### 编辑、发布与下线
+
+- `PATCH /api/v1/admin/content/{content_id}`：更新草稿标题、类型、摘要和正文，需要 `content:update`；已发布内容必须先下线。
+- `POST /api/v1/admin/content/{content_id}/publish`：将草稿发布到 Portal，需要 `content:publish`。只有 `published` 内容会出现在公开动态接口。
+- `POST /api/v1/admin/content/{content_id}/archive`：下线内容，需要 `content:archive`；下线使用 `archived` 状态，不物理删除。
+
+#### 媒体资源
+
+- `POST /api/v1/admin/assets`：以 `multipart/form-data` 上传字段 `file`，可选 `content_id` 建立引用，需要 `asset:upload`；开发环境单文件上限 10 MB，仅允许 PNG/JPEG/WebP/PDF/ZIP/MP4。
+- `GET /api/v1/admin/assets/{asset_id}/download`：管理端受权限保护的下载，需要 `asset:read`。
+- `GET /api/v1/portal/organizations/{organization_slug}/assets/{asset_id}/download`：仅当资产关联的内容已发布时允许下载，不返回草稿或管理字段。
+
+上传响应只返回资产元数据和服务端生成的下载地址。客户端不得根据原始文件名、对象存储 bucket 或资产 ID 自行拼接下载 URL。
 
 ### 6.3 成员与角色
 

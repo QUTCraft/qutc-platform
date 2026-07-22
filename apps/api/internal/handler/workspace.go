@@ -14,10 +14,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// WorkspaceHandler supplies the first usable read-model for the portal and
-// management UI.  Content management persistence is introduced in the next
-// milestone; these development fixtures deliberately keep the API contract
-// available while the domain tables are being designed.
+// WorkspaceHandler owns the first content read/write model shared by the
+// public portal and the protected CMS workspace.
 type WorkspaceHandler struct {
 	db                *gorm.DB
 	mu                sync.RWMutex
@@ -87,15 +85,23 @@ func (h *WorkspaceHandler) PortalPosts(c *gin.Context) {
 	if !ok {
 		return
 	}
-	items := []gin.H{{"id": "post_cms", "title": "QUTCraft CMS 项目正式启动", "excerpt": "从官网、资源分发到服务器适配，我们开始建设可持续的公共入口。", "category": "社团动态", "published_at": "2026-07-14T12:00:00Z", "reading_minutes": 4}}
+	var organization model.Organization
+	if err := h.db.Where("slug = ?", c.Param("slug")).First(&organization).Error; err != nil {
+		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
+		return
+	}
+	query := h.db.Where("organization_id = ? AND type = ? AND status = ?", organization.ID, "news", "published").Order("published_at DESC")
 	if category != "" {
-		filtered := items[:0]
-		for _, item := range items {
-			if item["category"] == category {
-				filtered = append(filtered, item)
-			}
-		}
-		items = filtered
+		query = query.Where("title LIKE ? OR excerpt LIKE ?", "%"+category+"%", "%"+category+"%")
+	}
+	var contents []model.Content
+	if err := query.Find(&contents).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "portal.posts_failed", "公开动态暂时无法加载。")
+		return
+	}
+	items := make([]gin.H, 0, len(contents))
+	for _, content := range contents {
+		items = append(items, contentPublicItem(content))
 	}
 	pageOf(c, items)
 }
@@ -127,9 +133,29 @@ func (h *WorkspaceHandler) PortalResources(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "query.invalid_kind", "kind 不是受支持的资源类型。")
 		return
 	}
-	items := []gin.H{{"id": "resource_overview", "title": "QUTCraft CMS 产品说明", "description": "项目目标、门户范围与 MVP 路线。", "kind": "document", "size_bytes": 2600000, "updated_at": "2026-07-17T01:00:00Z", "download_url": "#"}}
-	if kind != "" && items[0]["kind"] != kind || q != "" && !strings.Contains(strings.ToLower(items[0]["title"].(string)+items[0]["description"].(string)), strings.ToLower(q)) {
-		items = items[:0]
+	var organization model.Organization
+	if err := h.db.Where("slug = ?", c.Param("slug")).First(&organization).Error; err != nil {
+		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
+		return
+	}
+	query := h.db.Where("organization_id = ? AND type = ? AND status = ?", organization.ID, "resource", "published").Order("updated_at DESC")
+	if q != "" {
+		query = query.Where("title LIKE ? OR excerpt LIKE ? OR body LIKE ?", "%"+q+"%", "%"+q+"%", "%"+q+"%")
+	}
+	var contents []model.Content
+	if err := query.Find(&contents).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "portal.resources_failed", "公开资源暂时无法加载。")
+		return
+	}
+	items := make([]gin.H, 0, len(contents))
+	for _, content := range contents {
+		item := gin.H{"id": content.ID, "title": content.Title, "description": content.Excerpt, "kind": "document", "size_bytes": 0, "updated_at": content.UpdatedAt, "download_url": "#"}
+		if kind == "" || kind == "document" {
+			items = append(items, item)
+		}
+	}
+	if kind != "" && kind != "document" {
+		items = nil
 	}
 	pageOf(c, items)
 }
@@ -142,9 +168,26 @@ func (h *WorkspaceHandler) PortalKnowledge(c *gin.Context) {
 	if !ok {
 		return
 	}
-	items := []gin.H{{"id": "knowledge_handoff", "title": "如何让社团项目可交接", "summary": "建立不依赖个人记忆的项目协作方式。", "category": "项目协作", "updated_at": "2026-07-16T02:00:00Z", "reading_minutes": 8}}
-	if category != "" && items[0]["category"] != category || q != "" && !strings.Contains(strings.ToLower(items[0]["title"].(string)+items[0]["summary"].(string)), strings.ToLower(q)) {
-		items = items[:0]
+	var organization model.Organization
+	if err := h.db.Where("slug = ?", c.Param("slug")).First(&organization).Error; err != nil {
+		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
+		return
+	}
+	query := h.db.Where("organization_id = ? AND type = ? AND status = ?", organization.ID, "knowledge", "published").Order("updated_at DESC")
+	if category != "" {
+		query = query.Where("title LIKE ? OR excerpt LIKE ?", "%"+category+"%", "%"+category+"%")
+	}
+	if q != "" {
+		query = query.Where("title LIKE ? OR excerpt LIKE ? OR body LIKE ?", "%"+q+"%", "%"+q+"%", "%"+q+"%")
+	}
+	var contents []model.Content
+	if err := query.Find(&contents).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "portal.knowledge_failed", "公开知识库暂时无法加载。")
+		return
+	}
+	items := make([]gin.H, 0, len(contents))
+	for _, content := range contents {
+		items = append(items, gin.H{"id": content.ID, "title": content.Title, "summary": content.Excerpt, "category": "知识库", "updated_at": content.UpdatedAt, "reading_minutes": maxInt(1, len([]rune(content.Body))/900+1)})
 	}
 	pageOf(c, items)
 }
@@ -153,7 +196,26 @@ func (h *WorkspaceHandler) PortalServer(c *gin.Context) {
 }
 
 func (h *WorkspaceHandler) AdminDashboard(c *gin.Context) {
-	respond(c, http.StatusOK, gin.H{"organization_name": "QUTCraft Commons", "updated_at": time.Now().UTC(), "metrics": []gin.H{{"label": "活跃成员", "value": 1, "change": "开发环境", "tone": "primary"}, {"label": "已发布内容", "value": 1, "change": "开发数据", "tone": "secondary"}, {"label": "待处理申请", "value": 1, "change": "需要处理", "tone": "warning"}, {"label": "在线玩家", "value": 18, "change": "服务器状态正常", "tone": "neutral"}}, "pending_applications": applications(), "recent_content": contentItems(), "server": serverStatus()})
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var organization model.Organization
+	if err := h.db.First(&organization, "id = ?", principal.OrganizationID).Error; err != nil {
+		fail(c, http.StatusNotFound, "organization.not_found", "组织不存在。")
+		return
+	}
+	var published, total int64
+	h.db.Model(&model.Content{}).Where("organization_id = ? AND status = ?", principal.OrganizationID, "published").Count(&published)
+	h.db.Model(&model.Content{}).Where("organization_id = ?", principal.OrganizationID).Count(&total)
+	var recent []model.Content
+	h.db.Where("organization_id = ?", principal.OrganizationID).Order("updated_at DESC").Limit(12).Find(&recent)
+	recentItems := make([]gin.H, 0, len(recent))
+	for _, item := range recent {
+		recentItems = append(recentItems, contentAdminItem(item, h.db))
+	}
+	respond(c, http.StatusOK, gin.H{"organization_name": organization.Name, "updated_at": time.Now().UTC(), "metrics": []gin.H{{"label": "活跃成员", "value": 1, "change": "开发环境", "tone": "primary"}, {"label": "已发布内容", "value": published, "change": "当前公开内容", "tone": "secondary"}, {"label": "内容总数", "value": total, "change": "含草稿", "tone": "neutral"}, {"label": "在线玩家", "value": 18, "change": "服务器状态正常", "tone": "neutral"}}, "pending_applications": applications(), "recent_content": recentItems, "server": serverStatus()})
 }
 func contentItems() []gin.H {
 	return []gin.H{{"id": "content_001", "title": "QUTCraft CMS 项目正式启动", "type": "news", "status": "published", "author": "QUTCraft Admin", "updated_at": "2026-07-17T03:00:00Z"}}
@@ -164,22 +226,133 @@ func applications() []gin.H {
 func serverStatus() gin.H {
 	return gin.H{"enabled": true, "label": "QUTCraft Java 生存服", "state": "online", "online_players": 18, "max_players": 60}
 }
-func (h *WorkspaceHandler) AdminContent(c *gin.Context) { pageOf(c, contentItems()) }
+func (h *WorkspaceHandler) AdminContent(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var contents []model.Content
+	if err := h.db.Where("organization_id = ?", principal.OrganizationID).Order("updated_at DESC").Find(&contents).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "content.list_failed", "内容列表暂时无法加载。")
+		return
+	}
+	items := make([]gin.H, 0, len(contents))
+	for _, item := range contents {
+		items = append(items, contentAdminItem(item, h.db))
+	}
+	pageOf(c, items)
+}
 func (h *WorkspaceHandler) AdminCreateContent(c *gin.Context) {
 	var body struct {
-		Title string `json:"title"`
-		Type  string `json:"type"`
+		Title   string `json:"title"`
+		Type    string `json:"type"`
+		Excerpt string `json:"excerpt"`
+		Body    string `json:"body"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil || body.Title == "" {
 		fail(c, http.StatusBadRequest, "content.validation_failed", "内容标题不能为空。")
 		return
 	}
-	if len([]rune(body.Title)) > 160 || (body.Type != "news" && body.Type != "resource" && body.Type != "knowledge") {
+	if len([]rune(body.Title)) > 160 || len([]rune(body.Excerpt)) > 500 || (body.Type != "news" && body.Type != "resource" && body.Type != "knowledge") {
 		fail(c, http.StatusBadRequest, "content.validation_failed", "title 最长 160 字符，type 必须为 news、resource 或 knowledge。")
 		return
 	}
-	respond(c, http.StatusCreated, gin.H{"id": uuid.NewString(), "title": body.Title, "type": body.Type, "status": "draft", "author": "QUTCraft Admin", "updated_at": time.Now().UTC()})
+	principal, _ := middleware.PrincipalFromContext(c)
+	content := model.Content{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, AuthorUserID: principal.UserID, Title: body.Title, Type: body.Type, Status: "draft", Excerpt: body.Excerpt, Body: body.Body}
+	if err := h.db.Create(&content).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "content.create_failed", "内容草稿创建失败。")
+		return
+	}
+	respond(c, http.StatusCreated, contentAdminItem(content, h.db))
 }
+
+func (h *WorkspaceHandler) AdminUpdateContent(c *gin.Context) {
+	var body struct {
+		Title   string `json:"title"`
+		Type    string `json:"type"`
+		Excerpt string `json:"excerpt"`
+		Body    string `json:"body"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		fail(c, http.StatusBadRequest, "content.validation_failed", "内容格式不正确。")
+		return
+	}
+	if strings.TrimSpace(body.Title) == "" || len([]rune(body.Title)) > 160 || len([]rune(body.Excerpt)) > 500 || (body.Type != "news" && body.Type != "resource" && body.Type != "knowledge") {
+		fail(c, http.StatusBadRequest, "content.validation_failed", "内容字段不符合规范。")
+		return
+	}
+	principal, _ := middleware.PrincipalFromContext(c)
+	var content model.Content
+	if err := h.db.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&content).Error; err != nil {
+		fail(c, http.StatusNotFound, "content.not_found", "内容不存在。")
+		return
+	}
+	if content.Status == "published" {
+		fail(c, http.StatusConflict, "content.published_immutable", "已发布内容不能直接编辑，请先下线。")
+		return
+	}
+	content.Title, content.Type, content.Excerpt, content.Body = strings.TrimSpace(body.Title), body.Type, body.Excerpt, body.Body
+	if err := h.db.Save(&content).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "content.update_failed", "内容保存失败。")
+		return
+	}
+	respond(c, http.StatusOK, contentAdminItem(content, h.db))
+}
+
+func (h *WorkspaceHandler) PublishContent(c *gin.Context) { h.changeContentStatus(c, "published") }
+func (h *WorkspaceHandler) ArchiveContent(c *gin.Context) { h.changeContentStatus(c, "archived") }
+func (h *WorkspaceHandler) changeContentStatus(c *gin.Context, status string) {
+	principal, _ := middleware.PrincipalFromContext(c)
+	var content model.Content
+	if err := h.db.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&content).Error; err != nil {
+		fail(c, http.StatusNotFound, "content.not_found", "内容不存在。")
+		return
+	}
+	if status == "published" && strings.TrimSpace(content.Title) == "" {
+		fail(c, http.StatusBadRequest, "content.not_publishable", "内容标题不能为空。")
+		return
+	}
+	if content.Status == status {
+		fail(c, http.StatusConflict, "content.already_in_state", "内容已经处于目标状态。")
+		return
+	}
+	content.Status = status
+	if status == "published" {
+		now := time.Now().UTC()
+		content.PublishedAt = &now
+	} else {
+		content.PublishedAt = nil
+	}
+	if err := h.db.Save(&content).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "content.status_update_failed", "内容状态更新失败。")
+		return
+	}
+	_ = h.db.Create(&model.AuditEvent{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ActorUserID: principal.UserID, Action: "content." + status, TargetType: "content", TargetID: content.ID, Result: "success", RequestID: ensureRequestID(c)}).Error
+	respond(c, http.StatusOK, contentAdminItem(content, h.db))
+}
+
+func contentPublicItem(content model.Content) gin.H {
+	publishedAt := content.PublishedAt
+	if publishedAt == nil {
+		publishedAt = &content.UpdatedAt
+	}
+	return gin.H{"id": content.ID, "title": content.Title, "excerpt": content.Excerpt, "category": content.Type, "published_at": publishedAt, "reading_minutes": maxInt(1, len([]rune(content.Body))/900+1)}
+}
+
+func contentAdminItem(content model.Content, db *gorm.DB) gin.H {
+	var author model.User
+	_ = db.First(&author, "id = ?", content.AuthorUserID).Error
+	return gin.H{"id": content.ID, "title": content.Title, "type": content.Type, "status": content.Status, "author": author.DisplayName, "excerpt": content.Excerpt, "body": content.Body, "published_at": content.PublishedAt, "updated_at": content.UpdatedAt}
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func (h *WorkspaceHandler) AdminUsers(c *gin.Context) {
 	pageOf(c, []gin.H{{"id": "bootstrap-admin", "name": "QUTCraft Admin", "email": "admin@qutcraft.local", "role": "owner", "state": "active", "joined_at": "2026-07-14T01:00:00Z"}})
 }
@@ -211,7 +384,7 @@ func (h *WorkspaceHandler) AdminApplicationDecision(c *gin.Context) {
 	}
 	h.applicationStates[decision] = next
 	principal, _ := middleware.PrincipalFromContext(c)
-	_ = h.db.Create(&model.AuditEvent{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ActorUserID: principal.UserID, Action: "application." + next, TargetType: "application", TargetID: decision, Result: "success", RequestID: c.GetHeader("X-Request-ID")}).Error
+	_ = h.db.Create(&model.AuditEvent{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ActorUserID: principal.UserID, Action: "application." + next, TargetType: "application", TargetID: decision, Result: "success", RequestID: ensureRequestID(c)}).Error
 	respond(c, http.StatusOK, gin.H{"id": decision, "applicant": "Yukino", "type": "whitelist", "submitted_at": "2026-07-17T02:30:00Z", "note": "希望参与周末建筑测试。", "status": next})
 }
 func (h *WorkspaceHandler) AdminServerStatus(c *gin.Context) {
@@ -232,7 +405,7 @@ func (h *WorkspaceHandler) AdminServerCommand(c *gin.Context) {
 	}
 	principal, _ := middleware.PrincipalFromContext(c)
 	now := time.Now().UTC()
-	_ = h.db.Create(&model.AuditEvent{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ActorUserID: principal.UserID, Action: "server.command", TargetType: "server", Result: "accepted", RequestID: c.GetHeader("X-Request-ID"), CreatedAt: now}).Error
+	_ = h.db.Create(&model.AuditEvent{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ActorUserID: principal.UserID, Action: "server.command", TargetType: "server", Result: "accepted", RequestID: ensureRequestID(c), CreatedAt: now}).Error
 	respond(c, http.StatusOK, gin.H{"accepted": true, "message": "开发环境已记录命令，未连接真实 RCON。", "executed_at": now})
 }
 

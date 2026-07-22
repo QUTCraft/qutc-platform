@@ -75,3 +75,30 @@ type AuditEvent struct {
 	RequestID      string    `gorm:"index;size:64;not null"`
 	CreatedAt      time.Time `gorm:"index"`
 }
+
+type Content struct {
+	ID             string     `gorm:"primaryKey;type:char(36)"`
+	OrganizationID string     `gorm:"index;type:char(36);not null"`
+	AuthorUserID   string     `gorm:"index;type:char(36);not null"`
+	Title          string     `gorm:"size:160;not null"`
+	Type           string     `gorm:"size:24;not null"`
+	Status         string     `gorm:"index;size:24;not null;default:draft"`
+	Excerpt        string     `gorm:"size:500"`
+	Body           string     `gorm:"type:longtext"`
+	PublishedAt    *time.Time `gorm:"index"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type MediaAsset struct {
+	ID             string `gorm:"primaryKey;type:char(36)"`
+	OrganizationID string `gorm:"index;type:char(36);not null"`
+	ContentID      string `gorm:"index;type:char(36)"`
+	UploadedBy     string `gorm:"index;type:char(36);not null"`
+	OriginalName   string `gorm:"size:255;not null"`
+	StoredName     string `gorm:"size:255;not null"`
+	MimeType       string `gorm:"size:120;not null"`
+	SizeBytes      int64  `gorm:"not null"`
+	StoragePath    string `gorm:"size:500;not null"`
+	CreatedAt      time.Time
+}

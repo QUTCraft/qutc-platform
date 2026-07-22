@@ -52,6 +52,11 @@ func main() {
 	admin.GET("/dashboard", middleware.RequirePermission(authService, "organization:read"), workspaceHandler.AdminDashboard)
 	admin.GET("/content", middleware.RequirePermission(authService, "content:read"), workspaceHandler.AdminContent)
 	admin.POST("/content", middleware.RequirePermission(authService, "content:create"), workspaceHandler.AdminCreateContent)
+	admin.PATCH("/content/:id", middleware.RequirePermission(authService, "content:update"), workspaceHandler.AdminUpdateContent)
+	admin.POST("/content/:id/publish", middleware.RequirePermission(authService, "content:publish"), workspaceHandler.PublishContent)
+	admin.POST("/content/:id/archive", middleware.RequirePermission(authService, "content:archive"), workspaceHandler.ArchiveContent)
+	admin.POST("/assets", middleware.RequirePermission(authService, "asset:upload"), workspaceHandler.UploadAsset)
+	admin.GET("/assets/:id/download", middleware.RequirePermission(authService, "asset:read"), workspaceHandler.DownloadAsset)
 	admin.GET("/users", middleware.RequirePermission(authService, "membership:read"), workspaceHandler.AdminUsers)
 	admin.GET("/applications", middleware.RequirePermission(authService, "application:read"), workspaceHandler.AdminApplications)
 	admin.POST("/applications/:id/approve", middleware.RequirePermission(authService, "application:approve"), workspaceHandler.AdminApplicationDecision)
@@ -66,6 +71,7 @@ func main() {
 	portal.GET("/resources", workspaceHandler.PortalResources)
 	portal.GET("/knowledge/articles", workspaceHandler.PortalKnowledge)
 	portal.GET("/server-status", workspaceHandler.PortalServer)
+	portal.GET("/assets/:id/download", workspaceHandler.DownloadAsset)
 
 	log.Printf("qutcraft api listening on %s", cfg.HTTPAddr)
 	if err := router.Run(cfg.HTTPAddr); err != nil {

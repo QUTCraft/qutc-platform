@@ -69,7 +69,7 @@ const statusLabel = computed(() => ({ online: '在线', maintenance: '维护中'
       </section>
 
       <section class="portal-section">
-        <SectionHeading eyebrow="LATEST NEWS" title="最近发生的事" description="社团公开发布的动态、活动与公告。" action-label="全部项目" action-to="/projects" />
+        <SectionHeading eyebrow="LATEST NEWS" title="最近发生的事" description="社团公开发布的动态、活动与公告。" action-label="查看全部动态" action-to="/posts" />
         <div class="news-layout">
           <article v-if="heroNews" class="lead-news">
             <div class="eyebrow">{{ heroNews.category }}</div>

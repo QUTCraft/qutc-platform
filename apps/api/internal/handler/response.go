@@ -12,22 +12,23 @@ func respond(c *gin.Context, status int, data interface{}) {
 }
 
 func respondWithMeta(c *gin.Context, status int, data interface{}, meta gin.H) {
-	requestID := c.GetHeader("X-Request-ID")
-	if requestID == "" {
-		requestID = uuid.NewString()
-	}
-	c.Header("X-Request-ID", requestID)
+	requestID := ensureRequestID(c)
 	meta["request_id"] = requestID
 	c.JSON(status, gin.H{"data": data, "meta": meta})
 }
 
 func fail(c *gin.Context, status int, code, message string) {
+	requestID := ensureRequestID(c)
+	c.JSON(status, gin.H{"error": gin.H{"code": code, "message": message, "request_id": requestID}})
+}
+
+func ensureRequestID(c *gin.Context) string {
 	requestID := c.GetHeader("X-Request-ID")
 	if requestID == "" {
 		requestID = uuid.NewString()
 	}
 	c.Header("X-Request-ID", requestID)
-	c.JSON(status, gin.H{"error": gin.H{"code": code, "message": message, "request_id": requestID}})
+	return requestID
 }
 
 func Health(c *gin.Context) {

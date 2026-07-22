@@ -158,6 +158,14 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     adminContent = [content, ...adminContent]
     return content as T
   }
+  const contentDecision = path.match(/\/admin\/content\/([^/]+)\/(publish|archive)$/)
+  if (contentDecision) {
+    const content = adminContent.find((item) => item.id === contentDecision[1])
+    if (!content) throw new Error('内容不存在。')
+    content.status = contentDecision[2] === 'publish' ? 'published' : 'archived'
+    content.updated_at = new Date().toISOString()
+    return content as T
+  }
   const decision = path.match(/\/admin\/applications\/([^/]+)\/(approve|reject)$/)
   if (decision) {
     const application = applications.find((item) => item.id === decision[1])
@@ -171,4 +179,16 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     return { accepted: true, message: `命令“${command}”已被模拟环境记录。`, executed_at: adminServer.last_command_at } as T
   }
   throw new Error(`Mock endpoint not implemented: ${path}`)
+}
+
+export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
+  await wait()
+  requireMockAdmin()
+  const match = path.match(/\/admin\/content\/([^/]+)$/)
+  if (!match) throw new Error(`Mock endpoint not implemented: ${path}`)
+  const item = adminContent.find((content) => content.id === match[1])
+  if (!item) throw new Error('内容不存在。')
+  const payload = body as Pick<AdminContent, 'title' | 'type' | 'excerpt' | 'body'>
+  Object.assign(item, payload, { updated_at: new Date().toISOString() })
+  return item as T
 }

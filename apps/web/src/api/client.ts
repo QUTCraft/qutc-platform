@@ -1,4 +1,4 @@
-import { mockGet, mockPost } from '@/api/mock'
+import { mockGet, mockPatch, mockPost } from '@/api/mock'
 import { getAccessToken } from '@/auth/token-storage'
 import type { ApiEnvelope, Page } from '@/api/types'
 
@@ -72,5 +72,13 @@ export async function post<T>(path: string, body?: unknown): Promise<T> {
     const error = payload && 'error' in payload ? payload.error : undefined
     throw new ApiClientError(response.status, error?.code ?? 'network.request_failed', error?.message ?? '请求失败，请稍后重试。')
   }
+  return payload.data
+}
+
+export async function patch<T>(path: string, body: unknown): Promise<T> {
+  if (apiMode === 'mock') return mockPatch<T>(path, body)
+  const response = await fetch(`${apiBaseUrl}${path}`, { method: 'PATCH', headers: headers(true), credentials: 'include', body: JSON.stringify(body) })
+  const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
+  if (!response.ok || !payload || !('data' in payload)) { const error = payload && 'error' in payload ? payload.error : undefined; throw new ApiClientError(response.status, error?.code ?? 'network.request_failed', error?.message ?? '请求失败，请稍后重试。') }
   return payload.data
 }

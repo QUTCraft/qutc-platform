@@ -91,8 +91,11 @@ export interface AdminContent {
   id: string
   title: string
   type: 'news' | 'resource' | 'knowledge'
-  status: 'draft' | 'published' | 'review'
+  status: 'draft' | 'published' | 'review' | 'archived'
   author: string
+  excerpt?: string
+  body?: string
+  published_at?: string | null
   updated_at: string
 }
 
@@ -161,4 +164,3 @@ export interface SmtpSettings {
   auth_code: string
   enable_notification: boolean
 }
-

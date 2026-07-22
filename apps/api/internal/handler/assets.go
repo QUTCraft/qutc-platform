@@ -1,0 +1,115 @@
+package handler
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/middleware"
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/model"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+)
+
+const maxAssetSize = 10 << 20
+
+func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
+	principal, _ := middleware.PrincipalFromContext(c)
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		fail(c, http.StatusBadRequest, "asset.file_required", "请上传名为 file 的文件。")
+		return
+	}
+	defer file.Close()
+	if header.Size > maxAssetSize {
+		fail(c, http.StatusBadRequest, "asset.file_too_large", "开发环境单文件不能超过 10 MB。")
+		return
+	}
+	contentID := strings.TrimSpace(c.PostForm("content_id"))
+	if contentID != "" {
+		var content model.Content
+		if err := h.db.Where("id = ? AND organization_id = ?", contentID, principal.OrganizationID).First(&content).Error; err != nil {
+			fail(c, http.StatusNotFound, "content.not_found", "引用的内容不存在。")
+			return
+		}
+	}
+	mimeType := header.Header.Get("Content-Type")
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	if !allowedAssetType(mimeType) {
+		fail(c, http.StatusBadRequest, "asset.type_not_allowed", "该文件类型不在允许列表中。")
+		return
+	}
+	id := uuid.NewString()
+	root := "/tmp/qutcraft-uploads"
+	if err := os.MkdirAll(root, 0o750); err != nil {
+		fail(c, http.StatusInternalServerError, "asset.storage_unavailable", "媒体存储暂不可用。")
+		return
+	}
+	storedName := id + filepath.Ext(filepath.Base(header.Filename))
+	storagePath := filepath.Join(root, storedName)
+	target, err := os.OpenFile(storagePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "asset.storage_failed", "媒体文件保存失败。")
+		return
+	}
+	written, copyErr := io.Copy(target, io.LimitReader(file, maxAssetSize+1))
+	closeErr := target.Close()
+	if copyErr != nil || closeErr != nil || written > maxAssetSize {
+		_ = os.Remove(storagePath)
+		fail(c, http.StatusBadRequest, "asset.file_invalid", "媒体文件保存失败或超过大小限制。")
+		return
+	}
+	asset := model.MediaAsset{ID: id, OrganizationID: principal.OrganizationID, ContentID: contentID, UploadedBy: principal.UserID, OriginalName: filepath.Base(header.Filename), StoredName: storedName, MimeType: mimeType, SizeBytes: written, StoragePath: storagePath}
+	if err := h.db.Create(&asset).Error; err != nil {
+		_ = os.Remove(storagePath)
+		fail(c, http.StatusInternalServerError, "asset.metadata_failed", "媒体元数据保存失败。")
+		return
+	}
+	respond(c, http.StatusCreated, assetResponse(asset))
+}
+
+func (h *WorkspaceHandler) DownloadAsset(c *gin.Context) {
+	var asset model.MediaAsset
+	if err := h.db.Where("id = ?", c.Param("id")).First(&asset).Error; err != nil {
+		fail(c, http.StatusNotFound, "asset.not_found", "媒体资源不存在。")
+		return
+	}
+	if slug := c.Param("slug"); slug != "" {
+		var organization model.Organization
+		var content model.Content
+		if h.db.Where("slug = ? AND id = ?", slug, asset.OrganizationID).First(&organization).Error != nil || asset.ContentID == "" || h.db.Where("id = ? AND organization_id = ? AND status = ?", asset.ContentID, asset.OrganizationID, "published").First(&content).Error != nil {
+			fail(c, http.StatusNotFound, "asset.not_public", "媒体资源尚未公开。")
+			return
+		}
+	} else {
+		principal, ok := middleware.PrincipalFromContext(c)
+		if !ok || principal.OrganizationID != asset.OrganizationID {
+			fail(c, http.StatusNotFound, "asset.not_found", "媒体资源不存在。")
+			return
+		}
+	}
+	if _, err := os.Stat(asset.StoragePath); err != nil {
+		fail(c, http.StatusNotFound, "asset.file_missing", "媒体文件不存在。")
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", asset.OriginalName))
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.FileAttachment(asset.StoragePath, asset.OriginalName)
+}
+
+func assetResponse(asset model.MediaAsset) gin.H {
+	return gin.H{"id": asset.ID, "content_id": asset.ContentID, "original_name": asset.OriginalName, "mime_type": asset.MimeType, "size_bytes": asset.SizeBytes, "download_url": "/api/v1/admin/assets/" + asset.ID + "/download"}
+}
+func allowedAssetType(mime string) bool {
+	for _, allowed := range []string{"image/png", "image/jpeg", "image/webp", "application/pdf", "application/zip", "video/mp4"} {
+		if mime == allowed {
+			return true
+		}
+	}
+	return false
+}
