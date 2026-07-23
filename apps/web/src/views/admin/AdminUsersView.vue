@@ -52,9 +52,9 @@ const stateLabel = { active: '正常', invited: '待加入', disabled: '已停�
             <template #default="scope">{{ formatDate(scope.row.joined_at) }}</template>
           </el-table-column>
 
-          <el-table-column width="100">
+          <el-table-column width="110" align="right">
             <template #default>
-              <el-button text type="primary">编辑</el-button>
+              <el-button text type="primary" size="small">编辑</el-button>
             </template>
           </el-table-column>
         </el-table>

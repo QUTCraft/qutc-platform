@@ -2,6 +2,17 @@
 
 All notable changes to the QUTCraft Platform will be documented in this file.
 
+## [v0.5.1] - 2026-07-23
+
+### 🛠️ 后台成员管理与 Element Plus 按钮边缘样式修饰 (Admin Member Management Button Edge Fix)
+- **修复文字按钮与胶囊按钮的边框轮廓问题 (`main.css`)**:
+  - 为 `.el-button.is-text` / `.el-button--text` 强制设置 `border: 0 !important; border-color: transparent !important; box-shadow: none !important;`，彻底消除表格内文字按钮四周出现的暗色方框 outline。
+  - 为 `.el-button.is-round` 重新设置平滑圆角 `border-radius: var(--md-shape-full)` 与 `border-color: transparent`，使得像 “+ 邀请成员” 胶囊按钮具备完美的圆润切边。
+- **优化表格操作列布局 (`AdminUsersView.vue`)**:
+  - 将操作列宽度微调为 `110px` 并添加 `align="right"` 与 `size="small"` 属性，使“编辑”按钮靠右优雅对齐。
+
+---
+
 ## [v0.5.0] - 2026-07-23
 
 ### 🌟 门户首页炫酷拉风动画全面升级 (Public Portal Dynamic Animation Overhaul)
@@ -15,10 +26,3 @@ All notable changes to the QUTCraft Platform will be documented in this file.
   - Hover 悬浮时呈 3D 抬升 (`translateY(-6px) scale(1.015)`)，自带 Monet 霓虹发光 Shadow 与高亮玻璃径向光效 (`::after`)。
 - **三大 Core Pillars 支柱卡片 Hover 3D 旋转与发光 Icon (`.pillar-card`)**:
   - Pillar 卡片悬浮时向上抬升 `8px`，图标盒子 (`.pillar-icon-box`) 伴随 `rotate(6deg) scale(1.12)` 倾斜旋转与霓虹外发光。
-
----
-
-## [v0.4.5] - 2026-07-23
-
-### 🎨 全局禁用误触选中文本与高发闪烁白条
-- 给申请页面背景全景容器 `.starlight-wrapper` 增加了全局 `user-select: none`。
