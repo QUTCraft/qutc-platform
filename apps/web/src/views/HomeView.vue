@@ -217,7 +217,7 @@ const statusLabel = computed(() => ({ online: '运行正常', maintenance: '维�
       <!-- Resources & Knowledge Split Section -->
       <section class="split-section">
         <div class="surface-panel">
-          <SectionHeading eyebrow="RESOURCES" title="共享资源" action-label="资源中心 →" action-to="/resources" />
+          <SectionHeading eyebrow="RESOURCES" title="共享资源" action-label="资源中心" action-to="/resources" />
           <div class="compact-list">
             <RouterLink v-for="resource in data.resources" :key="resource.id" to="/resources" class="compact-item">
               <span class="icon-badge resource-icon-badge">
@@ -232,7 +232,7 @@ const statusLabel = computed(() => ({ online: '运行正常', maintenance: '维�
         </div>
 
         <div class="surface-panel">
-          <SectionHeading eyebrow="KNOWLEDGE" title="公共知识库" action-label="进入知识库 →" action-to="/knowledge" />
+          <SectionHeading eyebrow="KNOWLEDGE" title="公共知识库" action-label="进入知识库" action-to="/knowledge" />
           <div class="compact-list">
             <RouterLink v-for="article in data.knowledge" :key="article.id" to="/knowledge" class="compact-item">
               <span class="icon-badge knowledge-icon-badge">
