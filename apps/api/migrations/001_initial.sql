@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS users (
   id CHAR(36) PRIMARY KEY,
   email VARCHAR(254) NOT NULL UNIQUE,
   display_name VARCHAR(80) NOT NULL,
+  bio VARCHAR(500) NOT NULL DEFAULT '',
+  avatar_url VARCHAR(500) NOT NULL DEFAULT '',
   password_hash VARCHAR(255) NOT NULL,
   state VARCHAR(24) NOT NULL DEFAULT 'active',
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -62,6 +64,16 @@ CREATE TABLE IF NOT EXISTS membership_roles (
   CONSTRAINT fk_membership_roles_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS membership_events (
+  id CHAR(36) PRIMARY KEY,
+  membership_id CHAR(36) NOT NULL,
+  state VARCHAR(24) NOT NULL,
+  reason VARCHAR(160) NOT NULL DEFAULT '',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY membership_events_membership_id (membership_id),
+  CONSTRAINT fk_membership_events_membership FOREIGN KEY (membership_id) REFERENCES memberships(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS refresh_tokens (
   id CHAR(36) PRIMARY KEY,
   user_id CHAR(36) NOT NULL,
@@ -99,6 +111,7 @@ CREATE TABLE IF NOT EXISTS contents (
   author_user_id CHAR(36) NOT NULL,
   title VARCHAR(160) NOT NULL,
   type VARCHAR(24) NOT NULL,
+  category VARCHAR(64) NOT NULL DEFAULT '',
   status VARCHAR(24) NOT NULL DEFAULT 'draft',
   excerpt VARCHAR(500) NOT NULL DEFAULT '',
   body LONGTEXT NOT NULL,
@@ -109,6 +122,62 @@ CREATE TABLE IF NOT EXISTS contents (
   KEY contents_author_user_id (author_user_id),
   CONSTRAINT fk_contents_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_contents_author FOREIGN KEY (author_user_id) REFERENCES users(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS knowledge_directories (
+  id CHAR(36) PRIMARY KEY,
+  organization_id CHAR(36) NOT NULL,
+  parent_id CHAR(36) NOT NULL DEFAULT '',
+  name VARCHAR(120) NOT NULL,
+  slug VARCHAR(120) NOT NULL,
+  description VARCHAR(500) NOT NULL DEFAULT '',
+  sort_order INT NOT NULL DEFAULT 0,
+  is_public BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  UNIQUE KEY knowledge_directories_organization_slug (organization_id, slug),
+  KEY knowledge_directories_parent_id (parent_id),
+  CONSTRAINT fk_knowledge_directories_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS projects (
+  id CHAR(36) PRIMARY KEY,
+  organization_id CHAR(36) NOT NULL,
+  owner_user_id CHAR(36) NOT NULL,
+  title VARCHAR(160) NOT NULL,
+  summary VARCHAR(500) NOT NULL,
+  status VARCHAR(24) NOT NULL DEFAULT 'research',
+  tags TEXT NOT NULL,
+  is_public BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY projects_organization_public (organization_id, is_public),
+  KEY projects_owner_user_id (owner_user_id),
+  CONSTRAINT fk_projects_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_projects_owner FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS project_members (
+  project_id CHAR(36) NOT NULL,
+  user_id CHAR(36) NOT NULL,
+  role VARCHAR(64) NOT NULL DEFAULT 'member',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (project_id, user_id),
+  CONSTRAINT fk_project_members_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  CONSTRAINT fk_project_members_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS project_milestones (
+  id CHAR(36) PRIMARY KEY,
+  project_id CHAR(36) NOT NULL,
+  title VARCHAR(160) NOT NULL,
+  status VARCHAR(24) NOT NULL DEFAULT 'planned',
+  due_at DATETIME(3) NULL,
+  completed_at DATETIME(3) NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY project_milestones_project_id (project_id),
+  CONSTRAINT fk_project_milestones_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS media_assets (

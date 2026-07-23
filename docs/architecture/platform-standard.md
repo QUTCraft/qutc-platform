@@ -208,6 +208,8 @@ docs/product              # 产品文档与页面演示
 
 - 文件上传先申请上传凭证，服务端校验 MIME、大小、扩展名、哈希和组织归属；下载按可见范围重新鉴权。
 - Redis Key 使用 `qutc:{env}:{domain}:{id}`，必须设置 TTL；写操作要使相关缓存失效。
+- 当前公开门户列表缓存使用 `qutc:{env}:portal:{organization_slug}:{resource}:{query}`，默认 TTL 为 30 秒；内容发布、下线、编辑和项目写操作删除该组织门户前缀下的所有缓存。
+- 缓存只保存可由 MySQL 重建的公开组织、内容、资源、知识库和项目列表；Redis 不作为事实数据源，缓存不可用时必须回源数据库。
 - `ServerAdapter` 至少提供 `HealthCheck`、`GetStatus`、`AddWhitelist`、`RemoveWhitelist`、`Execute`，每个动作返回结构化结果和外部请求 ID。
 - RCON 只允许白名单命令或明确的管理员权限；命令超时、重试和失败必须可观测。
 

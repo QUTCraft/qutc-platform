@@ -12,8 +12,8 @@
 | `portal` | `read`、`configure` | 读取/配置门户与自定义门户版本。 |
 | `content` | `read`、`create`、`update`、`submit`、`publish`、`archive` | 管理内容生命周期。 |
 | `asset` | `read`、`upload`、`manage` | 管理资源元数据和授权下载。 |
-| `project` | `read`、`create`、`update`、`manage_members` | 管理组织项目。 |
-| `knowledge` | `read`、`create`、`update`、`publish` | 管理知识库。 |
+| `project` | `read`、`manage` | 管理组织项目、成员与里程碑。 |
+| `knowledge` | `read`、`manage` | 管理知识库目录；文章仍沿用内容生命周期权限。 |
 | `membership` | `read`、`invite`、`update_role`、`disable` | 查看和管理成员关系。 |
 | `application` | `read`、`approve`、`reject` | 处理成员/白名单申请。 |
 | `server` | `read_status`、`command`、`manage_adapter` | 服务器状态与受限适配器操作。 |
@@ -59,6 +59,7 @@
 | `/admin` | 任一 Admin 成员 | 跳转登录或展示 403。 |
 | `/admin/content` | `content:read` | 隐藏导航并拒绝 API。 |
 | `/admin/users` | `membership:read` | 拒绝访问，不能只隐藏邮箱列。 |
+| `/admin/projects` | `project:read` / `project:manage` | 拒绝访问，服务端继续校验项目归属。 |
 | `/admin/reviews` | `application:read` 或 `server:read_status` | 仅显示被授权分区，服务端继续过滤。 |
 | `/admin/settings` | `organization:configure` 或 `portal:configure` | 拒绝访问。 |
 

@@ -6,7 +6,7 @@
 
 本文说明当前已开发的认证（Auth）、公开门户（Portal）与后台工作台（Admin）接口。它是对 OpenAPI 契约的可读补充：**路径、字段类型、必填性和状态码以 `openapi.yaml` 为最终事实来源**。本文不会把尚未实现的内容正文编辑、文件上传、成员邀请或设置保存接口伪装成已存在能力。
 
-> 实现状态：`/api/v1/auth/*`、Portal 公开动态读取、Admin 内容生命周期和媒体资产接口已在 Go API 底座中实现。项目、资源、知识库和服务器状态当前仍使用开发读模型，后续按对应周计划接入持久化域模型。
+> 实现状态：`/api/v1/auth/*`、Portal 公开内容读取、Admin 内容生命周期、媒体资产、用户资料、项目/成员/里程碑和知识库目录接口已在 Go API 底座中实现。资源和服务器状态仍保留开发适配读模型。
 
 ## 1. 设计边界
 
@@ -189,6 +189,14 @@ Portal 通过 `organization_slug` 定位组织。Admin 当前为“当前 token 
 | `POST /logout` | 无 | 撤销提交的刷新令牌；重复调用应保持安全。 |
 | `GET /me` | Bearer JWT | 返回当前用户、当前组织和角色。 |
 
+### 5.1 当前用户资料
+
+`PATCH /api/v1/auth/me` 更新当前用户的显示名、简介和头像地址。`display_name` 必填且最长 80 字符；`bio` 和 `avatar_url` 可选，分别最长 500 字符。接口只允许修改当前 token 对应用户，不允许修改邮箱、角色或组织关系。
+
+`GET /api/v1/membership/history` 返回当前用户在当前组织的成员关系历史，记录状态为 `active`、`invited`、`disabled` 或 `left`，并包含 `reason` 与 `created_at`。
+
+`POST /api/v1/membership/leave` 由当前用户主动退出组织。服务端将成员关系置为 `left`、移除组织角色并写入历史记录；已退出关系重复调用返回 `409`。
+
 注册请求：
 
 ```json
@@ -348,6 +356,8 @@ Operation ID：`listPortalKnowledgeArticles`
 
 每项 `KnowledgeArticle`：`id`、`title`（最多 160）、`summary`（最多 500）、`category`（最多 64）、`updated_at`、`reading_minutes`（≥1）。当前只定义文章列表；**文章详情正文接口尚未定义**，前端不得自行猜测诸如 `/articles/{id}` 的路径。
 
+`GET /api/v1/portal/organizations/{organization_slug}/knowledge/directories` 返回已公开的知识库目录及其已发布文章数量。目录字段为 `id`、`name`、`slug`、`description`、`article_count`、`updated_at`；目录不是文章正文，文章仍通过上面的文章列表接口读取。
+
 ### 5.6 获取公开服务器状态
 
 `GET /api/v1/portal/organizations/{organization_slug}/server-status`  
@@ -370,7 +380,7 @@ Operation ID：`getPortalServerStatus`
 
 公共前缀：`/api/v1/admin`。本节所有接口均要求 `Authorization: Bearer <JWT>`，并可能返回 `401` 或 `403`。
 
-### 6.1 获取后台概览
+### 7.1 获取后台概览
 
 `GET /api/v1/admin/dashboard`  
 Operation ID：`getAdminDashboard`
@@ -388,7 +398,7 @@ Operation ID：`getAdminDashboard`
 
 `DashboardMetric` 字段为 `label`、`value`、可选 `change`、`tone`。`tone` 枚举：`primary`、`secondary`、`warning`、`neutral`，仅为展示语义，不能用作权限或告警的唯一判断依据。
 
-### 6.2 内容工作区
+### 7.2 内容工作区
 
 #### 列出后台内容
 
@@ -404,6 +414,7 @@ Operation ID：`listAdminContent`
 | `id` | string | 内容 ID。 |
 | `title` | string，最多 160 字符 | 标题。 |
 | `type` | enum | `news`、`resource`、`knowledge`。 |
+| `category` | string | 可选分类/目录，最长 64 字符。 |
 | `status` | enum | `draft`、`review`、`published`。 |
 | `author` | string，最多 80 字符 | 当前负责人显示名。 |
 | `updated_at` | date-time | 最后修改时刻。 |
@@ -433,7 +444,7 @@ Operation ID：`createAdminContent`
 
 #### 编辑、发布与下线
 
-- `PATCH /api/v1/admin/content/{content_id}`：更新草稿标题、类型、摘要和正文，需要 `content:update`；已发布内容必须先下线。
+- `PATCH /api/v1/admin/content/{content_id}`：更新草稿标题、类型、分类、摘要和正文，需要 `content:update`；已发布内容必须先下线。
 - `POST /api/v1/admin/content/{content_id}/publish`：将草稿发布到 Portal，需要 `content:publish`。只有 `published` 内容会出现在公开动态接口。
 - `POST /api/v1/admin/content/{content_id}/archive`：下线内容，需要 `content:archive`；下线使用 `archived` 状态，不物理删除。
 
@@ -445,7 +456,7 @@ Operation ID：`createAdminContent`
 
 上传响应只返回资产元数据和服务端生成的下载地址。客户端不得根据原始文件名、对象存储 bucket 或资产 ID 自行拼接下载 URL。
 
-### 6.3 成员与角色
+### 7.3 成员与角色
 
 `GET /api/v1/admin/users`  
 Operation ID：`listAdminUsers`
@@ -461,9 +472,44 @@ Operation ID：`listAdminUsers`
 | `state` | enum | `active`、`invited`、`disabled`。 |
 | `joined_at` | date-time | 加入/被邀请的记录时间。 |
 
-当前只定义读取接口。邀请成员、改角色、禁用成员等按钮在进入实际开发前应先补充对应写接口、审计规则及最后所有者保护策略。
+`PATCH /api/v1/admin/users/{user_id}` 更新成员角色和状态，需要 `membership:manage`，并写入审计事件。首期状态为 `active`、`invited`、`disabled`；角色为 `owner`、`administrator`、`editor`、`member`。
 
-### 6.4 白名单与成员申请
+### 7.4 项目管理
+
+- `GET /api/v1/admin/projects`：读取组织项目，需要 `project:read`。
+- `POST /api/v1/admin/projects`：创建项目并自动把当前操作者登记为负责人，需要 `project:manage`。
+- `PATCH /api/v1/admin/projects/{project_id}`：更新标题、简介、状态、标签和公开开关，需要 `project:manage`。
+
+项目状态为 `active`、`research`、`completed`。只有 `is_public=true` 的项目会出现在 Portal API；负责人、成员关系和里程碑属于管理域。项目列表额外返回 `member_count` 和 `milestone_count`，用于后台概览。
+
+#### 项目成员
+
+- `GET /api/v1/admin/projects/{project_id}/members`：列出项目成员，需要 `project:read`。
+- `POST /api/v1/admin/projects/{project_id}/members`：添加或更新项目成员，需要 `project:manage`。
+- `PATCH /api/v1/admin/projects/{project_id}/members/{user_id}`：更新项目成员角色，需要 `project:manage`。
+- `DELETE /api/v1/admin/projects/{project_id}/members/{user_id}`：移除项目成员，需要 `project:manage`；项目负责人不可移除或改角色。
+
+添加请求：
+
+```json
+{
+  "user_id": "user-id",
+  "role": "contributor"
+}
+```
+
+`role` 为 `member`、`contributor`、`lead`。只能加入当前组织中状态为 `active` 的成员。成员列表不会出现在公开 Portal。
+
+#### 项目里程碑
+
+- `GET /api/v1/admin/projects/{project_id}/milestones`：列出里程碑，需要 `project:read`。
+- `POST /api/v1/admin/projects/{project_id}/milestones`：创建里程碑，需要 `project:manage`。
+- `PATCH /api/v1/admin/projects/{project_id}/milestones/{milestone_id}`：编辑里程碑，需要 `project:manage`。
+- `DELETE /api/v1/admin/projects/{project_id}/milestones/{milestone_id}`：删除里程碑，需要 `project:manage`。
+
+里程碑请求字段为 `title`（最长 160）、`status` 和可选的 `due_at`。状态为 `planned`、`active`、`completed`；完成时服务端写入 `completed_at`，重新打开时清空该字段。日期必须使用 RFC3339。
+
+### 7.5 白名单与成员申请
 
 #### 列出申请
 
@@ -495,7 +541,7 @@ Operation ID：`rejectAdminApplication`
 
 无请求体，成功与冲突语义同“通过申请”。当前契约没有拒绝原因字段；若要支持，应新增请求体并明确是否对申请人可见。
 
-### 6.5 服务器适配器与受限 RCON
+### 7.6 服务器适配器与受限 RCON
 
 #### 获取后台服务器状态
 
@@ -548,7 +594,7 @@ Operation ID：`executeRestrictedServerCommand`
 
 当前 Vue mock 环境只记录命令并返回模拟成功，**不会连接任何 Minecraft 服务器**。
 
-### 6.6 外部适配器与通知规范
+### 7.7 外部适配器与通知规范
 
 #### 1. SMTP 邮件提醒适配器
 - **解耦设计**: 当玩家提交白名单/成员申请或管理员做审批决定时，由后端异步消息队列 Consumer 触发 SMTP 发件程序。
@@ -569,7 +615,8 @@ Operation ID：`executeRestrictedServerCommand`
 | `/login` | 管理端登录 | 登录、刷新与当前会话接口。 |
 | `/admin` | 后台概览 | `GET /admin/dashboard`。 |
 | `/admin/content` | 内容工作区 | `GET/POST /admin/content`。 |
-| `/admin/users` | 成员与权限 | `GET /admin/users`。 |
+| `/admin/users` | 成员与权限 | `GET/PATCH /admin/users`。 |
+| `/admin/projects` | 项目管理 | 项目、项目成员和里程碑管理接口。 |
 | `/admin/reviews` | 审批与 RCON | 申请列表、批准/拒绝、服务器状态、受限命令。 |
 | `/admin/settings` | 组织设置 UI | 当前无持久化 API；仅 mock 页面状态。 |
 

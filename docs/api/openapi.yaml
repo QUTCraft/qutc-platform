@@ -128,6 +128,22 @@ paths:
                 $ref: '#/components/schemas/KnowledgeArticleListResponse'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/portal/organizations/{organization_slug}/knowledge/directories:
+    get:
+      tags: [Portal]
+      operationId: listPortalKnowledgeDirectories
+      summary: 获取公开知识库目录
+      parameters:
+        - $ref: '#/components/parameters/OrganizationSlug'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 公开知识库目录及文章数量
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KnowledgeDirectoryListResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/portal/organizations/{organization_slug}/server-status:
     get:
       tags: [Portal]
@@ -229,6 +245,50 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AuthUserResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Auth]
+      operationId: updateAuthCurrentUser
+      summary: 更新当前用户资料
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProfileRequest' }
+      responses:
+        '200':
+          description: 用户资料已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthUserResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/membership/history:
+    get:
+      tags: [Auth]
+      operationId: listMembershipHistory
+      summary: 获取当前用户成员关系变更记录
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 成员关系历史
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MembershipEventListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/membership/leave:
+    post:
+      tags: [Auth]
+      operationId: leaveMembership
+      summary: 当前用户退出组织
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: 已退出组织 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/admin/session:
     get:
       tags: [Admin]
@@ -274,6 +334,70 @@ paths:
               schema: { $ref: '#/components/schemas/AdminContentListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/knowledge/directories:
+    get:
+      tags: [Admin]
+      operationId: listAdminKnowledgeDirectories
+      summary: 获取知识库目录
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 知识库目录列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminKnowledgeDirectoryListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      operationId: createAdminKnowledgeDirectory
+      summary: 创建知识库目录
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KnowledgeDirectoryWriteRequest' }
+      responses:
+        '201':
+          description: 知识库目录已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminKnowledgeDirectoryResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/knowledge/directories/{directory_id}:
+    patch:
+      tags: [Admin]
+      operationId: updateAdminKnowledgeDirectory
+      summary: 更新知识库目录
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: directory_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KnowledgeDirectoryWriteRequest' }
+      responses:
+        '200':
+          description: 知识库目录已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminKnowledgeDirectoryResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
     post:
       tags: [Admin]
       operationId: createAdminContent
@@ -431,6 +555,293 @@ paths:
               schema: { $ref: '#/components/schemas/AdminUserListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/users/{user_id}:
+    patch:
+      tags: [Admin]
+      operationId: updateAdminUser
+      summary: 更新成员状态与角色
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateAdminUserRequest' }
+      responses:
+        '200':
+          description: 成员已更新并记录审计事件
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminUserResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/projects:
+    get:
+      tags: [Admin]
+      operationId: listAdminProjects
+      summary: 获取组织项目
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 项目列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminProjectListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      operationId: createAdminProject
+      summary: 创建项目
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectWriteRequest' }
+      responses:
+        '201':
+          description: 项目已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminProjectResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/projects/{project_id}:
+    patch:
+      tags: [Admin]
+      operationId: updateAdminProject
+      summary: 更新项目
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectWriteRequest' }
+      responses:
+        '200':
+          description: 项目已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminProjectResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/projects/{project_id}/members:
+    get:
+      tags: [Admin]
+      operationId: listAdminProjectMembers
+      summary: 获取项目成员
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 项目成员列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminProjectMemberListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Admin]
+      operationId: addAdminProjectMember
+      summary: 添加项目成员
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectMemberWriteRequest' }
+      responses:
+        '201':
+          description: 项目成员已添加
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminProjectMemberResponse' }
+        '200':
+          description: 已存在的项目成员已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminProjectMemberResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/projects/{project_id}/members/{user_id}:
+    patch:
+      tags: [Admin]
+      operationId: updateAdminProjectMember
+      summary: 更新项目成员角色
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectMemberRoleRequest' }
+      responses:
+        '200':
+          description: 项目成员已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminProjectMemberResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Admin]
+      operationId: removeAdminProjectMember
+      summary: 移除项目成员
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200': { description: 项目成员已移除 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/projects/{project_id}/milestones:
+    get:
+      tags: [Admin]
+      operationId: listAdminProjectMilestones
+      summary: 获取项目里程碑
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 项目里程碑列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminProjectMilestoneListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Admin]
+      operationId: createAdminProjectMilestone
+      summary: 创建项目里程碑
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectMilestoneWriteRequest' }
+      responses:
+        '201':
+          description: 里程碑已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminProjectMilestoneResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/projects/{project_id}/milestones/{milestone_id}:
+    patch:
+      tags: [Admin]
+      operationId: updateAdminProjectMilestone
+      summary: 更新项目里程碑
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+        - name: milestone_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectMilestoneWriteRequest' }
+      responses:
+        '200':
+          description: 里程碑已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminProjectMilestoneResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Admin]
+      operationId: deleteAdminProjectMilestone
+      summary: 删除项目里程碑
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+        - name: milestone_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200': { description: 里程碑已删除 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/admin/applications:
     get:
       tags: [Admin]
@@ -671,6 +1082,16 @@ components:
         category: { type: string, maxLength: 64 }
         updated_at: { type: string, format: date-time }
         reading_minutes: { type: integer, minimum: 1 }
+    KnowledgeDirectory:
+      type: object
+      required: [id, name, slug, description, article_count, updated_at]
+      properties:
+        id: { type: string }
+        name: { type: string, maxLength: 120 }
+        slug: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 500 }
+        article_count: { type: integer, minimum: 0 }
+        updated_at: { type: string, format: date-time }
     ServerStatus:
       type: object
       required: [enabled, label, state, updated_at]
@@ -732,6 +1153,7 @@ components:
         id: { type: string }
         title: { type: string, maxLength: 160 }
         type: { $ref: '#/components/schemas/AdminContentType' }
+        category: { type: [string, 'null'], maxLength: 64 }
         status: { $ref: '#/components/schemas/AdminContentStatus' }
         author: { type: string, maxLength: 80 }
         excerpt: { type: [string, 'null'], maxLength: 500 }
@@ -744,6 +1166,7 @@ components:
       properties:
         title: { type: string, minLength: 1, maxLength: 160 }
         type: { $ref: '#/components/schemas/AdminContentType' }
+        category: { type: string, maxLength: 64 }
         excerpt: { type: string, maxLength: 500 }
         body: { type: string }
     UpdateAdminContentRequest:
@@ -752,6 +1175,7 @@ components:
       properties:
         title: { type: string, minLength: 1, maxLength: 160 }
         type: { $ref: '#/components/schemas/AdminContentType' }
+        category: { type: string, maxLength: 64 }
         excerpt: { type: string, maxLength: 500 }
         body: { type: string }
     MediaAsset:
@@ -780,6 +1204,83 @@ components:
         role: { $ref: '#/components/schemas/AdminRole' }
         state: { $ref: '#/components/schemas/AdminUserState' }
         joined_at: { type: string, format: date-time }
+    UpdateAdminUserRequest:
+      type: object
+      required: [role, state]
+      properties:
+        role: { $ref: '#/components/schemas/AdminRole' }
+        state: { $ref: '#/components/schemas/AdminUserState' }
+    ProjectStatus:
+      type: string
+      enum: [active, research, completed]
+    AdminProject:
+      type: object
+      required: [id, title, summary, status, tags, is_public, owner, updated_at]
+      properties:
+        id: { type: string }
+        title: { type: string, maxLength: 160 }
+        summary: { type: string, maxLength: 500 }
+        status: { $ref: '#/components/schemas/ProjectStatus' }
+        tags: { type: array, maxItems: 12, items: { type: string, maxLength: 64 } }
+        is_public: { type: boolean }
+        owner: { type: string, maxLength: 80 }
+        member_count: { type: integer, minimum: 0 }
+        milestone_count: { type: integer, minimum: 0 }
+        updated_at: { type: string, format: date-time }
+    ProjectWriteRequest:
+      type: object
+      required: [title, summary, status, tags, is_public]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 160 }
+        summary: { type: string, maxLength: 500 }
+        status: { $ref: '#/components/schemas/ProjectStatus' }
+        tags: { type: array, maxItems: 12, items: { type: string, maxLength: 64 } }
+        is_public: { type: boolean }
+    ProjectMemberRole:
+      type: string
+      enum: [owner, member, contributor, lead]
+    ProjectMemberWriteRequest:
+      type: object
+      required: [user_id, role]
+      properties:
+        user_id: { type: string, minLength: 1, maxLength: 64 }
+        role: { type: string, enum: [member, contributor, lead] }
+    ProjectMemberRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role: { type: string, enum: [member, contributor, lead] }
+    AdminProjectMember:
+      type: object
+      required: [user_id, name, email, state, role, assigned_at]
+      properties:
+        user_id: { type: string }
+        name: { type: string, maxLength: 80 }
+        email: { type: string, format: email }
+        state: { $ref: '#/components/schemas/AdminUserState' }
+        role: { $ref: '#/components/schemas/ProjectMemberRole' }
+        assigned_at: { type: string, format: date-time }
+    ProjectMilestoneStatus:
+      type: string
+      enum: [planned, active, completed]
+    ProjectMilestoneWriteRequest:
+      type: object
+      required: [title, status]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 160 }
+        status: { $ref: '#/components/schemas/ProjectMilestoneStatus' }
+        due_at: { type: [string, 'null'], format: date-time }
+    AdminProjectMilestone:
+      type: object
+      required: [id, project_id, title, status, due_at, completed_at, updated_at]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        title: { type: string, maxLength: 160 }
+        status: { $ref: '#/components/schemas/ProjectMilestoneStatus' }
+        due_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: string, format: date-time }
     ApplicationType:
       type: string
       enum: [whitelist, membership]
@@ -851,10 +1352,45 @@ components:
         id: { type: string }
         email: { type: string, format: email }
         display_name: { type: string, maxLength: 80 }
+        bio: { type: string, maxLength: 500 }
+        avatar_url: { type: string, maxLength: 500, format: uri-reference }
         organization_id: { type: string }
         roles:
           type: array
           items: { $ref: '#/components/schemas/AuthRole' }
+    UpdateProfileRequest:
+      type: object
+      required: [display_name]
+      properties:
+        display_name: { type: string, minLength: 1, maxLength: 80 }
+        bio: { type: string, maxLength: 500 }
+        avatar_url: { type: string, maxLength: 500, format: uri-reference }
+    MembershipEvent:
+      type: object
+      required: [id, state, reason, created_at]
+      properties:
+        id: { type: string }
+        state: { type: string, enum: [active, invited, disabled, left] }
+        reason: { type: string, maxLength: 160 }
+        created_at: { type: string, format: date-time }
+    KnowledgeDirectoryWriteRequest:
+      type: object
+      required: [name, slug, description, parent_id, sort_order, is_public]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        slug: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 500 }
+        parent_id: { type: string, maxLength: 64 }
+        sort_order: { type: integer, minimum: 0 }
+        is_public: { type: boolean }
+    AdminKnowledgeDirectory:
+      allOf:
+        - $ref: '#/components/schemas/KnowledgeDirectoryWriteRequest'
+        - type: object
+          required: [id, updated_at]
+          properties:
+            id: { type: string }
+            updated_at: { type: string, format: date-time }
     RegisterRequest:
       type: object
       required: [email, display_name, password]
@@ -927,12 +1463,78 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/AdminContent' } }
         meta: { $ref: '#/components/schemas/ListMeta' }
+    KnowledgeDirectoryListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/KnowledgeDirectory' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    MembershipEventListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/MembershipEvent' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    AdminKnowledgeDirectoryListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AdminKnowledgeDirectory' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    AdminKnowledgeDirectoryResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AdminKnowledgeDirectory' }
+        meta: { $ref: '#/components/schemas/Meta' }
     AdminUserListResponse:
       type: object
       required: [data, meta]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/AdminUser' } }
         meta: { $ref: '#/components/schemas/ListMeta' }
+    AdminUserResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AdminUser' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    AdminProjectListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AdminProject' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    AdminProjectResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AdminProject' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    AdminProjectMemberListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AdminProjectMember' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    AdminProjectMemberResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AdminProjectMember' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    AdminProjectMilestoneListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AdminProjectMilestone' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    AdminProjectMilestoneResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AdminProjectMilestone' }
+        meta: { $ref: '#/components/schemas/Meta' }
     AdminApplicationResponse:
       type: object
       required: [data, meta]

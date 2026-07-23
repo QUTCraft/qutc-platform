@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/middleware"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/model"
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/cache"
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -20,10 +23,43 @@ type WorkspaceHandler struct {
 	db                *gorm.DB
 	mu                sync.RWMutex
 	applicationStates map[string]string
+	cache             *cache.Cache
+	cacheNamespace    string
 }
 
-func NewWorkspaceHandler(db *gorm.DB) *WorkspaceHandler {
-	return &WorkspaceHandler{db: db, applicationStates: map[string]string{"application_001": "pending"}}
+func NewWorkspaceHandler(db *gorm.DB, publicCache *cache.Cache, environment string) *WorkspaceHandler {
+	if strings.TrimSpace(environment) == "" {
+		environment = "development"
+	}
+	return &WorkspaceHandler{db: db, cache: publicCache, cacheNamespace: environment, applicationStates: map[string]string{"application_001": "pending"}}
+}
+
+func (h *WorkspaceHandler) cachedPortalPage(c *gin.Context, slug, resource string, loader func() ([]gin.H, error)) {
+	key := "qutc:" + h.cacheNamespace + ":portal:" + slug + ":" + resource + ":" + cache.NormalizeQuery(c.Request.URL.RawQuery)
+	var items []gin.H
+	if h.cache != nil && h.cache.Get(context.Background(), key, &items) {
+		pageOf(c, items)
+		return
+	}
+	items, err := loader()
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "portal."+resource+"_failed", "公开数据暂时无法加载。")
+		return
+	}
+	if h.cache != nil {
+		h.cache.Set(context.Background(), key, items)
+	}
+	pageOf(c, items)
+}
+
+func (h *WorkspaceHandler) invalidatePortalCache(organizationID string) {
+	if h.cache == nil {
+		return
+	}
+	var organization model.Organization
+	if h.db.First(&organization, "id = ?", organizationID).Error == nil {
+		h.cache.DeletePrefix(context.Background(), "qutc:"+h.cacheNamespace+":portal:"+organization.Slug+":")
+	}
 }
 
 func listMeta(c *gin.Context, total int) (int, int, bool) {
@@ -94,16 +130,17 @@ func (h *WorkspaceHandler) PortalPosts(c *gin.Context) {
 	if category != "" {
 		query = query.Where("title LIKE ? OR excerpt LIKE ?", "%"+category+"%", "%"+category+"%")
 	}
-	var contents []model.Content
-	if err := query.Find(&contents).Error; err != nil {
-		fail(c, http.StatusInternalServerError, "portal.posts_failed", "公开动态暂时无法加载。")
-		return
-	}
-	items := make([]gin.H, 0, len(contents))
-	for _, content := range contents {
-		items = append(items, contentPublicItem(content))
-	}
-	pageOf(c, items)
+	h.cachedPortalPage(c, c.Param("slug"), "posts", func() ([]gin.H, error) {
+		var contents []model.Content
+		if err := query.Find(&contents).Error; err != nil {
+			return nil, err
+		}
+		items := make([]gin.H, 0, len(contents))
+		for _, content := range contents {
+			items = append(items, contentPublicItem(content))
+		}
+		return items, nil
+	})
 }
 func (h *WorkspaceHandler) PortalProjects(c *gin.Context) {
 	status, ok := queryMax(c, "status", 16)
@@ -114,11 +151,26 @@ func (h *WorkspaceHandler) PortalProjects(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "query.invalid_status", "status 不是受支持的项目状态。")
 		return
 	}
-	items := []gin.H{{"id": "project_cms", "title": "QUTCraft CMS", "summary": "面向校园社团与民间组织的公开门户与内容分发系统。", "status": "active", "tags": []string{"Vue 3", "Go", "API-first"}, "updated_at": "2026-07-17T03:00:00Z"}}
-	if status != "" && items[0]["status"] != status {
-		items = items[:0]
+	var organization model.Organization
+	if err := h.db.Where("slug = ?", c.Param("slug")).First(&organization).Error; err != nil {
+		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
+		return
 	}
-	pageOf(c, items)
+	h.cachedPortalPage(c, c.Param("slug"), "projects", func() ([]gin.H, error) {
+		query := h.db.Where("organization_id = ? AND is_public = ?", organization.ID, true).Order("updated_at DESC")
+		if status != "" {
+			query = query.Where("status = ?", status)
+		}
+		var projects []model.Project
+		if err := query.Find(&projects).Error; err != nil {
+			return nil, err
+		}
+		items := make([]gin.H, 0, len(projects))
+		for _, project := range projects {
+			items = append(items, projectPublicItem(project))
+		}
+		return items, nil
+	})
 }
 func (h *WorkspaceHandler) PortalResources(c *gin.Context) {
 	kind, ok := queryMax(c, "kind", 16)
@@ -142,22 +194,20 @@ func (h *WorkspaceHandler) PortalResources(c *gin.Context) {
 	if q != "" {
 		query = query.Where("title LIKE ? OR excerpt LIKE ? OR body LIKE ?", "%"+q+"%", "%"+q+"%", "%"+q+"%")
 	}
-	var contents []model.Content
-	if err := query.Find(&contents).Error; err != nil {
-		fail(c, http.StatusInternalServerError, "portal.resources_failed", "公开资源暂时无法加载。")
-		return
-	}
-	items := make([]gin.H, 0, len(contents))
-	for _, content := range contents {
-		item := gin.H{"id": content.ID, "title": content.Title, "description": content.Excerpt, "kind": "document", "size_bytes": 0, "updated_at": content.UpdatedAt, "download_url": "#"}
-		if kind == "" || kind == "document" {
-			items = append(items, item)
+	h.cachedPortalPage(c, c.Param("slug"), "resources", func() ([]gin.H, error) {
+		var contents []model.Content
+		if err := query.Find(&contents).Error; err != nil {
+			return nil, err
 		}
-	}
-	if kind != "" && kind != "document" {
-		items = nil
-	}
-	pageOf(c, items)
+		items := make([]gin.H, 0, len(contents))
+		for _, content := range contents {
+			item := gin.H{"id": content.ID, "title": content.Title, "description": content.Excerpt, "kind": "document", "size_bytes": 0, "updated_at": content.UpdatedAt, "download_url": "#"}
+			if kind == "" || kind == "document" {
+				items = append(items, item)
+			}
+		}
+		return items, nil
+	})
 }
 func (h *WorkspaceHandler) PortalKnowledge(c *gin.Context) {
 	category, ok := queryMax(c, "category", 64)
@@ -175,21 +225,47 @@ func (h *WorkspaceHandler) PortalKnowledge(c *gin.Context) {
 	}
 	query := h.db.Where("organization_id = ? AND type = ? AND status = ?", organization.ID, "knowledge", "published").Order("updated_at DESC")
 	if category != "" {
-		query = query.Where("title LIKE ? OR excerpt LIKE ?", "%"+category+"%", "%"+category+"%")
+		query = query.Where("category = ? OR title LIKE ? OR excerpt LIKE ?", category, "%"+category+"%", "%"+category+"%")
 	}
 	if q != "" {
 		query = query.Where("title LIKE ? OR excerpt LIKE ? OR body LIKE ?", "%"+q+"%", "%"+q+"%", "%"+q+"%")
 	}
-	var contents []model.Content
-	if err := query.Find(&contents).Error; err != nil {
-		fail(c, http.StatusInternalServerError, "portal.knowledge_failed", "公开知识库暂时无法加载。")
+	h.cachedPortalPage(c, c.Param("slug"), "knowledge", func() ([]gin.H, error) {
+		var contents []model.Content
+		if err := query.Find(&contents).Error; err != nil {
+			return nil, err
+		}
+		items := make([]gin.H, 0, len(contents))
+		for _, content := range contents {
+			categoryName := content.Category
+			if categoryName == "" {
+				categoryName = "知识库"
+			}
+			items = append(items, gin.H{"id": content.ID, "title": content.Title, "summary": content.Excerpt, "category": categoryName, "updated_at": content.UpdatedAt, "reading_minutes": maxInt(1, len([]rune(content.Body))/900+1)})
+		}
+		return items, nil
+	})
+}
+
+func (h *WorkspaceHandler) PortalKnowledgeDirectories(c *gin.Context) {
+	var organization model.Organization
+	if err := h.db.Where("slug = ?", c.Param("slug")).First(&organization).Error; err != nil {
+		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
-	items := make([]gin.H, 0, len(contents))
-	for _, content := range contents {
-		items = append(items, gin.H{"id": content.ID, "title": content.Title, "summary": content.Excerpt, "category": "知识库", "updated_at": content.UpdatedAt, "reading_minutes": maxInt(1, len([]rune(content.Body))/900+1)})
-	}
-	pageOf(c, items)
+	h.cachedPortalPage(c, c.Param("slug"), "knowledge-directories", func() ([]gin.H, error) {
+		var directories []model.KnowledgeDirectory
+		if err := h.db.Where("organization_id = ? AND is_public = ?", organization.ID, true).Order("sort_order ASC, name ASC").Find(&directories).Error; err != nil {
+			return nil, err
+		}
+		items := make([]gin.H, 0, len(directories))
+		for _, directory := range directories {
+			var articleCount int64
+			h.db.Model(&model.Content{}).Where("organization_id = ? AND type = ? AND status = ? AND category = ?", organization.ID, "knowledge", "published", directory.Name).Count(&articleCount)
+			items = append(items, gin.H{"id": directory.ID, "name": directory.Name, "slug": directory.Slug, "description": directory.Description, "article_count": articleCount, "updated_at": directory.UpdatedAt})
+		}
+		return items, nil
+	})
 }
 func (h *WorkspaceHandler) PortalServer(c *gin.Context) {
 	respond(c, http.StatusOK, gin.H{"enabled": true, "label": "QUTCraft Java 生存服", "state": "online", "version": "Java 1.21.x", "online_players": 18, "max_players": 60, "updated_at": time.Now().UTC(), "apply_url": "#join"})
@@ -206,16 +282,17 @@ func (h *WorkspaceHandler) AdminDashboard(c *gin.Context) {
 		fail(c, http.StatusNotFound, "organization.not_found", "组织不存在。")
 		return
 	}
-	var published, total int64
+	var published, total, activeMembers int64
 	h.db.Model(&model.Content{}).Where("organization_id = ? AND status = ?", principal.OrganizationID, "published").Count(&published)
 	h.db.Model(&model.Content{}).Where("organization_id = ?", principal.OrganizationID).Count(&total)
+	h.db.Model(&model.Membership{}).Where("organization_id = ? AND state = ?", principal.OrganizationID, "active").Count(&activeMembers)
 	var recent []model.Content
 	h.db.Where("organization_id = ?", principal.OrganizationID).Order("updated_at DESC").Limit(12).Find(&recent)
 	recentItems := make([]gin.H, 0, len(recent))
 	for _, item := range recent {
 		recentItems = append(recentItems, contentAdminItem(item, h.db))
 	}
-	respond(c, http.StatusOK, gin.H{"organization_name": organization.Name, "updated_at": time.Now().UTC(), "metrics": []gin.H{{"label": "活跃成员", "value": 1, "change": "开发环境", "tone": "primary"}, {"label": "已发布内容", "value": published, "change": "当前公开内容", "tone": "secondary"}, {"label": "内容总数", "value": total, "change": "含草稿", "tone": "neutral"}, {"label": "在线玩家", "value": 18, "change": "服务器状态正常", "tone": "neutral"}}, "pending_applications": applications(), "recent_content": recentItems, "server": serverStatus()})
+	respond(c, http.StatusOK, gin.H{"organization_name": organization.Name, "updated_at": time.Now().UTC(), "metrics": []gin.H{{"label": "活跃成员", "value": activeMembers, "change": "当前组织成员", "tone": "primary"}, {"label": "已发布内容", "value": published, "change": "当前公开内容", "tone": "secondary"}, {"label": "内容总数", "value": total, "change": "含草稿", "tone": "neutral"}, {"label": "在线玩家", "value": 18, "change": "服务器状态正常", "tone": "neutral"}}, "pending_applications": applications(), "recent_content": recentItems, "server": serverStatus()})
 }
 func contentItems() []gin.H {
 	return []gin.H{{"id": "content_001", "title": "QUTCraft CMS 项目正式启动", "type": "news", "status": "published", "author": "QUTCraft Admin", "updated_at": "2026-07-17T03:00:00Z"}}
@@ -243,42 +320,126 @@ func (h *WorkspaceHandler) AdminContent(c *gin.Context) {
 	}
 	pageOf(c, items)
 }
+
+func (h *WorkspaceHandler) AdminKnowledgeDirectories(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var directories []model.KnowledgeDirectory
+	if err := h.db.Where("organization_id = ?", principal.OrganizationID).Order("sort_order ASC, name ASC").Find(&directories).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "knowledge_directory.list_failed", "知识库目录暂时无法加载。")
+		return
+	}
+	items := make([]gin.H, 0, len(directories))
+	for _, directory := range directories {
+		items = append(items, knowledgeDirectoryItem(directory))
+	}
+	pageOf(c, items)
+}
+
+type knowledgeDirectoryRequest struct {
+	Name        string `json:"name"`
+	Slug        string `json:"slug"`
+	Description string `json:"description"`
+	ParentID    string `json:"parent_id"`
+	SortOrder   int    `json:"sort_order"`
+	IsPublic    bool   `json:"is_public"`
+}
+
+func validKnowledgeDirectoryRequest(body knowledgeDirectoryRequest) bool {
+	return strings.TrimSpace(body.Name) != "" && strings.TrimSpace(body.Slug) != "" && len([]rune(body.Name)) <= 120 && len([]rune(body.Slug)) <= 120 && len([]rune(body.Description)) <= 500 && body.SortOrder >= 0
+}
+
+func (h *WorkspaceHandler) AdminCreateKnowledgeDirectory(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var body knowledgeDirectoryRequest
+	if err := c.ShouldBindJSON(&body); err != nil || !validKnowledgeDirectoryRequest(body) {
+		fail(c, http.StatusBadRequest, "knowledge_directory.validation_failed", "知识库目录字段不符合规范。")
+		return
+	}
+	directory := model.KnowledgeDirectory{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ParentID: strings.TrimSpace(body.ParentID), Name: strings.TrimSpace(body.Name), Slug: strings.TrimSpace(body.Slug), Description: strings.TrimSpace(body.Description), SortOrder: body.SortOrder, IsPublic: body.IsPublic}
+	if err := h.db.Create(&directory).Error; err != nil {
+		fail(c, http.StatusConflict, "knowledge_directory.slug_in_use", "知识库目录标识已存在。")
+		return
+	}
+	h.invalidatePortalCache(principal.OrganizationID)
+	respond(c, http.StatusCreated, knowledgeDirectoryItem(directory))
+}
+
+func (h *WorkspaceHandler) AdminUpdateKnowledgeDirectory(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var body knowledgeDirectoryRequest
+	if err := c.ShouldBindJSON(&body); err != nil || !validKnowledgeDirectoryRequest(body) {
+		fail(c, http.StatusBadRequest, "knowledge_directory.validation_failed", "知识库目录字段不符合规范。")
+		return
+	}
+	var directory model.KnowledgeDirectory
+	if err := h.db.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&directory).Error; err != nil {
+		fail(c, http.StatusNotFound, "knowledge_directory.not_found", "知识库目录不存在。")
+		return
+	}
+	directory.ParentID, directory.Name, directory.Slug, directory.Description, directory.SortOrder, directory.IsPublic = strings.TrimSpace(body.ParentID), strings.TrimSpace(body.Name), strings.TrimSpace(body.Slug), strings.TrimSpace(body.Description), body.SortOrder, body.IsPublic
+	if err := h.db.Save(&directory).Error; err != nil {
+		fail(c, http.StatusConflict, "knowledge_directory.slug_in_use", "知识库目录标识已存在。")
+		return
+	}
+	h.invalidatePortalCache(principal.OrganizationID)
+	respond(c, http.StatusOK, knowledgeDirectoryItem(directory))
+}
+
+func knowledgeDirectoryItem(directory model.KnowledgeDirectory) gin.H {
+	return gin.H{"id": directory.ID, "parent_id": directory.ParentID, "name": directory.Name, "slug": directory.Slug, "description": directory.Description, "sort_order": directory.SortOrder, "is_public": directory.IsPublic, "updated_at": directory.UpdatedAt}
+}
+
 func (h *WorkspaceHandler) AdminCreateContent(c *gin.Context) {
 	var body struct {
-		Title   string `json:"title"`
-		Type    string `json:"type"`
-		Excerpt string `json:"excerpt"`
-		Body    string `json:"body"`
+		Title    string `json:"title"`
+		Type     string `json:"type"`
+		Category string `json:"category"`
+		Excerpt  string `json:"excerpt"`
+		Body     string `json:"body"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil || body.Title == "" {
 		fail(c, http.StatusBadRequest, "content.validation_failed", "内容标题不能为空。")
 		return
 	}
-	if len([]rune(body.Title)) > 160 || len([]rune(body.Excerpt)) > 500 || (body.Type != "news" && body.Type != "resource" && body.Type != "knowledge") {
+	if len([]rune(body.Title)) > 160 || len([]rune(body.Category)) > 64 || len([]rune(body.Excerpt)) > 500 || (body.Type != "news" && body.Type != "resource" && body.Type != "knowledge") {
 		fail(c, http.StatusBadRequest, "content.validation_failed", "title 最长 160 字符，type 必须为 news、resource 或 knowledge。")
 		return
 	}
 	principal, _ := middleware.PrincipalFromContext(c)
-	content := model.Content{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, AuthorUserID: principal.UserID, Title: body.Title, Type: body.Type, Status: "draft", Excerpt: body.Excerpt, Body: body.Body}
+	content := model.Content{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, AuthorUserID: principal.UserID, Title: body.Title, Type: body.Type, Category: strings.TrimSpace(body.Category), Status: "draft", Excerpt: body.Excerpt, Body: body.Body}
 	if err := h.db.Create(&content).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "content.create_failed", "内容草稿创建失败。")
 		return
 	}
+	h.invalidatePortalCache(principal.OrganizationID)
 	respond(c, http.StatusCreated, contentAdminItem(content, h.db))
 }
 
 func (h *WorkspaceHandler) AdminUpdateContent(c *gin.Context) {
 	var body struct {
-		Title   string `json:"title"`
-		Type    string `json:"type"`
-		Excerpt string `json:"excerpt"`
-		Body    string `json:"body"`
+		Title    string `json:"title"`
+		Type     string `json:"type"`
+		Category string `json:"category"`
+		Excerpt  string `json:"excerpt"`
+		Body     string `json:"body"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		fail(c, http.StatusBadRequest, "content.validation_failed", "内容格式不正确。")
 		return
 	}
-	if strings.TrimSpace(body.Title) == "" || len([]rune(body.Title)) > 160 || len([]rune(body.Excerpt)) > 500 || (body.Type != "news" && body.Type != "resource" && body.Type != "knowledge") {
+	if strings.TrimSpace(body.Title) == "" || len([]rune(body.Title)) > 160 || len([]rune(body.Category)) > 64 || len([]rune(body.Excerpt)) > 500 || (body.Type != "news" && body.Type != "resource" && body.Type != "knowledge") {
 		fail(c, http.StatusBadRequest, "content.validation_failed", "内容字段不符合规范。")
 		return
 	}
@@ -292,11 +453,12 @@ func (h *WorkspaceHandler) AdminUpdateContent(c *gin.Context) {
 		fail(c, http.StatusConflict, "content.published_immutable", "已发布内容不能直接编辑，请先下线。")
 		return
 	}
-	content.Title, content.Type, content.Excerpt, content.Body = strings.TrimSpace(body.Title), body.Type, body.Excerpt, body.Body
+	content.Title, content.Type, content.Category, content.Excerpt, content.Body = strings.TrimSpace(body.Title), body.Type, strings.TrimSpace(body.Category), body.Excerpt, body.Body
 	if err := h.db.Save(&content).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "content.update_failed", "内容保存失败。")
 		return
 	}
+	h.invalidatePortalCache(principal.OrganizationID)
 	respond(c, http.StatusOK, contentAdminItem(content, h.db))
 }
 
@@ -328,6 +490,7 @@ func (h *WorkspaceHandler) changeContentStatus(c *gin.Context, status string) {
 		fail(c, http.StatusInternalServerError, "content.status_update_failed", "内容状态更新失败。")
 		return
 	}
+	h.invalidatePortalCache(principal.OrganizationID)
 	_ = h.db.Create(&model.AuditEvent{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ActorUserID: principal.UserID, Action: "content." + status, TargetType: "content", TargetID: content.ID, Result: "success", RequestID: ensureRequestID(c)}).Error
 	respond(c, http.StatusOK, contentAdminItem(content, h.db))
 }
@@ -337,13 +500,17 @@ func contentPublicItem(content model.Content) gin.H {
 	if publishedAt == nil {
 		publishedAt = &content.UpdatedAt
 	}
-	return gin.H{"id": content.ID, "title": content.Title, "excerpt": content.Excerpt, "category": content.Type, "published_at": publishedAt, "reading_minutes": maxInt(1, len([]rune(content.Body))/900+1)}
+	category := content.Category
+	if category == "" {
+		category = content.Type
+	}
+	return gin.H{"id": content.ID, "title": content.Title, "excerpt": content.Excerpt, "category": category, "published_at": publishedAt, "reading_minutes": maxInt(1, len([]rune(content.Body))/900+1)}
 }
 
 func contentAdminItem(content model.Content, db *gorm.DB) gin.H {
 	var author model.User
 	_ = db.First(&author, "id = ?", content.AuthorUserID).Error
-	return gin.H{"id": content.ID, "title": content.Title, "type": content.Type, "status": content.Status, "author": author.DisplayName, "excerpt": content.Excerpt, "body": content.Body, "published_at": content.PublishedAt, "updated_at": content.UpdatedAt}
+	return gin.H{"id": content.ID, "title": content.Title, "type": content.Type, "category": content.Category, "status": content.Status, "author": author.DisplayName, "excerpt": content.Excerpt, "body": content.Body, "published_at": content.PublishedAt, "updated_at": content.UpdatedAt}
 }
 
 func maxInt(a, b int) int {
@@ -354,7 +521,530 @@ func maxInt(a, b int) int {
 }
 
 func (h *WorkspaceHandler) AdminUsers(c *gin.Context) {
-	pageOf(c, []gin.H{{"id": "bootstrap-admin", "name": "QUTCraft Admin", "email": "admin@qutcraft.local", "role": "owner", "state": "active", "joined_at": "2026-07-14T01:00:00Z"}})
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	type row struct {
+		MembershipID    string    `gorm:"column:membership_id"`
+		UserID          string    `gorm:"column:user_id"`
+		Name            string    `gorm:"column:name"`
+		Email           string    `gorm:"column:email"`
+		UserState       string    `gorm:"column:user_state"`
+		MembershipState string    `gorm:"column:membership_state"`
+		Role            string    `gorm:"column:role"`
+		JoinedAt        time.Time `gorm:"column:joined_at"`
+	}
+	var rows []row
+	err := h.db.Table("memberships AS m").Select("m.id AS membership_id, u.id AS user_id, u.display_name AS name, u.email AS email, u.state AS user_state, m.state AS membership_state, COALESCE(MAX(r.key), 'member') AS role, m.created_at AS joined_at").Joins("JOIN users AS u ON u.id = m.user_id").Joins("LEFT JOIN membership_roles AS mr ON mr.membership_id = m.id").Joins("LEFT JOIN roles AS r ON r.id = mr.role_id").Where("m.organization_id = ?", principal.OrganizationID).Group("m.id, u.id, u.display_name, u.email, u.state, m.state, m.created_at").Order("m.created_at ASC").Scan(&rows).Error
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "membership.list_failed", "成员列表暂时无法加载。")
+		return
+	}
+	items := make([]gin.H, 0, len(rows))
+	for _, item := range rows {
+		state := item.UserState
+		if item.MembershipState != "active" {
+			state = item.MembershipState
+		}
+		items = append(items, gin.H{"id": item.UserID, "name": item.Name, "email": item.Email, "role": item.Role, "state": state, "joined_at": item.JoinedAt})
+	}
+	pageOf(c, items)
+}
+
+func (h *WorkspaceHandler) MembershipHistory(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var membership model.Membership
+	if err := h.db.Where("organization_id = ? AND user_id = ?", principal.OrganizationID, principal.UserID).First(&membership).Error; err != nil {
+		fail(c, http.StatusNotFound, "membership.not_found", "当前组织成员关系不存在。")
+		return
+	}
+	var events []model.MembershipEvent
+	if err := h.db.Where("membership_id = ?", membership.ID).Order("created_at DESC").Find(&events).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "membership.history_failed", "成员变更记录暂时无法加载。")
+		return
+	}
+	items := make([]gin.H, 0, len(events))
+	for _, event := range events {
+		items = append(items, gin.H{"id": event.ID, "state": event.State, "reason": event.Reason, "created_at": event.CreatedAt})
+	}
+	pageOf(c, items)
+}
+
+func (h *WorkspaceHandler) LeaveMembership(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var membership model.Membership
+	if err := h.db.Where("organization_id = ? AND user_id = ?", principal.OrganizationID, principal.UserID).First(&membership).Error; err != nil {
+		fail(c, http.StatusNotFound, "membership.not_found", "当前组织成员关系不存在。")
+		return
+	}
+	if membership.State != "active" {
+		fail(c, http.StatusConflict, "membership.already_left", "当前成员关系已经不是 active 状态。")
+		return
+	}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&membership).Update("state", "left").Error; err != nil {
+			return err
+		}
+		if err := tx.Where("membership_id = ?", membership.ID).Delete(&model.MembershipRole{}).Error; err != nil {
+			return err
+		}
+		return tx.Create(&model.MembershipEvent{ID: uuid.NewString(), MembershipID: membership.ID, State: "left", Reason: "self_leave"}).Error
+	}); err != nil {
+		fail(c, http.StatusInternalServerError, "membership.leave_failed", "退出组织暂时无法完成。")
+		return
+	}
+	respond(c, http.StatusOK, gin.H{"state": "left", "left_at": time.Now().UTC()})
+}
+
+func (h *WorkspaceHandler) AdminUpdateUser(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var body struct {
+		State string `json:"state"`
+		Role  string `json:"role"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || !validMemberState(body.State) || !validRole(body.Role) {
+		fail(c, http.StatusBadRequest, "membership.validation_failed", "成员状态或角色不符合规范。")
+		return
+	}
+	var membership model.Membership
+	if err := h.db.Where("organization_id = ? AND user_id = ?", principal.OrganizationID, c.Param("id")).First(&membership).Error; err != nil {
+		fail(c, http.StatusNotFound, "membership.not_found", "成员不存在。")
+		return
+	}
+	var user model.User
+	if err := h.db.First(&user, "id = ?", c.Param("id")).Error; err != nil {
+		fail(c, http.StatusNotFound, "user.not_found", "用户不存在。")
+		return
+	}
+	var role model.Role
+	if err := h.db.Where("`key` = ?", body.Role).First(&role).Error; err != nil {
+		fail(c, http.StatusBadRequest, "membership.role_not_found", "角色不存在。")
+		return
+	}
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&membership).Update("state", body.State).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&user).Update("state", body.State).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("membership_id = ?", membership.ID).Delete(&model.MembershipRole{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&model.MembershipRole{MembershipID: membership.ID, RoleID: role.ID}).Error; err != nil {
+			return err
+		}
+		return tx.Create(&model.MembershipEvent{ID: uuid.NewString(), MembershipID: membership.ID, State: body.State, Reason: "admin_update"}).Error
+	})
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "membership.update_failed", "成员信息保存失败。")
+		return
+	}
+	_ = h.db.Create(&model.AuditEvent{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ActorUserID: principal.UserID, Action: "membership.update", TargetType: "membership", TargetID: membership.ID, Result: "success", RequestID: ensureRequestID(c)}).Error
+	respond(c, http.StatusOK, gin.H{"id": user.ID, "name": user.DisplayName, "email": user.Email, "role": body.Role, "state": body.State, "joined_at": membership.CreatedAt})
+}
+
+func validMemberState(value string) bool {
+	return value == "active" || value == "invited" || value == "disabled"
+}
+
+func validRole(value string) bool {
+	return value == "member" || value == "editor" || value == "administrator" || value == "owner"
+}
+
+func (h *WorkspaceHandler) AdminProjects(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var projects []model.Project
+	if err := h.db.Where("organization_id = ?", principal.OrganizationID).Order("updated_at DESC").Find(&projects).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "project.list_failed", "项目列表暂时无法加载。")
+		return
+	}
+	items := make([]gin.H, 0, len(projects))
+	for _, project := range projects {
+		items = append(items, projectAdminItem(project, h.db))
+	}
+	pageOf(c, items)
+}
+
+func (h *WorkspaceHandler) AdminCreateProject(c *gin.Context) {
+	principal, _ := middleware.PrincipalFromContext(c)
+	var body projectRequest
+	if err := c.ShouldBindJSON(&body); err != nil || !validProjectRequest(body) {
+		fail(c, http.StatusBadRequest, "project.validation_failed", "项目字段不符合规范。")
+		return
+	}
+	project := model.Project{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, OwnerUserID: principal.UserID, Title: strings.TrimSpace(body.Title), Summary: strings.TrimSpace(body.Summary), Status: body.Status, Tags: strings.Join(body.Tags, ","), IsPublic: body.IsPublic}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&project).Error; err != nil {
+			return err
+		}
+		return tx.Create(&model.ProjectMember{ProjectID: project.ID, UserID: principal.UserID, Role: "owner"}).Error
+	}); err != nil {
+		fail(c, http.StatusInternalServerError, "project.create_failed", "项目创建失败。")
+		return
+	}
+	h.invalidatePortalCache(principal.OrganizationID)
+	respond(c, http.StatusCreated, projectAdminItem(project, h.db))
+}
+
+func (h *WorkspaceHandler) AdminUpdateProject(c *gin.Context) {
+	principal, _ := middleware.PrincipalFromContext(c)
+	var body projectRequest
+	if err := c.ShouldBindJSON(&body); err != nil || !validProjectRequest(body) {
+		fail(c, http.StatusBadRequest, "project.validation_failed", "项目字段不符合规范。")
+		return
+	}
+	var project model.Project
+	if err := h.db.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&project).Error; err != nil {
+		fail(c, http.StatusNotFound, "project.not_found", "项目不存在。")
+		return
+	}
+	project.Title, project.Summary, project.Status, project.Tags, project.IsPublic = strings.TrimSpace(body.Title), strings.TrimSpace(body.Summary), body.Status, strings.Join(body.Tags, ","), body.IsPublic
+	if err := h.db.Save(&project).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "project.update_failed", "项目保存失败。")
+		return
+	}
+	h.invalidatePortalCache(principal.OrganizationID)
+	respond(c, http.StatusOK, projectAdminItem(project, h.db))
+}
+
+func (h *WorkspaceHandler) projectForPrincipal(c *gin.Context) (model.Project, service.Principal, bool) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return model.Project{}, service.Principal{}, false
+	}
+	var project model.Project
+	if err := h.db.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&project).Error; err != nil {
+		fail(c, http.StatusNotFound, "project.not_found", "项目不存在。")
+		return model.Project{}, service.Principal{}, false
+	}
+	return project, principal, true
+}
+
+func (h *WorkspaceHandler) AdminProjectMembers(c *gin.Context) {
+	project, _, ok := h.projectForPrincipal(c)
+	if !ok {
+		return
+	}
+	var rows []struct {
+		UserID    string    `gorm:"column:user_id"`
+		Name      string    `gorm:"column:name"`
+		Email     string    `gorm:"column:email"`
+		UserState string    `gorm:"column:user_state"`
+		Role      string    `gorm:"column:role"`
+		CreatedAt time.Time `gorm:"column:created_at"`
+	}
+	err := h.db.Table("project_members AS pm").
+		Select("pm.user_id, u.display_name AS name, u.email, u.state AS user_state, pm.role, pm.created_at").
+		Joins("JOIN users AS u ON BINARY u.id = BINARY pm.user_id").
+		Where("pm.project_id = ?", project.ID).
+		Order("pm.role ASC, pm.created_at ASC").Scan(&rows).Error
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "project_member.list_failed", "项目成员列表暂时无法加载。")
+		return
+	}
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, gin.H{"user_id": row.UserID, "name": row.Name, "email": row.Email, "state": row.UserState, "role": row.Role, "assigned_at": row.CreatedAt})
+	}
+	pageOf(c, items)
+}
+
+type projectMemberRequest struct {
+	UserID string `json:"user_id"`
+	Role   string `json:"role"`
+}
+
+func validProjectMemberRole(value string) bool {
+	return value == "member" || value == "contributor" || value == "lead"
+}
+
+func (h *WorkspaceHandler) AdminAddProjectMember(c *gin.Context) {
+	project, principal, ok := h.projectForPrincipal(c)
+	if !ok {
+		return
+	}
+	var body projectMemberRequest
+	if err := c.ShouldBindJSON(&body); err != nil || strings.TrimSpace(body.UserID) == "" || !validProjectMemberRole(body.Role) {
+		fail(c, http.StatusBadRequest, "project_member.validation_failed", "user_id 不能为空，role 必须为 member、contributor 或 lead。")
+		return
+	}
+	var membership model.Membership
+	if err := h.db.Where("organization_id = ? AND user_id = ? AND state = ?", principal.OrganizationID, body.UserID, "active").First(&membership).Error; err != nil {
+		fail(c, http.StatusBadRequest, "project_member.user_not_member", "只能添加当前组织中的活跃成员。")
+		return
+	}
+	var member model.ProjectMember
+	result := h.db.Where("project_id = ? AND user_id = ?", project.ID, body.UserID).First(&member)
+	if result.Error == nil {
+		if member.Role == "owner" {
+			fail(c, http.StatusConflict, "project_member.owner_immutable", "项目负责人不能通过成员角色接口修改。")
+			return
+		}
+		member.Role = body.Role
+		if err := h.db.Save(&member).Error; err != nil {
+			fail(c, http.StatusInternalServerError, "project_member.update_failed", "项目成员角色保存失败。")
+			return
+		}
+		respond(c, http.StatusOK, projectMemberItem(h.db, member))
+		return
+	}
+	if result.Error != gorm.ErrRecordNotFound {
+		fail(c, http.StatusInternalServerError, "project_member.create_failed", "项目成员暂时无法保存。")
+		return
+	}
+	member = model.ProjectMember{ProjectID: project.ID, UserID: body.UserID, Role: body.Role}
+	if err := h.db.Create(&member).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "project_member.create_failed", "项目成员添加失败。")
+		return
+	}
+	respond(c, http.StatusCreated, projectMemberItem(h.db, member))
+}
+
+func (h *WorkspaceHandler) AdminUpdateProjectMember(c *gin.Context) {
+	project, _, ok := h.projectForPrincipal(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		Role string `json:"role"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || !validProjectMemberRole(body.Role) {
+		fail(c, http.StatusBadRequest, "project_member.validation_failed", "role 必须为 member、contributor 或 lead。")
+		return
+	}
+	var member model.ProjectMember
+	if err := h.db.Where("project_id = ? AND user_id = ?", project.ID, c.Param("user_id")).First(&member).Error; err != nil {
+		fail(c, http.StatusNotFound, "project_member.not_found", "项目成员不存在。")
+		return
+	}
+	if member.Role == "owner" {
+		fail(c, http.StatusConflict, "project_member.owner_immutable", "项目负责人不能通过成员角色接口修改。")
+		return
+	}
+	member.Role = body.Role
+	if err := h.db.Save(&member).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "project_member.update_failed", "项目成员角色保存失败。")
+		return
+	}
+	respond(c, http.StatusOK, projectMemberItem(h.db, member))
+}
+
+func (h *WorkspaceHandler) AdminRemoveProjectMember(c *gin.Context) {
+	project, _, ok := h.projectForPrincipal(c)
+	if !ok {
+		return
+	}
+	var member model.ProjectMember
+	if err := h.db.Where("project_id = ? AND user_id = ?", project.ID, c.Param("user_id")).First(&member).Error; err != nil {
+		fail(c, http.StatusNotFound, "project_member.not_found", "项目成员不存在。")
+		return
+	}
+	if member.Role == "owner" || member.UserID == project.OwnerUserID {
+		fail(c, http.StatusConflict, "project_member.owner_immutable", "项目负责人不能移出项目。")
+		return
+	}
+	if err := h.db.Delete(&member).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "project_member.delete_failed", "项目成员移除失败。")
+		return
+	}
+	respond(c, http.StatusOK, gin.H{"removed": true, "user_id": member.UserID, "project_id": project.ID})
+}
+
+func projectMemberItem(db *gorm.DB, member model.ProjectMember) gin.H {
+	var user model.User
+	_ = db.First(&user, "id = ?", member.UserID).Error
+	return gin.H{"user_id": member.UserID, "name": user.DisplayName, "email": user.Email, "state": user.State, "role": member.Role, "assigned_at": member.CreatedAt}
+}
+
+func (h *WorkspaceHandler) AdminProjectMilestones(c *gin.Context) {
+	project, _, ok := h.projectForPrincipal(c)
+	if !ok {
+		return
+	}
+	var milestones []model.ProjectMilestone
+	if err := h.db.Where("project_id = ?", project.ID).Order("due_at IS NULL, due_at ASC, created_at ASC").Find(&milestones).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "project_milestone.list_failed", "项目里程碑列表暂时无法加载。")
+		return
+	}
+	items := make([]gin.H, 0, len(milestones))
+	for _, milestone := range milestones {
+		items = append(items, projectMilestoneItem(milestone))
+	}
+	pageOf(c, items)
+}
+
+type projectMilestoneRequest struct {
+	Title  string `json:"title"`
+	Status string `json:"status"`
+	DueAt  string `json:"due_at"`
+}
+
+func validProjectMilestoneStatus(value string) bool {
+	return value == "planned" || value == "active" || value == "completed"
+}
+
+func parseOptionalTime(value string) (*time.Time, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, true
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, false
+	}
+	parsed = parsed.UTC()
+	return &parsed, true
+}
+
+func validProjectMilestoneRequest(body projectMilestoneRequest) bool {
+	return strings.TrimSpace(body.Title) != "" && len([]rune(body.Title)) <= 160 && validProjectMilestoneStatus(body.Status)
+}
+
+func (h *WorkspaceHandler) AdminCreateProjectMilestone(c *gin.Context) {
+	project, _, ok := h.projectForPrincipal(c)
+	if !ok {
+		return
+	}
+	var body projectMilestoneRequest
+	if err := c.ShouldBindJSON(&body); err != nil || !validProjectMilestoneRequest(body) {
+		fail(c, http.StatusBadRequest, "project_milestone.validation_failed", "里程碑标题、状态或日期不符合规范。")
+		return
+	}
+	dueAt, valid := parseOptionalTime(body.DueAt)
+	if !valid {
+		fail(c, http.StatusBadRequest, "project_milestone.invalid_due_at", "due_at 必须是 RFC3339 日期时间。")
+		return
+	}
+	var completedAt *time.Time
+	if body.Status == "completed" {
+		now := time.Now().UTC()
+		completedAt = &now
+	}
+	milestone := model.ProjectMilestone{ID: uuid.NewString(), ProjectID: project.ID, Title: strings.TrimSpace(body.Title), Status: body.Status, DueAt: dueAt, CompletedAt: completedAt}
+	if err := h.db.Create(&milestone).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "project_milestone.create_failed", "里程碑创建失败。")
+		return
+	}
+	respond(c, http.StatusCreated, projectMilestoneItem(milestone))
+}
+
+func (h *WorkspaceHandler) AdminUpdateProjectMilestone(c *gin.Context) {
+	project, _, ok := h.projectForPrincipal(c)
+	if !ok {
+		return
+	}
+	var body projectMilestoneRequest
+	if err := c.ShouldBindJSON(&body); err != nil || !validProjectMilestoneRequest(body) {
+		fail(c, http.StatusBadRequest, "project_milestone.validation_failed", "里程碑标题、状态或日期不符合规范。")
+		return
+	}
+	dueAt, valid := parseOptionalTime(body.DueAt)
+	if !valid {
+		fail(c, http.StatusBadRequest, "project_milestone.invalid_due_at", "due_at 必须是 RFC3339 日期时间。")
+		return
+	}
+	var milestone model.ProjectMilestone
+	if err := h.db.Where("id = ? AND project_id = ?", c.Param("milestone_id"), project.ID).First(&milestone).Error; err != nil {
+		fail(c, http.StatusNotFound, "project_milestone.not_found", "里程碑不存在。")
+		return
+	}
+	milestone.Title, milestone.Status, milestone.DueAt = strings.TrimSpace(body.Title), body.Status, dueAt
+	if body.Status == "completed" {
+		if milestone.CompletedAt == nil {
+			now := time.Now().UTC()
+			milestone.CompletedAt = &now
+		}
+	} else {
+		milestone.CompletedAt = nil
+	}
+	if err := h.db.Save(&milestone).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "project_milestone.update_failed", "里程碑保存失败。")
+		return
+	}
+	respond(c, http.StatusOK, projectMilestoneItem(milestone))
+}
+
+func (h *WorkspaceHandler) AdminDeleteProjectMilestone(c *gin.Context) {
+	project, _, ok := h.projectForPrincipal(c)
+	if !ok {
+		return
+	}
+	var milestone model.ProjectMilestone
+	if err := h.db.Where("id = ? AND project_id = ?", c.Param("milestone_id"), project.ID).First(&milestone).Error; err != nil {
+		fail(c, http.StatusNotFound, "project_milestone.not_found", "里程碑不存在。")
+		return
+	}
+	if err := h.db.Delete(&milestone).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "project_milestone.delete_failed", "里程碑删除失败。")
+		return
+	}
+	respond(c, http.StatusOK, gin.H{"removed": true, "id": milestone.ID, "project_id": project.ID})
+}
+
+func projectMilestoneItem(milestone model.ProjectMilestone) gin.H {
+	return gin.H{"id": milestone.ID, "project_id": milestone.ProjectID, "title": milestone.Title, "status": milestone.Status, "due_at": milestone.DueAt, "completed_at": milestone.CompletedAt, "updated_at": milestone.UpdatedAt}
+}
+
+type projectRequest struct {
+	Title    string   `json:"title"`
+	Summary  string   `json:"summary"`
+	Status   string   `json:"status"`
+	Tags     []string `json:"tags"`
+	IsPublic bool     `json:"is_public"`
+}
+
+func validProjectRequest(body projectRequest) bool {
+	if strings.TrimSpace(body.Title) == "" || len([]rune(body.Title)) > 160 || len([]rune(body.Summary)) > 500 {
+		return false
+	}
+	if body.Status != "active" && body.Status != "research" && body.Status != "completed" {
+		return false
+	}
+	return len(body.Tags) <= 12
+}
+
+func projectPublicItem(project model.Project) gin.H {
+	return gin.H{"id": project.ID, "title": project.Title, "summary": project.Summary, "status": project.Status, "tags": splitTags(project.Tags), "updated_at": project.UpdatedAt}
+}
+
+func projectAdminItem(project model.Project, db *gorm.DB) gin.H {
+	var owner model.User
+	_ = db.First(&owner, "id = ?", project.OwnerUserID).Error
+	var memberCount, milestoneCount int64
+	db.Model(&model.ProjectMember{}).Where("project_id = ?", project.ID).Count(&memberCount)
+	db.Model(&model.ProjectMilestone{}).Where("project_id = ?", project.ID).Count(&milestoneCount)
+	return gin.H{"id": project.ID, "title": project.Title, "summary": project.Summary, "status": project.Status, "tags": splitTags(project.Tags), "is_public": project.IsPublic, "owner": owner.DisplayName, "member_count": memberCount, "milestone_count": milestoneCount, "updated_at": project.UpdatedAt}
+}
+
+func splitTags(value string) []string {
+	parts := strings.Split(value, ",")
+	tags := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			tags = append(tags, trimmed)
+		}
+	}
+	return tags
 }
 func (h *WorkspaceHandler) AdminApplications(c *gin.Context) {
 	h.mu.RLock()

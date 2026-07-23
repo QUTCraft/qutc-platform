@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { Menu, Moon, Sunny, UserFilled } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { usePageTransition } from '@/composables/usePageTransition'
 
 const { isDark, toggleTheme } = useTheme()
 const { navigateToApply } = usePageTransition()
+const router = useRouter()
 const mobileOpen = ref(false)
 
-const showLoginHint = () => ElMessage.info('认证接口将在 /api/v1/auth 下接入。')
+const goToLogin = () => router.push({ name: 'login' })
 
 const links = [
   { to: '/', label: '首页' },
@@ -42,7 +43,7 @@ const links = [
         :icon="isDark ? Sunny : Moon"
         @click="toggleTheme"
       />
-      <el-button text :icon="UserFilled" aria-label="成员登录" @click="showLoginHint">成员登录</el-button>
+      <el-button text :icon="UserFilled" aria-label="成员登录" @click="goToLogin">成员登录</el-button>
       <el-button type="primary" round @click="(e: MouseEvent) => navigateToApply(e)">加入我们</el-button>
       <el-button class="menu-button" text circle :icon="Menu" aria-label="打开导航" @click="mobileOpen = true" />
     </div>

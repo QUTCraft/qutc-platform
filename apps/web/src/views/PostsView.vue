@@ -27,6 +27,7 @@ const filteredItems = computed(() => data.value?.items.filter((item) => category
           <button
             v-for="item in categories"
             :key="item"
+            type="button"
             :class="{ active: category === item }"
             @click="category = item"
           >

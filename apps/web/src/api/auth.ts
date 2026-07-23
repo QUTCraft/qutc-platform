@@ -1,4 +1,4 @@
-import { get, post } from '@/api/client'
+import { get, patch, post } from '@/api/client'
 import type { AuthUser, TokenPair } from '@/api/types'
 
 export const authApi = {
@@ -7,4 +7,5 @@ export const authApi = {
   refresh: (refresh_token: string) => post<TokenPair>('/api/v1/auth/refresh', { refresh_token }),
   logout: (refresh_token?: string) => post<{ revoked: boolean }>('/api/v1/auth/logout', { refresh_token }),
   getMe: () => get<AuthUser>('/api/v1/auth/me'),
+  updateMe: (payload: { display_name: string; bio?: string; avatar_url?: string }) => patch<AuthUser>('/api/v1/auth/me', payload),
 }

@@ -2,10 +2,12 @@ import type {
   AdminApplication,
   AdminContent,
   AdminDashboard,
+  AdminProject,
   AdminServerStatus,
   AdminUser,
   AuthUser,
   KnowledgeArticle,
+  KnowledgeDirectory,
   Organization,
   Page,
   Project,
@@ -53,6 +55,12 @@ const knowledge: KnowledgeArticle[] = [
   { id: 'knowledge_server', title: '服务器公开状态的设计原则', summary: '门户展示状态、申请入口；后台处理审核与命令执行。', category: '服务器', updated_at: '2026-07-11T02:00:00Z', reading_minutes: 5 },
 ]
 
+const knowledgeDirectories: KnowledgeDirectory[] = [
+  { id: 'knowledge_directory_collaboration', name: '项目协作', slug: 'collaboration', description: '项目目标、角色与交接记录。', article_count: 1, updated_at: '2026-07-16T02:00:00Z' },
+  { id: 'knowledge_directory_technology', name: '技术规范', slug: 'technology', description: '接口、前端和部署规范。', article_count: 0, updated_at: '2026-07-14T02:00:00Z' },
+  { id: 'knowledge_directory_community', name: '社团实践', slug: 'community', description: '适用于组织日常协作的经验。', article_count: 0, updated_at: '2026-07-11T02:00:00Z' },
+]
+
 const serverStatus: ServerStatus = {
   enabled: true,
   label: 'QUTCraft Java 生存服',
@@ -76,6 +84,8 @@ const adminUsers: AdminUser[] = [
   { id: 'user_mori', name: 'Mori', email: 'mori@qutcraft.example', role: 'administrator', state: 'active', joined_at: '2026-07-15T01:00:00Z' },
   { id: 'user_nova', name: 'Nova', email: 'nova@qutcraft.example', role: 'member', state: 'invited', joined_at: '2026-07-16T01:00:00Z' },
 ]
+
+let adminProjects: AdminProject[] = projects.map((project) => ({ ...project, is_public: true, owner: 'BBKarasu' }))
 
 let applications: AdminApplication[] = [
   { id: 'application_001', applicant: 'Yukino', type: 'whitelist', submitted_at: '2026-07-17T02:30:00Z', note: '希望参与周末建筑测试。', status: 'pending' },
@@ -123,6 +133,7 @@ export async function mockGet<T>(path: string): Promise<T> {
   }
   if (path.endsWith('/admin/content')) return page(adminContent) as T
   if (path.endsWith('/admin/users')) return page(adminUsers) as T
+  if (path.endsWith('/admin/projects')) return page(adminProjects) as T
   if (path.endsWith('/admin/applications')) return page(applications) as T
   if (path.endsWith('/admin/server/status')) return adminServer as T
   if (/\/organizations\/[^/]+$/.test(path)) return organization as T
@@ -130,6 +141,7 @@ export async function mockGet<T>(path: string): Promise<T> {
   if (path.endsWith('/projects')) return page(projects) as T
   if (path.endsWith('/resources')) return page(resources) as T
   if (path.endsWith('/knowledge/articles')) return page(knowledge) as T
+  if (path.endsWith('/knowledge/directories')) return page(knowledgeDirectories) as T
   if (path.endsWith('/server-status')) return serverStatus as T
   throw new Error(`Mock endpoint not implemented: ${path}`)
 }
@@ -166,6 +178,12 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     content.updated_at = new Date().toISOString()
     return content as T
   }
+  if (path.endsWith('/admin/projects')) {
+    const payload = body as Pick<AdminProject, 'title' | 'summary' | 'status' | 'tags' | 'is_public'>
+    const project: AdminProject = { id: `project_${Date.now()}`, ...payload, owner: mockUser?.display_name ?? 'BBKarasu', updated_at: new Date().toISOString() }
+    adminProjects = [project, ...adminProjects]
+    return project as T
+  }
   const decision = path.match(/\/admin\/applications\/([^/]+)\/(approve|reject)$/)
   if (decision) {
     const application = applications.find((item) => item.id === decision[1])
@@ -184,11 +202,39 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
 export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
   await wait()
   requireMockAdmin()
+  const userMatch = path.match(/\/admin\/users\/([^/]+)$/)
+  if (userMatch) {
+    const user = adminUsers.find((item) => item.id === userMatch[1])
+    if (!user) throw new Error('成员不存在。')
+    Object.assign(user, body)
+    return user as T
+  }
+  const projectMatch = path.match(/\/admin\/projects\/([^/]+)$/)
+  if (projectMatch) {
+    const project = adminProjects.find((item) => item.id === projectMatch[1])
+    if (!project) throw new Error('项目不存在。')
+    Object.assign(project, body, { updated_at: new Date().toISOString() })
+    return project as T
+  }
   const match = path.match(/\/admin\/content\/([^/]+)$/)
   if (!match) throw new Error(`Mock endpoint not implemented: ${path}`)
   const item = adminContent.find((content) => content.id === match[1])
   if (!item) throw new Error('内容不存在。')
-  const payload = body as Pick<AdminContent, 'title' | 'type' | 'excerpt' | 'body'>
+  const payload = body as Pick<AdminContent, 'title' | 'type' | 'category' | 'excerpt' | 'body'>
   Object.assign(item, payload, { updated_at: new Date().toISOString() })
   return item as T
+}
+
+export async function mockDelete<T>(path: string): Promise<T> {
+  await wait()
+  requireMockAdmin()
+  const memberMatch = path.match(/\/admin\/projects\/([^/]+)\/members\/([^/]+)$/)
+  if (memberMatch) {
+    return { removed: true } as T
+  }
+  const milestoneMatch = path.match(/\/admin\/projects\/([^/]+)\/milestones\/([^/]+)$/)
+  if (milestoneMatch) {
+    return { removed: true } as T
+  }
+  throw new Error(`Mock endpoint not implemented: ${path}`)
 }

@@ -67,6 +67,15 @@ export interface KnowledgeArticle {
   reading_minutes: number
 }
 
+export interface KnowledgeDirectory {
+  id: string
+  name: string
+  slug: string
+  description: string
+  article_count: number
+  updated_at: string
+}
+
 export interface ServerStatus {
   enabled: boolean
   label: string
@@ -91,11 +100,44 @@ export interface AdminContent {
   id: string
   title: string
   type: 'news' | 'resource' | 'knowledge'
+  category?: string
   status: 'draft' | 'published' | 'review' | 'archived'
   author: string
   excerpt?: string
   body?: string
   published_at?: string | null
+  updated_at: string
+}
+
+export interface AdminProject {
+  id: string
+  title: string
+  summary: string
+  status: 'active' | 'research' | 'completed'
+  tags: string[]
+  is_public: boolean
+  owner: string
+  member_count?: number
+  milestone_count?: number
+  updated_at: string
+}
+
+export interface AdminProjectMember {
+  user_id: string
+  name: string
+  email: string
+  state: 'active' | 'invited' | 'disabled'
+  role: 'member' | 'contributor' | 'lead' | 'owner'
+  assigned_at: string
+}
+
+export interface AdminProjectMilestone {
+  id: string
+  project_id: string
+  title: string
+  status: 'planned' | 'active' | 'completed'
+  due_at?: string | null
+  completed_at?: string | null
   updated_at: string
 }
 
@@ -136,6 +178,8 @@ export interface AuthUser {
   id: string
   email: string
   display_name: string
+  bio?: string
+  avatar_url?: string
   organization_id: string
   roles: Array<'owner' | 'administrator' | 'editor' | 'member'>
 }

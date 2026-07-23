@@ -28,3 +28,8 @@ build/
 # Local tooling
 tmp/
 logs/
+
+# User-provided design references; keep them local and out of releases
+/43999E726D018F1D3B6FF5C6E1A67400.png
+/6A417431530F99988AB342DEF017C9C2.png
+/CD03290290F3FDB2FDA64BC1FC84529B.png

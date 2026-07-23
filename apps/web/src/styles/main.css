@@ -185,6 +185,31 @@ h1, h2, h3, h4, h5, h6, p {
   color: var(--md-sys-color-on-primary-container) !important;
 }
 
+.el-button:not([class*="el-button--"]):not(.is-text):not(.is-plain) {
+  background-color: var(--md-sys-color-surface-container-high) !important;
+  border-color: var(--md-sys-color-outline-variant) !important;
+  color: var(--md-sys-color-on-surface) !important;
+}
+
+.el-button:not([class*="el-button--"]):not(.is-text):not(.is-plain) span,
+.el-button:not([class*="el-button--"]):not(.is-text):not(.is-plain) .el-icon {
+  color: var(--md-sys-color-on-surface) !important;
+}
+
+.el-button:not([class*="el-button--"]):not(.is-text):not(.is-plain):hover,
+.el-button:not([class*="el-button--"]):not(.is-text):not(.is-plain):focus {
+  background-color: var(--md-sys-color-primary-container) !important;
+  border-color: var(--md-sys-color-primary) !important;
+  color: var(--md-sys-color-on-primary-container) !important;
+}
+
+.el-button:not([class*="el-button--"]):not(.is-text):not(.is-plain):hover span,
+.el-button:not([class*="el-button--"]):not(.is-text):not(.is-plain):hover .el-icon,
+.el-button:not([class*="el-button--"]):not(.is-text):not(.is-plain):focus span,
+.el-button:not([class*="el-button--"]):not(.is-text):not(.is-plain):focus .el-icon {
+  color: var(--md-sys-color-on-primary-container) !important;
+}
+
 .el-button.is-plain {
   background-color: var(--md-sys-color-surface-container) !important;
   border-color: var(--md-sys-color-outline-variant) !important;
@@ -333,14 +358,23 @@ h1, h2, h3, h4, h5, h6, p {
 
 /* Tables */
 .el-table {
-  --el-table-bg-color: var(--md-sys-color-surface-container) !important;
+  --el-table-bg-color: transparent !important;
   --el-table-header-bg-color: var(--md-sys-color-surface-container-high) !important;
-  --el-table-border-color: var(--md-sys-color-surface-container-highest) !important;
+  --el-table-tr-bg-color: var(--md-sys-color-surface-container-low) !important;
+  --el-table-border-color: var(--md-sys-color-outline-variant) !important;
   --el-table-row-hover-bg-color: var(--md-sys-color-surface-container-high) !important;
   --el-table-text-color: var(--md-sys-color-on-surface) !important;
   --el-table-header-text-color: var(--md-sys-color-on-surface-variant) !important;
   border-radius: var(--md-shape-lg) !important;
   overflow: hidden;
+}
+
+.el-table__body tr {
+  background-color: var(--md-sys-color-surface-container-low) !important;
+}
+
+.el-table__body tr:hover > td.el-table__cell {
+  background-color: var(--md-sys-color-surface-container-high) !important;
 }
 
 .el-table th.el-table__cell {
@@ -761,6 +795,10 @@ h1, h2, h3, h4, h5, h6, p {
   z-index: 0;
 }
 
+.hero-glow-backdrop * {
+  pointer-events: none;
+}
+
 .mesh-blob {
   position: absolute;
   border-radius: 50%;
@@ -929,6 +967,7 @@ h1, h2, h3, h4, h5, h6, p {
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
   transform: rotate(25deg);
   animation: cta-shine-sweep 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  pointer-events: none;
 }
 
 @keyframes cta-shine-sweep {
@@ -1584,6 +1623,77 @@ h1, h2, h3, h4, h5, h6, p {
   margin-bottom: 24px;
 }
 
+.resource-table .el-table {
+  --el-table-bg-color: transparent !important;
+  --el-table-tr-bg-color: var(--md-sys-color-surface-container-low) !important;
+  --el-table-header-bg-color: var(--md-sys-color-surface-container-high) !important;
+}
+
+.resource-table .el-table__body tr {
+  background-color: var(--md-sys-color-surface-container-low) !important;
+}
+
+.resource-table .el-table__body tr:hover > td.el-table__cell {
+  background-color: var(--md-sys-color-surface-container-high) !important;
+}
+
+.resource-table .el-table__body td:last-child .cell {
+  overflow: visible;
+}
+
+.resource-download-btn.el-button {
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 16px !important;
+  line-height: 1.2 !important;
+}
+
+.content-type-selector.el-radio-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: var(--md-sys-color-surface-container-high);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-full);
+}
+
+.content-type-selector .el-radio-button {
+  margin: 0;
+}
+
+.content-type-selector .el-radio-button__inner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 84px;
+  height: 40px;
+  padding: 0 18px !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: var(--md-shape-full) !important;
+  box-shadow: none !important;
+  color: var(--md-sys-color-on-surface-variant) !important;
+  font-weight: 800 !important;
+  transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
+}
+
+.content-type-selector .el-radio-button:first-child .el-radio-button__inner,
+.content-type-selector .el-radio-button:last-child .el-radio-button__inner {
+  border-radius: var(--md-shape-full) !important;
+}
+
+.content-type-selector .el-radio-button__inner:hover {
+  background: var(--md-sys-color-primary-container) !important;
+  color: var(--md-sys-color-on-primary-container) !important;
+}
+
+.content-type-selector .el-radio-button.is-active .el-radio-button__inner {
+  background: var(--md-sys-color-primary) !important;
+  color: var(--md-sys-color-on-primary) !important;
+  box-shadow: var(--md-elevation-1) !important;
+}
+
 .knowledge-layout {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
@@ -1851,6 +1961,37 @@ h1, h2, h3, h4, h5, h6, p {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.admin-app .el-button:not(.is-circle):not(.is-text) {
+  min-height: 40px;
+  padding: 0 18px !important;
+}
+
+.admin-app .el-button.is-circle {
+  background-color: var(--md-sys-color-surface-container-high) !important;
+  border: 1px solid var(--md-sys-color-outline-variant) !important;
+  color: var(--md-sys-color-on-surface) !important;
+  box-shadow: none !important;
+}
+
+.admin-app .el-button.is-circle span,
+.admin-app .el-button.is-circle .el-icon {
+  color: var(--md-sys-color-on-surface) !important;
+}
+
+.admin-app .el-button.is-circle:hover,
+.admin-app .el-button.is-circle:focus {
+  background-color: var(--md-sys-color-primary-container) !important;
+  border-color: var(--md-sys-color-primary) !important;
+  color: var(--md-sys-color-on-primary-container) !important;
+}
+
+.admin-app .el-button.is-circle:hover span,
+.admin-app .el-button.is-circle:hover .el-icon,
+.admin-app .el-button.is-circle:focus span,
+.admin-app .el-button.is-circle:focus .el-icon {
+  color: var(--md-sys-color-on-primary-container) !important;
 }
 
 .admin-content {
@@ -2892,6 +3033,3 @@ h1, h2, h3, h4, h5, h6, p {
   font-size: 13px;
   margin-bottom: 24px;
 }
-
-
-

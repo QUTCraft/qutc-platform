@@ -34,6 +34,8 @@ type Profile struct {
 	ID             string   `json:"id"`
 	Email          string   `json:"email"`
 	DisplayName    string   `json:"display_name"`
+	Bio            string   `json:"bio"`
+	AvatarURL      string   `json:"avatar_url"`
 	OrganizationID string   `json:"organization_id"`
 	Roles          []string `json:"roles"`
 }
@@ -94,6 +96,9 @@ func (s *AuthService) Register(email, displayName, password string) (TokenPair, 
 		}
 		membership := model.Membership{ID: uuid.NewString(), OrganizationID: organization.ID, UserID: user.ID, State: "active"}
 		if err := tx.Create(&membership).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&model.MembershipEvent{ID: uuid.NewString(), MembershipID: membership.ID, State: "active", Reason: "registered"}).Error; err != nil {
 			return err
 		}
 		var memberRole model.Role
@@ -193,7 +198,25 @@ func (s *AuthService) ProfileFor(principal Principal) (Profile, error) {
 	if err != nil {
 		return Profile{}, err
 	}
-	return Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, OrganizationID: principal.OrganizationID, Roles: roles}, nil
+	return Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Bio: user.Bio, AvatarURL: user.AvatarURL, OrganizationID: principal.OrganizationID, Roles: roles}, nil
+}
+
+func (s *AuthService) UpdateProfile(principal Principal, displayName, bio, avatarURL string) (Profile, error) {
+	displayName = strings.TrimSpace(displayName)
+	bio = strings.TrimSpace(bio)
+	avatarURL = strings.TrimSpace(avatarURL)
+	if displayName == "" || len([]rune(displayName)) > 80 || len([]rune(bio)) > 500 || len([]rune(avatarURL)) > 500 {
+		return Profile{}, fmt.Errorf("profile fields are invalid")
+	}
+	var user model.User
+	if err := s.db.Where("id = ? AND state = ?", principal.UserID, "active").First(&user).Error; err != nil {
+		return Profile{}, ErrInvalidCredentials
+	}
+	user.DisplayName, user.Bio, user.AvatarURL = displayName, bio, avatarURL
+	if err := s.db.Save(&user).Error; err != nil {
+		return Profile{}, err
+	}
+	return s.ProfileFor(principal)
 }
 
 func (s *AuthService) HasPermission(principal Principal, permission string) (bool, error) {
@@ -227,7 +250,7 @@ func (s *AuthService) issueTokenPair(db *gorm.DB, user model.User, organizationI
 	if err != nil {
 		return TokenPair{}, err
 	}
-	return TokenPair{AccessToken: accessToken, RefreshToken: refreshToken, TokenType: "Bearer", ExpiresIn: int64(s.cfg.JWTAccessTTL.Seconds()), User: Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, OrganizationID: organizationID, Roles: roles}}, nil
+	return TokenPair{AccessToken: accessToken, RefreshToken: refreshToken, TokenType: "Bearer", ExpiresIn: int64(s.cfg.JWTAccessTTL.Seconds()), User: Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Bio: user.Bio, AvatarURL: user.AvatarURL, OrganizationID: organizationID, Roles: roles}}, nil
 }
 
 func (s *AuthService) activeOrganizationID(userID string) (string, error) {

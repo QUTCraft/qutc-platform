@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, DataAnalysis, Document, Monitor, Moon, Setting, Sunny, SwitchButton, UserFilled } from '@element-plus/icons-vue'
+import { ArrowLeft, DataAnalysis, Document, Folder, Monitor, Moon, Setting, Sunny, SwitchButton, UserFilled } from '@element-plus/icons-vue'
 import { session, signOut } from '@/stores/session'
 import { useTheme } from '@/composables/useTheme'
 
@@ -13,6 +13,7 @@ const menuOpen = ref(false)
 const navigation = [
   { label: '概览', to: '/admin', icon: DataAnalysis },
   { label: '内容管理', to: '/admin/content', icon: Document },
+  { label: '项目管理', to: '/admin/projects', icon: Folder },
   { label: '成员管理', to: '/admin/users', icon: UserFilled },
   { label: '审核与服务器', to: '/admin/reviews', icon: Monitor },
   { label: '系统设置', to: '/admin/settings', icon: Setting },

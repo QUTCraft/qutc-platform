@@ -67,7 +67,7 @@ const showDownloadHint = (title: string) => ElMessage.info(`将通过受控下�
           </el-table-column>
           <el-table-column label="" width="110" align="right">
             <template #default="scope">
-              <el-button type="primary" size="small" round @click="showDownloadHint(scope.row.title)">
+              <el-button type="primary" size="small" round class="resource-download-btn" @click="showDownloadHint(scope.row.title)">
                 下载
               </el-button>
             </template>

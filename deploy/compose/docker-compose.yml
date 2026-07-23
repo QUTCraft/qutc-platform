@@ -40,6 +40,7 @@ services:
       - .env
     environment:
       HTTP_ADDR: :8080
+      REDIS_ADDR: redis:6379
       MYSQL_DSN: ${MYSQL_USER:-qutcraft}:${MYSQL_PASSWORD:-qutcraft}@tcp(mysql:3306)/${MYSQL_DATABASE:-qutcraft}?charset=utf8mb4&parseTime=True&loc=UTC
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
     ports:

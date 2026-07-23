@@ -91,7 +91,9 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
-	var request struct { RefreshToken string `json:"refresh_token"` }
+	var request struct {
+		RefreshToken string `json:"refresh_token"`
+	}
 	if err := c.ShouldBindJSON(&request); err != nil {
 		fail(c, http.StatusBadRequest, "auth.validation_failed", "退出请求格式错误。")
 		return
@@ -112,6 +114,33 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	profile, err := h.auth.ProfileFor(principal)
 	if err != nil {
 		fail(c, http.StatusUnauthorized, "auth.session_invalid", "当前会话已失效。")
+		return
+	}
+	respond(c, http.StatusOK, profile)
+}
+
+func (h *AuthHandler) UpdateMe(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var request struct {
+		DisplayName string `json:"display_name"`
+		Bio         string `json:"bio"`
+		AvatarURL   string `json:"avatar_url"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		fail(c, http.StatusBadRequest, "profile.validation_failed", "资料格式不正确。")
+		return
+	}
+	profile, err := h.auth.UpdateProfile(principal, request.DisplayName, request.Bio, request.AvatarURL)
+	if err != nil {
+		if strings.Contains(err.Error(), "profile fields") {
+			fail(c, http.StatusBadRequest, "profile.validation_failed", "显示名、简介或头像地址长度不符合规范。")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "profile.update_failed", "个人资料保存失败。")
 		return
 	}
 	respond(c, http.StatusOK, profile)

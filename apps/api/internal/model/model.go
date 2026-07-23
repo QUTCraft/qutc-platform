@@ -14,6 +14,8 @@ type User struct {
 	ID           string `gorm:"primaryKey;type:char(36)"`
 	Email        string `gorm:"uniqueIndex;size:254;not null"`
 	DisplayName  string `gorm:"size:80;not null"`
+	Bio          string `gorm:"size:500;not null;default:''"`
+	AvatarURL    string `gorm:"size:500;not null;default:''"`
 	PasswordHash string `gorm:"size:255;not null"`
 	State        string `gorm:"size:24;not null;default:active"`
 	CreatedAt    time.Time
@@ -50,6 +52,14 @@ type Membership struct {
 	UpdatedAt      time.Time
 }
 
+type MembershipEvent struct {
+	ID           string    `gorm:"primaryKey;type:char(36)"`
+	MembershipID string    `gorm:"index;type:char(36);not null"`
+	State        string    `gorm:"size:24;not null"`
+	Reason       string    `gorm:"size:160;not null;default:''"`
+	CreatedAt    time.Time `gorm:"index"`
+}
+
 type MembershipRole struct {
 	MembershipID string `gorm:"primaryKey;type:char(36)"`
 	RoleID       string `gorm:"primaryKey;type:char(36)"`
@@ -82,12 +92,57 @@ type Content struct {
 	AuthorUserID   string     `gorm:"index;type:char(36);not null"`
 	Title          string     `gorm:"size:160;not null"`
 	Type           string     `gorm:"size:24;not null"`
+	Category       string     `gorm:"size:64;not null;default:''"`
 	Status         string     `gorm:"index;size:24;not null;default:draft"`
 	Excerpt        string     `gorm:"size:500"`
 	Body           string     `gorm:"type:longtext"`
 	PublishedAt    *time.Time `gorm:"index"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+type KnowledgeDirectory struct {
+	ID             string `gorm:"primaryKey;type:char(36)"`
+	OrganizationID string `gorm:"index;type:char(36);not null"`
+	ParentID       string `gorm:"index;type:char(36);not null;default:''"`
+	Name           string `gorm:"size:120;not null"`
+	Slug           string `gorm:"size:120;not null"`
+	Description    string `gorm:"size:500;not null;default:''"`
+	SortOrder      int    `gorm:"not null;default:0"`
+	IsPublic       bool   `gorm:"index;not null;default:false"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type Project struct {
+	ID             string `gorm:"primaryKey;type:char(36)"`
+	OrganizationID string `gorm:"index;type:char(36);not null"`
+	OwnerUserID    string `gorm:"index;type:char(36);not null"`
+	Title          string `gorm:"size:160;not null"`
+	Summary        string `gorm:"size:500;not null"`
+	Status         string `gorm:"index;size:24;not null;default:research"`
+	Tags           string `gorm:"type:text"`
+	IsPublic       bool   `gorm:"index;not null;default:false"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type ProjectMember struct {
+	ProjectID string `gorm:"primaryKey;type:char(36)"`
+	UserID    string `gorm:"primaryKey;type:char(36)"`
+	Role      string `gorm:"size:64;not null;default:member"`
+	CreatedAt time.Time
+}
+
+type ProjectMilestone struct {
+	ID          string     `gorm:"primaryKey;type:char(36)"`
+	ProjectID   string     `gorm:"index;type:char(36);not null"`
+	Title       string     `gorm:"size:160;not null"`
+	Status      string     `gorm:"size:24;not null;default:planned"`
+	DueAt       *time.Time `gorm:"index"`
+	CompletedAt *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type MediaAsset struct {
