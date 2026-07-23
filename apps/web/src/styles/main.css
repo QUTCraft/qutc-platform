@@ -1988,6 +1988,22 @@ h1, h2, h3, h4, h5, h6, p {
   color: #f3f3f5;
   transition: background-color 800ms cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Allow text selection ONLY inside form input fields when typing */
+.starlight-form .el-input__inner {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+.starlight-wrapper ::selection {
+  background: rgba(195, 192, 255, 0.35);
+  color: #ffffff;
 }
 
 .starfield {
