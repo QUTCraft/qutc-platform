@@ -130,7 +130,7 @@ async function handleApply() {
       <!-- Success Hologram Certificate Screen -->
       <div v-if="isSubmitted" class="starlight-success">
         <div class="success-icon-wrapper">
-          <!-- Rotating Constellation Orbit Ring with Clean Geometric Star Sparks -->
+          <!-- Rotating Constellation Orbit Ring (Strictly Concentric with inset: 0 and inset: 8px) -->
           <div class="constellation-orbit">
             <span class="orbit-dot dot-1" />
             <span class="orbit-dot dot-2" />
@@ -138,7 +138,7 @@ async function handleApply() {
             <span class="orbit-dot dot-4" />
           </div>
 
-          <div class="success-icon">
+          <div class="check-badge">
             <el-icon><Check /></el-icon>
           </div>
         </div>
