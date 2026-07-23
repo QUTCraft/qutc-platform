@@ -2541,5 +2541,131 @@ h1, h2, h3, h4, h5, h6, p {
   text-shadow: 0 0 30px rgba(93, 69, 219, 0.5);
 }
 
+/* Ascending 3D Minecraft Cubes Animation ("踏星汉而至，赴方块之约") */
+.ascension-cubes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.cube-particle {
+  position: absolute;
+  bottom: -60px;
+  left: var(--x);
+  width: var(--size);
+  height: var(--size);
+  background: linear-gradient(135deg, rgba(195, 192, 255, 0.9), rgba(93, 69, 219, 0.7));
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  border-radius: 4px;
+  box-shadow: 0 0 16px rgba(195, 192, 255, 0.8), 0 0 32px rgba(93, 69, 219, 0.5);
+  opacity: 0;
+  transform: rotate(45deg) scale(0.5);
+  animation: cube-ascend 2.4s cubic-bezier(0.16, 1, 0.3, 1) var(--delay) forwards;
+}
+
+@keyframes cube-ascend {
+  0% {
+    bottom: -60px;
+    opacity: 0;
+    transform: translateY(0) rotate(0deg) scale(0.4);
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.8;
+  }
+  100% {
+    bottom: 115vh;
+    opacity: 0;
+    transform: translateY(-100px) rotate(360deg) scale(1.5);
+  }
+}
+
+/* Holographic Passport Card Certificate */
+.passport-card {
+  width: 100%;
+  margin: 20px 0 24px;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(195, 192, 255, 0.3);
+  border-radius: var(--md-shape-xl);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(195, 192, 255, 0.05);
+  backdrop-filter: blur(12px);
+  text-align: left;
+  animation: passport-materialize 800ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes passport-materialize {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.passport-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.18);
+  font-size: 13px;
+  font-weight: 700;
+  color: #c3c0ff;
+}
+
+.passport-header span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.passport-id {
+  font-family: var(--md-font-mono);
+  letter-spacing: 0.1em;
+  color: #80d5c7;
+}
+
+.passport-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.passport-grid div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.passport-grid span {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.passport-grid strong {
+  font-size: 14px;
+  color: #ffffff;
+}
+
+.success-subtitle {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 4px 0 16px;
+}
+
+.success-tip {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 13px;
+  margin-bottom: 24px;
+}
+
 
 

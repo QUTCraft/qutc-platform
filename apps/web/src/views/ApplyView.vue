@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ArrowLeft, Check, MagicStick, Promotion } from '@element-plus/icons-vue'
+import { ArrowLeft, Check, MagicStick, Promotion, Ticket } from '@element-plus/icons-vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { portalApi } from '@/api/portal'
 import type { ApplicationPayload } from '@/api/types'
@@ -28,7 +28,6 @@ const rules: FormRules = {
 }
 
 onMounted(() => {
-  // Stars appear sequentially one by one (0 ~ 1400ms) then form condenses into starry background
   requestAnimationFrame(() => {
     setTimeout(() => {
       isEntering.value = false
@@ -46,11 +45,13 @@ async function handleApply() {
     // Mock mode fallback
   } finally {
     submitting.value = false
+    // Phase 1: Cosmic Supernova Bloom & Minecraft Cubes Ascension
     isBlooming.value = true
+    // Phase 2: Allow shockwaves and ascending cube particles to bloom before showing Hologram Certificate
     setTimeout(() => {
       isSubmitted.value = true
-    }, 300)
-    ElMessage.success('申请提交成功，请注意查收邮件与QQ通知！')
+    }, 850)
+    ElMessage.success('踏星汉而至！白名单申请已成功点亮并发送群通知！')
   }
 }
 </script>
@@ -88,13 +89,27 @@ async function handleApply() {
     <!-- Background Starfield texture -->
     <div class="starfield" />
 
-    <!-- Post-Submit Explosive Supernova Color Wave & Particle Flares -->
+    <!-- Post-Submit Explosive Supernova Color Wave & Floating Cube Particles -->
     <div class="supernova-bloom-overlay">
       <div class="shockwave-circle circle-1" />
       <div class="shockwave-circle circle-2" />
       <div class="shockwave-circle circle-3" />
       <div class="supernova-beam beam-1" />
       <div class="supernova-beam beam-2" />
+
+      <!-- Ascending 3D Minecraft Cube Particles ("赴方块之约") -->
+      <div v-if="isBlooming" class="ascension-cubes">
+        <span
+          v-for="c in 16"
+          :key="c"
+          class="cube-particle"
+          :style="{
+            '--delay': `${c * 60}ms`,
+            '--x': `${((c * 23) % 90) + 5}vw`,
+            '--size': `${((c % 4) + 1) * 12}px`,
+          }"
+        />
+      </div>
     </div>
 
     <section class="starlight-card">
@@ -114,7 +129,7 @@ async function handleApply() {
         </p>
       </div>
 
-      <!-- Success State Screen with Holographic Crown -->
+      <!-- Success Hologram Certificate Screen -->
       <div v-if="isSubmitted" class="starlight-success">
         <div class="success-icon-wrapper">
           <div class="icon-ring-pulse" />
@@ -123,16 +138,28 @@ async function handleApply() {
           </div>
         </div>
 
-        <h2 class="blooming-title">✦ 欢迎加入 QUTCraft 星河矩阵 ✦</h2>
-        <p>
-          您的白名单申请已成功提交至系统。系统已通过 SMTP 接口将您的身份凭证同步推送到管理员审核邮箱。
-          请留意您的 <strong>{{ form.email }}</strong> 邮箱或 QQ（<strong>{{ form.qq_number }}</strong>）通知。
+        <h2 class="blooming-title">✦ 已接入 QUTCraft 星河矩阵 ✦</h2>
+        <p class="success-subtitle">
+          您的凭证已生成并存入后台审批队列，SMTP 发件程序已向管理员推送邮件通告。
         </p>
-        <div class="success-summary">
-          <div><span>申请人</span><strong>{{ form.name }} ({{ form.class_name }})</strong></div>
-          <div><span>游戏 ID</span><strong>{{ form.game_id }}</strong></div>
-          <div><span>状态</span><strong class="tag-pending">审核中 (Pending)</strong></div>
+
+        <div class="passport-card">
+          <div class="passport-header">
+            <span><el-icon><Ticket /></el-icon> QUTCraft 白名单验证存根</span>
+            <small class="passport-id">#QUT-2026-STAR</small>
+          </div>
+          <div class="passport-grid">
+            <div><span>申请人</span><strong>{{ form.name }} ({{ form.class_name }})</strong></div>
+            <div><span>游戏 ID</span><strong>{{ form.game_id }}</strong></div>
+            <div><span>QQ 账号</span><strong>{{ form.qq_number }}</strong></div>
+            <div><span>状态</span><strong class="tag-pending">● 待管理员审批 (Pending)</strong></div>
+          </div>
         </div>
+
+        <p class="success-tip">
+          请保持 <strong>{{ form.email }}</strong> 邮箱畅通，审批通过后将自动拉入官方社团群。
+        </p>
+
         <div class="success-actions">
           <RouterLink to="/projects">
             <el-button type="primary" size="large" round>浏览公开项目</el-button>
@@ -188,7 +215,7 @@ async function handleApply() {
             :icon="Promotion"
             class="cosmic-submit-btn"
           >
-            提交申请 · 点亮星彩
+            提交申请 · 赴方块之约
           </el-button>
         </div>
       </el-form>
