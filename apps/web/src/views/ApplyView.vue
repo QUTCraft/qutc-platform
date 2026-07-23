@@ -45,9 +45,7 @@ async function handleApply() {
     // Mock mode fallback
   } finally {
     submitting.value = false
-    // Phase 1: Cosmic Supernova Bloom & Minecraft Cubes Ascension
     isBlooming.value = true
-    // Phase 2: Allow shockwaves and ascending cube particles to bloom before showing Hologram Certificate
     setTimeout(() => {
       isSubmitted.value = true
     }, 850)
@@ -132,7 +130,8 @@ async function handleApply() {
       <!-- Success Hologram Certificate Screen -->
       <div v-if="isSubmitted" class="starlight-success">
         <div class="success-icon-wrapper">
-          <div class="icon-ring-pulse" />
+          <div class="icon-ring-pulse ring-1" />
+          <div class="icon-ring-pulse ring-2" />
           <div class="success-icon">
             <el-icon><Check /></el-icon>
           </div>
