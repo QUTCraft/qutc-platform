@@ -30,8 +30,23 @@ const statusLabel = computed(() => ({ online: '运行正常', maintenance: '维�
 <template>
   <AsyncState :loading="loading" :error="error" @retry="refresh">
     <template v-if="data">
-      <!-- Ambient Hero Ambient Glow Background -->
-      <div class="hero-glow-backdrop" aria-hidden="true" />
+      <!-- Dynamic Hero Aurora Mesh Backdrop & Stardust Stream -->
+      <div class="hero-glow-backdrop" aria-hidden="true">
+        <div class="mesh-blob blob-primary" />
+        <div class="mesh-blob blob-secondary" />
+        <div class="hero-stardust">
+          <span
+            v-for="s in 14"
+            :key="s"
+            class="stardust-pixel"
+            :style="{
+              '--delay': `${s * 180}ms`,
+              '--x': `${((s * 7) % 94) + 3}%`,
+              '--speed': `${3.5 + (s % 3) * 0.8}s`,
+            }"
+          />
+        </div>
+      </div>
 
       <!-- Hero Section -->
       <section class="portal-hero">
@@ -39,7 +54,7 @@ const statusLabel = computed(() => ({ online: '运行正常', maintenance: '维�
           <div class="hero-brand-pill">
             <span class="pulse-spark" /> {{ data.organization.short_name }} 官方门户
           </div>
-          <h1>{{ data.organization.tagline }}</h1>
+          <h1 class="hero-gradient-title">{{ data.organization.tagline }}</h1>
           <p>{{ data.organization.introduction }}</p>
 
           <div class="hero-actions">

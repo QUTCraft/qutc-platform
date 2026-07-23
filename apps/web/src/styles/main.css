@@ -740,12 +740,76 @@ h1, h2, h3, h4, h5, h6, p {
   top: 0;
   left: 50%;
   transform: translateX(-50%);
-  width: min(100vw, 1200px);
-  height: 500px;
-  background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent), transparent 70%);
+  width: min(100vw, 1300px);
+  height: 580px;
   pointer-events: none;
-  filter: blur(80px);
+  overflow: hidden;
   z-index: 0;
+}
+
+.mesh-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  opacity: 0.25;
+  will-change: transform;
+}
+
+.blob-primary {
+  top: -100px;
+  left: 20%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, var(--md-sys-color-primary), transparent 70%);
+  animation: mesh-drift-1 16s ease-in-out infinite alternate;
+}
+
+.blob-secondary {
+  top: -50px;
+  right: 15%;
+  width: 450px;
+  height: 450px;
+  background: radial-gradient(circle, var(--md-sys-color-tertiary), transparent 70%);
+  animation: mesh-drift-2 14s ease-in-out infinite alternate;
+}
+
+@keyframes mesh-drift-1 {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-40px, 30px) scale(1.1); }
+  100% { transform: translate(50px, -20px) scale(0.95); }
+}
+
+@keyframes mesh-drift-2 {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(35px, -25px) scale(1.08); }
+  100% { transform: translate(-30px, 35px) scale(0.92); }
+}
+
+/* Floating Stardust Pixels Streams */
+.hero-stardust {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.stardust-pixel {
+  position: absolute;
+  bottom: -10px;
+  left: var(--x);
+  width: 3px;
+  height: 3px;
+  background: var(--md-sys-color-primary);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--md-sys-color-primary);
+  opacity: 0;
+  animation: stardust-float var(--speed) linear var(--delay) infinite;
+}
+
+@keyframes stardust-float {
+  0% { bottom: 0px; opacity: 0; transform: translateY(0) scale(0.5); }
+  20% { opacity: 0.8; }
+  80% { opacity: 0.6; }
+  100% { bottom: 500px; opacity: 0; transform: translateY(-40px) scale(1.3); }
 }
 
 .portal-hero {
@@ -775,6 +839,11 @@ h1, h2, h3, h4, h5, h6, p {
   color: var(--md-sys-color-primary);
   margin-bottom: 20px;
   box-shadow: var(--md-elevation-1);
+  transition: transform 200ms ease;
+}
+
+.hero-brand-pill:hover {
+  transform: translateY(-2px);
 }
 
 .pulse-spark {
@@ -783,17 +852,32 @@ h1, h2, h3, h4, h5, h6, p {
   border-radius: 50%;
   background: var(--md-sys-color-primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent);
+  animation: spark-pulse 2s ease-in-out infinite;
 }
 
-.hero-copy h1 {
+@keyframes spark-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent); }
+  50% { transform: scale(1.3); box-shadow: 0 0 0 7px color-mix(in srgb, var(--md-sys-color-primary) 0%, transparent); }
+}
+
+.hero-gradient-title {
   max-width: 760px;
   margin-top: 0;
   margin-bottom: 20px;
-  color: var(--md-sys-color-on-surface);
+  background: linear-gradient(135deg, var(--md-sys-color-on-surface) 40%, var(--md-sys-color-primary) 80%, var(--md-sys-color-tertiary) 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradient-title-shift 8s ease infinite alternate;
   font-size: clamp(42px, 5.5vw, 68px);
   line-height: 1.08;
   letter-spacing: -0.04em;
   text-wrap: balance;
+}
+
+@keyframes gradient-title-shift {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
 }
 
 .hero-copy > p {
@@ -811,17 +895,36 @@ h1, h2, h3, h4, h5, h6, p {
 }
 
 .hero-apply-btn.el-button {
+  position: relative;
+  overflow: hidden;
   min-height: 48px;
   padding: 0 28px;
   font-size: 15px !important;
   font-weight: 800 !important;
   box-shadow: var(--md-elevation-2);
-  transition: transform 200ms ease, box-shadow 200ms ease !important;
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 220ms ease !important;
+}
+
+.hero-apply-btn.el-button::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -60%;
+  width: 40%;
+  height: 200%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transform: rotate(25deg);
+  animation: cta-shine-sweep 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes cta-shine-sweep {
+  0% { left: -60%; }
+  30%, 100% { left: 140%; }
 }
 
 .hero-apply-btn.el-button:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--md-elevation-3);
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 12px 28px -6px color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent), var(--md-elevation-3);
 }
 
 .hero-secondary-btn.el-button {
@@ -832,6 +935,12 @@ h1, h2, h3, h4, h5, h6, p {
   background: var(--md-sys-color-surface-container) !important;
   border-color: var(--md-sys-color-outline-variant) !important;
   color: var(--md-sys-color-on-surface) !important;
+  transition: transform 200ms ease, background-color 200ms ease !important;
+}
+
+.hero-secondary-btn.el-button:hover {
+  transform: translateY(-2px);
+  background: var(--md-sys-color-surface-container-high) !important;
 }
 
 .hero-stats-strip {
@@ -845,6 +954,20 @@ h1, h2, h3, h4, h5, h6, p {
   border-radius: var(--md-shape-xl);
   box-shadow: var(--md-elevation-1);
   width: max-content;
+  transition: transform 200ms ease, box-shadow 200ms ease;
+}
+
+.hero-stats-strip:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--md-elevation-2);
+}
+
+.stat-item {
+  transition: transform 180ms ease;
+}
+
+.stat-item:hover {
+  transform: translateY(-2px);
 }
 
 .stat-item strong {
@@ -882,6 +1005,30 @@ h1, h2, h3, h4, h5, h6, p {
   backdrop-filter: blur(20px);
   position: relative;
   overflow: hidden;
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 300ms cubic-bezier(0.16, 1, 0.3, 1), border-color 300ms ease;
+}
+
+.hero-status:hover {
+  transform: translateY(-6px) scale(1.015);
+  border-color: color-mix(in srgb, var(--md-sys-color-primary) 50%, transparent);
+  box-shadow: 0 20px 48px -12px color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent), var(--md-elevation-3);
+}
+
+.hero-status::after {
+  content: '';
+  position: absolute;
+  top: -100%;
+  left: -100%;
+  width: 300%;
+  height: 300%;
+  background: radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.08), transparent 60%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 300ms ease;
+}
+
+.hero-status:hover::after {
+  opacity: 1;
 }
 
 .status-header {
@@ -985,12 +1132,18 @@ h1, h2, h3, h4, h5, h6, p {
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--md-shape-xl);
   box-shadow: var(--md-elevation-1);
-  transition: transform 220ms ease, box-shadow 220ms ease;
+  transition: transform 250ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 250ms cubic-bezier(0.16, 1, 0.3, 1), border-color 250ms ease;
 }
 
 .pillar-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--md-elevation-3);
+  transform: translateY(-8px);
+  border-color: color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent);
+  box-shadow: 0 16px 36px -8px color-mix(in srgb, var(--md-sys-color-primary) 20%, transparent), var(--md-elevation-2);
+}
+
+.pillar-card:hover .pillar-icon-box {
+  transform: scale(1.12) rotate(6deg);
+  box-shadow: 0 0 20px color-mix(in srgb, var(--md-sys-color-primary) 35%, transparent);
 }
 
 .pillar-icon-box {
@@ -1001,6 +1154,7 @@ h1, h2, h3, h4, h5, h6, p {
   border-radius: var(--md-shape-lg);
   font-size: 24px;
   margin-bottom: 20px;
+  transition: transform 250ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 250ms ease;
 }
 
 .pillar-icon-box.tone-primary {
