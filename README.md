@@ -205,7 +205,8 @@ tests/integration/                # 集成测试
 
 | 文档 | 用途 |
 | --- | --- |
-| [项目排期](schedule.md) | 2026 年 7 月 14 日至 8 月 31 日的 MVP 路线、验收门与风险取舍。 |
+| [功能地图 v2](docs/product/feature-map-v2.md) | 截至 2026 年 7 月 25 日的真实完成度、MVP 收口、依赖和 v0.2+ 扩展路线。 |
+| [项目排期 v2](schedule.md) | 从 2026 年 7 月 25 日重排至 8 月 31 日的业务切片、阶段门与延期切线。 |
 | [需求范围 v1](docs/product/requirements-v1.md) | MVP 边界、角色、用户故事、优先级与非功能要求。 |
 | [MVP 验收清单](docs/product/mvp-acceptance.md) | 截至 7 月 17 日的冻结检查点及后续可执行验收用例。 |
 | [比赛叙事一页纸](docs/product/competition-narrative.md) | 产品价值、技术亮点与演示路径。 |
@@ -229,14 +230,9 @@ tests/integration/                # 集成测试
 
 ## 路线图
 
-MVP 的目标完成时间为 **2026 年 8 月 31 日**。后续阶段包括：
+`v0.1.0-mvp` 的目标完成时间为 **2026 年 8 月 31 日**。当前开发按三个可验收闭环收口：内容发布到门户、申请审批到服务器适配器、自定义门户加载与 MD3 回退。随后依次进入成员/项目协作、质量加固和比赛交付冻结。
 
-1. Go API、MySQL 迁移、JWT 与 RBAC 基础能力。
-2. 内容发布闭环、资源上传、成员/项目/知识库管理。
-3. 审批审计与 Minecraft `ServerAdapter` / RCON Mock、真实测试服适配。
-4. 可替换门户 Manifest、双主题演示、Docker Compose 部署与比赛交付材料。
-
-详见 [schedule.md](schedule.md)。
+实时模块状态、未完成错位和中长期扩展见 [功能地图 v2](docs/product/feature-map-v2.md)；日期、阶段门和延期规则见 [项目排期 v2](schedule.md)。
 
 ## 贡献与安全
 

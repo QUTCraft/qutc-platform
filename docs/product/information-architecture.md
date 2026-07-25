@@ -1,7 +1,8 @@
-# 信息架构与页面路由 v1
+# 信息架构与页面路由 v1.1
 
-> 状态：设计冻结  
-> 关联：[需求范围 v1](requirements-v1.md)、[API 文档](../api/API.md)
+> 状态：基于 2026 年 7 月 25 日实现同步
+>
+> 关联：[功能地图 v2](feature-map-v2.md)、[需求范围 v1](requirements-v1.md)、[API 文档](../api/API.md)
 
 ## 1. 双应用边界
 
@@ -10,11 +11,11 @@
 ```text
 访客
   └─ Portal Layout（公开、只读）
-       └─ /, /projects, /resources, /knowledge
+       └─ /, /posts, /projects, /resources, /knowledge, /apply
 
 组织成员
   └─ Admin Layout（认证、RBAC）
-       └─ /admin, /admin/content, /admin/users, /admin/reviews, /admin/settings
+       └─ /admin, /admin/content, /admin/projects, /admin/users, /admin/reviews, /admin/settings
 ```
 
 门户不出现成员邮箱、角色、审核队列、草稿、RCON 面板或“后台管理”入口。后台可提供“查看门户”链接，但不得把它作为权限绕过手段。
@@ -24,9 +25,12 @@
 | 路由 | 页面职责 | 数据来源 | 公开限制 |
 | --- | --- | --- | --- |
 | `/` | 组织介绍、最新动态、项目/资源/知识库入口、公开服务器状态 | `Organization`、`Post`、`Project`、`Resource`、`KnowledgeArticle`、`ServerStatus` | 仅 `published` 与明确公开字段。 |
+| `/posts` | 已发布动态/公告目录 | `Post[]` | 不显示草稿、审核状态与内部作者字段。 |
 | `/projects` | 公开项目目录 | `Project[]` | 不显示内部成员、里程碑或私人备注。 |
 | `/resources` | 资源筛选与受控下载 | `Resource[]` | 不暴露对象键、长期 URL 或存储凭据。 |
 | `/knowledge` | 知识库文章目录 | `KnowledgeArticle[]` | 不显示草稿与未公开文章。 |
+| `/apply` | 成员/白名单公开申请表单 | `ApplicationCreate` | 只允许提交；不能读取审批队列、审核人或服务器内部状态。当前后端契约待补齐。 |
+| `/login` | 账户登录 | Auth API | 登录不是门户管理入口；成功后按权限进入独立工作台。 |
 | `/:pathMatch(.*)*` | 公开 404 | 无 | 不泄露内部路由是否存在。 |
 
 ### 2.1 门户状态
@@ -39,6 +43,7 @@
 | --- | --- | --- | --- |
 | `/admin` | 聚合指标、待审申请、近期内容、适配器状态 | `GET /api/v1/admin/dashboard` | 已认证成员。 |
 | `/admin/content` | 内容列表、创建草稿、后续编辑/发布入口 | `GET/POST /api/v1/admin/content` | `content:read` / `content:create`。 |
+| `/admin/projects` | 项目、公开范围、成员与里程碑 | projects / members / milestones endpoints | `project:read`；写操作按项目权限。当前成员/里程碑 UI 待接入。 |
 | `/admin/users` | 成员、角色与状态 | `GET /api/v1/admin/users` | `membership:read`。 |
 | `/admin/reviews` | 申请审核、服务器状态、受限命令 | applications / server endpoints | `application:read`、`server:read_status`。 |
 | `/admin/settings` | 组织、门户和适配器配置入口 | 当前为 Mock UI | `organization:configure` 或 `portal:configure`。 |
@@ -64,7 +69,7 @@
 | `published` | 已发布 | 是 | 可按公开范围提供给 Portal。 |
 | `archived` | 已归档 | 否 | 赛后/后续 API 扩展状态；不删除审计和引用。 |
 
-当前 Admin API 已使用前三种状态；`archived` 是领域模型预留状态，在 API 增加前不可由前端自行发送。
+当前 Admin API 已实现 `draft`、`published` 与 `archived` 的基础操作；`review` 已进入类型和契约，但完整的送审/审核操作流仍是后续扩展，前端不可自行假设该流程已完成。
 
 ### 4.3 其他枚举
 
