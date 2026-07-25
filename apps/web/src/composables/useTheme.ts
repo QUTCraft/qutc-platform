@@ -1,23 +1,14 @@
-import { ref, onMounted, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useMonetTheme } from './useMonetTheme'
 
-export type ThemeMode = 'light' | 'dark' | 'system'
-
-const theme = ref<ThemeMode>('light')
 const isDark = ref<boolean>(false)
 
 export function useTheme() {
   const monet = useMonetTheme()
+  let refreshTimer: number | undefined
 
   const updateDOM = () => {
-    let effectiveDark = false
-    if (theme.value === 'dark') {
-      effectiveDark = true
-    } else if (theme.value === 'system') {
-      effectiveDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-    } else {
-      effectiveDark = false
-    }
+    const effectiveDark = monet.currentTimeKey.value === 'night'
 
     isDark.value = effectiveDark
     if (effectiveDark) {
@@ -32,39 +23,19 @@ export function useTheme() {
     monet.applyMonetColors(effectiveDark)
   }
 
-  const setTheme = (mode: ThemeMode) => {
-    theme.value = mode
-    localStorage.setItem('md3-theme', mode)
+  onMounted(() => {
     updateDOM()
-  }
-
-  const toggleTheme = () => {
-    setTheme(isDark.value ? 'light' : 'dark')
-  }
-
-  watch([monet.currentSeasonKey, monet.currentTimeKey], () => {
-    updateDOM()
+    // Re-evaluate the clock so the palette changes automatically at the next
+    // day/night boundary and also picks up a season change without a reload.
+    refreshTimer = window.setInterval(updateDOM, 60_000)
   })
 
-  onMounted(() => {
-    const saved = localStorage.getItem('md3-theme') as ThemeMode | null
-    if (saved && ['light', 'dark', 'system'].includes(saved)) {
-      theme.value = saved
-    } else {
-      theme.value = 'light'
-    }
-    updateDOM()
-
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-      if (theme.value === 'system') updateDOM()
-    })
+  onBeforeUnmount(() => {
+    if (refreshTimer !== undefined) window.clearInterval(refreshTimer)
   })
 
   return {
-    theme,
     isDark,
-    setTheme,
-    toggleTheme,
     monet,
   }
 }

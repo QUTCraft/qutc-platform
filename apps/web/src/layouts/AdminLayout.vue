@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, DataAnalysis, Document, Folder, Monitor, Moon, Setting, Sunny, SwitchButton, UserFilled } from '@element-plus/icons-vue'
+import { ArrowLeft, DataAnalysis, Document, Folder, Monitor, Setting, SwitchButton, UserFilled } from '@element-plus/icons-vue'
 import { session, signOut } from '@/stores/session'
-import { useTheme } from '@/composables/useTheme'
 
-const { isDark, toggleTheme } = useTheme()
 const route = useRoute()
 const router = useRouter()
 const menuOpen = ref(false)
@@ -87,12 +85,6 @@ async function logout() {
         </div>
 
         <div class="admin-topbar-actions">
-          <el-button
-            circle
-            aria-label="切换主题"
-            :icon="isDark ? Sunny : Moon"
-            @click="toggleTheme"
-          />
           <RouterLink to="/" class="portal-btn-link">
             <el-button plain round>
               查看门户 <el-icon class="el-icon--right"><ArrowLeft style="transform: rotate(180deg);" /></el-icon>

@@ -208,9 +208,11 @@ export function useMonetTheme() {
     const seasonConfig = currentSeasonConfig.value
     const root = document.documentElement
 
-    const isNight = isDarkSystem || timeKey === 'night'
-    const palette = isNight ? seasonConfig.dark : seasonConfig.light
+    // The effective automatic day/night mode is authoritative. Keep the
+    // palette decision in this layer so every surface receives the same mode.
+    const palette = isDarkSystem ? seasonConfig.dark : seasonConfig.light
 
+    root.setAttribute('data-monet-season', currentSeasonKey.value)
     root.setAttribute('data-monet-time', timeKey)
 
     // Primary & Accent Colors

@@ -6,6 +6,11 @@ import AppFooter from '@/components/AppFooter.vue'
 import AppHeader from '@/components/AppHeader.vue'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import { useRoute } from 'vue-router'
+import { useTheme } from '@/composables/useTheme'
+
+// Keep Monet seasonal/day-night colors active globally. The manual theme
+// control was removed, so the root app owns the automatic theme lifecycle.
+useTheme()
 
 const route = useRoute()
 const isAdmin = computed(() => route.meta.layout === 'admin')

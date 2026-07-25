@@ -48,19 +48,24 @@ const showDownloadHint = (title: string) => ElMessage.info(`将通过受控下�
             <template #default="scope">
               <strong>{{ scope.row.title }}</strong>
               <p class="table-description">{{ scope.row.description }}</p>
+              <div class="resource-mobile-meta">
+                <el-tag round>{{ displayKind(scope.row.kind) }}</el-tag>
+                <span>{{ formatBytes(scope.row.size_bytes) }}</span>
+                <span>{{ formatDate(scope.row.updated_at) }}</span>
+              </div>
             </template>
           </el-table-column>
-          <el-table-column label="类型" width="120">
+          <el-table-column label="类型" width="120" class-name="resource-kind-column" label-class-name="resource-kind-column">
             <template #default="scope">
               <el-tag round>{{ displayKind(scope.row.kind) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="大小" width="120">
+          <el-table-column label="大小" width="120" class-name="resource-size-column" label-class-name="resource-size-column">
             <template #default="scope">
               {{ formatBytes(scope.row.size_bytes) }}
             </template>
           </el-table-column>
-          <el-table-column label="更新时间" width="140">
+          <el-table-column label="更新时间" width="140" class-name="resource-date-column" label-class-name="resource-date-column">
             <template #default="scope">
               {{ formatDate(scope.row.updated_at) }}
             </template>
