@@ -871,7 +871,7 @@ h1, h2, h3, h4, h5, h6, p {
   grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
   gap: clamp(24px, 4vw, 56px);
   align-items: stretch;
-  padding: clamp(24px, 4.5vw, 64px) 0 48px;
+  padding: 20px 0 48px;
 }
 
 .hero-copy {
