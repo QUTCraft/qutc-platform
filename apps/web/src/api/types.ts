@@ -157,6 +157,12 @@ export interface AdminApplication {
   submitted_at: string
   note: string
   status: 'pending' | 'approved' | 'rejected'
+  class_name?: string
+  game_id?: string
+  qq_number?: string
+  email?: string
+  decided_at?: string | null
+  decided_by?: string
 }
 
 export interface AdminServerStatus {
@@ -193,11 +199,13 @@ export interface TokenPair {
 }
 
 export interface ApplicationPayload {
+  type?: 'whitelist' | 'membership'
   class_name: string
   name: string
   game_id: string
   qq_number: string
   email: string
+  note?: string
 }
 
 export interface SmtpSettings {

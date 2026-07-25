@@ -163,6 +163,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
   }
   if (path.endsWith('/auth/refresh')) { if (!mockUser) throw new Error('刷新令牌已失效。'); return authPair(mockUser) as T }
   if (path.endsWith('/auth/logout')) { saveMockUser(null); return { revoked: true } as T }
+  if (path.endsWith('/apply')) return { id: `application_${Date.now()}`, status: 'pending', submitted_at: new Date().toISOString() } as T
   if (path.includes('/admin/')) requireMockAdmin()
   if (path.endsWith('/admin/content')) {
     const payload = body as Pick<AdminContent, 'title' | 'type'>

@@ -376,6 +376,28 @@ Operation ID：`getPortalServerStatus`
 
 绝不返回 RCON 主机、端口、密码、白名单账户、命令记录、TPS 原始指标或管理端审批信息。
 
+### 5.7 提交公开加入申请
+
+`POST /api/v1/portal/organizations/{organization_slug}/apply`
+
+Operation ID：`submitPortalApplication`
+
+该接口不要求登录，用于门户提交白名单或成员申请。默认 `type` 为 `whitelist`，也可以显式提交 `membership`。申请会进入当前组织的待审批队列，响应只返回申请凭证和 `pending` 状态，不返回后台审批信息或服务器内部数据。
+
+请求体：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `type` | enum，可选 | `whitelist` 或 `membership`，默认 `whitelist`。 |
+| `class_name` | string，1–120 字符 | 班级/专业或组织身份信息。 |
+| `name` | string，1–80 字符 | 申请人姓名。 |
+| `game_id` | string，1–80 字符 | Minecraft 游戏 ID 或外部平台标识。 |
+| `qq_number` | string | 5–15 位数字。 |
+| `email` | email | 用于后续联系的邮箱。 |
+| `note` | string，可选，最多 500 字符 | 申请补充说明。 |
+
+成功返回 `201`，数据为 `id`、`status=pending`、`submitted_at`。同一组织中相同邮箱或游戏 ID 存在待审批申请时返回 `409 application.duplicate_pending`；请求字段不合法返回 `400`。申请列表、姓名详情、QQ 和邮箱只在受保护 Admin API 中提供。
+
 ## 7. Admin API（受认证后台）
 
 公共前缀：`/api/v1/admin`。本节所有接口均要求 `Authorization: Bearer <JWT>`，并可能返回 `401` 或 `403`。
@@ -526,6 +548,12 @@ Operation ID：`listAdminApplications`
 | `submitted_at` | date-time | 提交时间。 |
 | `note` | string，最多 500 字符 | 申请说明。 |
 | `status` | enum | `pending`、`approved`、`rejected`。 |
+| `class_name` | string，最多 120 字符 | 班级/专业或组织身份信息。 |
+| `game_id` | string，最多 80 字符 | Minecraft 游戏 ID 或外部平台标识。 |
+| `qq_number` | string | 申请人 QQ 号码，仅限受保护 Admin API。 |
+| `email` | email | 申请人联系邮箱，仅限受保护 Admin API。 |
+| `decided_at` | date-time / null | 审批完成时间。 |
+| `decided_by` | string | 审批操作者 ID；不向 Portal 返回。 |
 
 #### 通过申请
 

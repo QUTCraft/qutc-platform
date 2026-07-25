@@ -161,6 +161,28 @@ paths:
                 $ref: '#/components/schemas/ServerStatusResponse'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/portal/organizations/{organization_slug}/apply:
+    post:
+      tags: [Portal]
+      operationId: submitPortalApplication
+      summary: 提交公开加入申请
+      description: 申请写入当前组织的后台审批队列；此接口不需要登录，不返回审批人、内部状态或服务器凭据。
+      parameters:
+        - $ref: '#/components/parameters/OrganizationSlug'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PortalApplicationRequest' }
+      responses:
+        '201':
+          description: 申请已进入待审批队列
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortalApplicationResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/auth/register:
     post:
       tags: [Auth]
@@ -1140,6 +1162,30 @@ components:
       properties:
         data: { $ref: '#/components/schemas/ServerStatus' }
         meta: { $ref: '#/components/schemas/Meta' }
+    PortalApplicationRequest:
+      type: object
+      required: [class_name, name, game_id, qq_number, email]
+      properties:
+        type: { $ref: '#/components/schemas/ApplicationType', default: whitelist }
+        class_name: { type: string, minLength: 1, maxLength: 120 }
+        name: { type: string, minLength: 1, maxLength: 80 }
+        game_id: { type: string, minLength: 1, maxLength: 80 }
+        qq_number: { type: string, pattern: '^[0-9]{5,15}$' }
+        email: { type: string, format: email, maxLength: 254 }
+        note: { type: string, maxLength: 500 }
+    PortalApplicationReceipt:
+      type: object
+      required: [id, status, submitted_at]
+      properties:
+        id: { type: string }
+        status: { $ref: '#/components/schemas/ApplicationStatus' }
+        submitted_at: { type: string, format: date-time }
+    PortalApplicationResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/PortalApplicationReceipt' }
+        meta: { $ref: '#/components/schemas/Meta' }
     AdminContentType:
       type: string
       enum: [news, resource, knowledge]
@@ -1289,7 +1335,7 @@ components:
       enum: [pending, approved, rejected]
     AdminApplication:
       type: object
-      required: [id, applicant, type, submitted_at, note, status]
+      required: [id, applicant, type, submitted_at, note, status, class_name, game_id, qq_number, email]
       properties:
         id: { type: string }
         applicant: { type: string, maxLength: 80 }
@@ -1297,6 +1343,12 @@ components:
         submitted_at: { type: string, format: date-time }
         note: { type: string, maxLength: 500 }
         status: { $ref: '#/components/schemas/ApplicationStatus' }
+        class_name: { type: string, maxLength: 120 }
+        game_id: { type: string, maxLength: 80 }
+        qq_number: { type: string, maxLength: 32 }
+        email: { type: string, format: email }
+        decided_at: { type: [string, 'null'], format: date-time }
+        decided_by: { type: string, maxLength: 36 }
     AdminServerStatus:
       type: object
       required: [enabled, label, state, online_players, max_players]

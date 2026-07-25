@@ -3,9 +3,10 @@ package handler
 import (
 	"context"
 	"net/http"
+	"net/mail"
+	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/middleware"
@@ -20,18 +21,16 @@ import (
 // WorkspaceHandler owns the first content read/write model shared by the
 // public portal and the protected CMS workspace.
 type WorkspaceHandler struct {
-	db                *gorm.DB
-	mu                sync.RWMutex
-	applicationStates map[string]string
-	cache             *cache.Cache
-	cacheNamespace    string
+	db             *gorm.DB
+	cache          *cache.Cache
+	cacheNamespace string
 }
 
 func NewWorkspaceHandler(db *gorm.DB, publicCache *cache.Cache, environment string) *WorkspaceHandler {
 	if strings.TrimSpace(environment) == "" {
 		environment = "development"
 	}
-	return &WorkspaceHandler{db: db, cache: publicCache, cacheNamespace: environment, applicationStates: map[string]string{"application_001": "pending"}}
+	return &WorkspaceHandler{db: db, cache: publicCache, cacheNamespace: environment}
 }
 
 func (h *WorkspaceHandler) cachedPortalPage(c *gin.Context, slug, resource string, loader func() ([]gin.H, error)) {
@@ -292,13 +291,16 @@ func (h *WorkspaceHandler) AdminDashboard(c *gin.Context) {
 	for _, item := range recent {
 		recentItems = append(recentItems, contentAdminItem(item, h.db))
 	}
-	respond(c, http.StatusOK, gin.H{"organization_name": organization.Name, "updated_at": time.Now().UTC(), "metrics": []gin.H{{"label": "活跃成员", "value": activeMembers, "change": "当前组织成员", "tone": "primary"}, {"label": "已发布内容", "value": published, "change": "当前公开内容", "tone": "secondary"}, {"label": "内容总数", "value": total, "change": "含草稿", "tone": "neutral"}, {"label": "在线玩家", "value": 18, "change": "服务器状态正常", "tone": "neutral"}}, "pending_applications": applications(), "recent_content": recentItems, "server": serverStatus()})
+	var pendingApplications []model.Application
+	h.db.Where("organization_id = ? AND status = ?", principal.OrganizationID, "pending").Order("created_at DESC").Limit(12).Find(&pendingApplications)
+	pendingItems := make([]gin.H, 0, len(pendingApplications))
+	for _, item := range pendingApplications {
+		pendingItems = append(pendingItems, applicationAdminItem(item))
+	}
+	respond(c, http.StatusOK, gin.H{"organization_name": organization.Name, "updated_at": time.Now().UTC(), "metrics": []gin.H{{"label": "活跃成员", "value": activeMembers, "change": "当前组织成员", "tone": "primary"}, {"label": "已发布内容", "value": published, "change": "当前公开内容", "tone": "secondary"}, {"label": "内容总数", "value": total, "change": "含草稿", "tone": "neutral"}, {"label": "在线玩家", "value": 18, "change": "服务器状态正常", "tone": "neutral"}}, "pending_applications": pendingItems, "recent_content": recentItems, "server": serverStatus()})
 }
 func contentItems() []gin.H {
 	return []gin.H{{"id": "content_001", "title": "QUTCraft CMS 项目正式启动", "type": "news", "status": "published", "author": "QUTCraft Admin", "updated_at": "2026-07-17T03:00:00Z"}}
-}
-func applications() []gin.H {
-	return []gin.H{{"id": "application_001", "applicant": "Yukino", "type": "whitelist", "submitted_at": "2026-07-17T02:30:00Z", "note": "希望参与周末建筑测试。", "status": "pending"}}
 }
 func serverStatus() gin.H {
 	return gin.H{"enabled": true, "label": "QUTCraft Java 生存服", "state": "online", "online_players": 18, "max_players": 60}
@@ -1046,37 +1048,169 @@ func splitTags(value string) []string {
 	}
 	return tags
 }
+
+type applicationRequest struct {
+	Type      string `json:"type"`
+	ClassName string `json:"class_name"`
+	Name      string `json:"name"`
+	GameID    string `json:"game_id"`
+	QQNumber  string `json:"qq_number"`
+	Email     string `json:"email"`
+	Note      string `json:"note"`
+}
+
+var qqNumberPattern = regexp.MustCompile(`^[0-9]{5,15}$`)
+
+func validApplicationRequest(body applicationRequest) bool {
+	if body.Type == "" {
+		body.Type = "whitelist"
+	}
+	email := strings.ToLower(strings.TrimSpace(body.Email))
+	parsedEmail, err := mail.ParseAddress(email)
+	if err != nil || parsedEmail.Address != email {
+		return false
+	}
+	return (body.Type == "whitelist" || body.Type == "membership") &&
+		strings.TrimSpace(body.ClassName) != "" && len([]rune(body.ClassName)) <= 120 &&
+		strings.TrimSpace(body.Name) != "" && len([]rune(body.Name)) <= 80 &&
+		strings.TrimSpace(body.GameID) != "" && len([]rune(body.GameID)) <= 80 &&
+		qqNumberPattern.MatchString(strings.TrimSpace(body.QQNumber)) &&
+		len([]rune(body.Note)) <= 500
+}
+
+func (h *WorkspaceHandler) SubmitApplication(c *gin.Context) {
+	var body applicationRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		fail(c, http.StatusBadRequest, "application.validation_failed", "申请数据格式不正确。")
+		return
+	}
+	if strings.TrimSpace(body.Type) == "" {
+		body.Type = "whitelist"
+	}
+	body.Type = strings.TrimSpace(body.Type)
+	body.ClassName = strings.TrimSpace(body.ClassName)
+	body.Name = strings.TrimSpace(body.Name)
+	body.GameID = strings.TrimSpace(body.GameID)
+	body.QQNumber = strings.TrimSpace(body.QQNumber)
+	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+	body.Note = strings.TrimSpace(body.Note)
+	if !validApplicationRequest(body) {
+		fail(c, http.StatusBadRequest, "application.validation_failed", "班级、姓名、游戏 ID、QQ 号码或邮箱不符合规范。")
+		return
+	}
+
+	var organization model.Organization
+	if err := h.db.Where("slug = ?", c.Param("slug")).First(&organization).Error; err != nil {
+		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
+		return
+	}
+
+	var existing model.Application
+	duplicateQuery := h.db.Where("organization_id = ? AND status = ? AND (LOWER(email) = ? OR game_id = ?)", organization.ID, "pending", body.Email, body.GameID)
+	if err := duplicateQuery.First(&existing).Error; err == nil {
+		fail(c, http.StatusConflict, "application.duplicate_pending", "相同邮箱或游戏 ID 已有待处理申请。")
+		return
+	} else if err != gorm.ErrRecordNotFound {
+		fail(c, http.StatusInternalServerError, "application.lookup_failed", "申请暂时无法提交。")
+		return
+	}
+
+	note := body.Note
+	if note == "" {
+		note = strings.Join([]string{"班级/专业：" + body.ClassName, "游戏 ID：" + body.GameID}, "；")
+	}
+	application := model.Application{
+		ID:             uuid.NewString(),
+		OrganizationID: organization.ID,
+		Type:           body.Type,
+		ClassName:      body.ClassName,
+		ApplicantName:  body.Name,
+		GameID:         body.GameID,
+		QQNumber:       body.QQNumber,
+		Email:          body.Email,
+		Note:           note,
+		Status:         "pending",
+	}
+	if err := h.db.Create(&application).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "application.create_failed", "申请暂时无法提交，请稍后重试。")
+		return
+	}
+	respond(c, http.StatusCreated, gin.H{"id": application.ID, "status": application.Status, "submitted_at": application.CreatedAt})
+}
+
 func (h *WorkspaceHandler) AdminApplications(c *gin.Context) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	items := applications()
-	for _, item := range items {
-		item["status"] = h.applicationStates[item["id"].(string)]
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var applications []model.Application
+	if err := h.db.Where("organization_id = ?", principal.OrganizationID).Order("created_at DESC").Find(&applications).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "application.list_failed", "申请列表暂时无法加载。")
+		return
+	}
+	items := make([]gin.H, 0, len(applications))
+	for _, application := range applications {
+		items = append(items, applicationAdminItem(application))
 	}
 	pageOf(c, items)
 }
+
 func (h *WorkspaceHandler) AdminApplicationDecision(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
 	decision := c.Param("id")
 	next := "approved"
 	if strings.HasSuffix(c.FullPath(), "/reject") {
 		next = "rejected"
 	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	current, exists := h.applicationStates[decision]
-	if !exists {
-		fail(c, http.StatusNotFound, "application.not_found", "申请不存在。")
+	now := time.Now().UTC()
+	tx := h.db.Begin()
+	if tx.Error != nil {
+		fail(c, http.StatusInternalServerError, "application.decision_failed", "申请状态暂时无法更新。")
 		return
 	}
-	if current != "pending" {
-		fail(c, http.StatusConflict, "application.already_decided", "申请已经处理，不能重复审批。")
+	result := tx.Model(&model.Application{}).Where("id = ? AND organization_id = ? AND status = ?", decision, principal.OrganizationID, "pending").Updates(map[string]interface{}{"status": next, "decided_at": now, "decided_by": principal.UserID})
+	if result.Error != nil {
+		tx.Rollback()
+		fail(c, http.StatusInternalServerError, "application.decision_failed", "申请状态暂时无法更新。")
 		return
 	}
-	h.applicationStates[decision] = next
-	principal, _ := middleware.PrincipalFromContext(c)
-	_ = h.db.Create(&model.AuditEvent{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ActorUserID: principal.UserID, Action: "application." + next, TargetType: "application", TargetID: decision, Result: "success", RequestID: ensureRequestID(c)}).Error
-	respond(c, http.StatusOK, gin.H{"id": decision, "applicant": "Yukino", "type": "whitelist", "submitted_at": "2026-07-17T02:30:00Z", "note": "希望参与周末建筑测试。", "status": next})
+	if result.RowsAffected == 0 {
+		tx.Rollback()
+		var existing model.Application
+		err := h.db.Where("id = ? AND organization_id = ?", decision, principal.OrganizationID).First(&existing).Error
+		if err == gorm.ErrRecordNotFound {
+			fail(c, http.StatusNotFound, "application.not_found", "申请不存在。")
+		} else {
+			fail(c, http.StatusConflict, "application.already_decided", "申请已经处理，不能重复审批。")
+		}
+		return
+	}
+	if err := tx.Create(&model.AuditEvent{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ActorUserID: principal.UserID, Action: "application." + next, TargetType: "application", TargetID: decision, Result: "success", RequestID: ensureRequestID(c), CreatedAt: now}).Error; err != nil {
+		tx.Rollback()
+		fail(c, http.StatusInternalServerError, "application.audit_failed", "申请状态已被阻止提交，请稍后重试。")
+		return
+	}
+	if err := tx.Commit().Error; err != nil {
+		fail(c, http.StatusInternalServerError, "application.decision_failed", "申请状态暂时无法更新。")
+		return
+	}
+	var application model.Application
+	if err := h.db.Where("id = ?", decision).First(&application).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "application.read_failed", "申请状态已更新，但结果暂时无法读取。")
+		return
+	}
+	respond(c, http.StatusOK, applicationAdminItem(application))
 }
+
+func applicationAdminItem(application model.Application) gin.H {
+	return gin.H{"id": application.ID, "applicant": application.ApplicantName, "type": application.Type, "submitted_at": application.CreatedAt, "note": application.Note, "status": application.Status, "class_name": application.ClassName, "game_id": application.GameID, "qq_number": application.QQNumber, "email": application.Email, "decided_at": application.DecidedAt, "decided_by": application.DecidedBy}
+}
+
 func (h *WorkspaceHandler) AdminServerStatus(c *gin.Context) {
 	respond(c, http.StatusOK, serverStatus())
 }

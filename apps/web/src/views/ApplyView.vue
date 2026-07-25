@@ -41,15 +41,15 @@ async function handleApply() {
 
   try {
     await portalApi.submitApplication(form)
-  } catch {
-    // Mock mode fallback
-  } finally {
-    submitting.value = false
     isBlooming.value = true
     setTimeout(() => {
       isSubmitted.value = true
     }, 850)
-    ElMessage.success('踏星汉而至！白名单申请已成功点亮并发送群通知！')
+    ElMessage.success('申请已提交，正在等待管理员审批。')
+  } catch {
+    ElMessage.error('申请提交失败，请稍后重试。')
+  } finally {
+    submitting.value = false
   }
 }
 </script>
@@ -145,7 +145,7 @@ async function handleApply() {
 
         <h2 class="blooming-title">✦ 已接入 QUTCraft 星河矩阵 ✦</h2>
         <p class="success-subtitle">
-          您的凭证已生成并存入后台审批队列，SMTP 发件程序已向管理员推送邮件通告。
+          您的申请已生成并存入后台审批队列，请等待管理员完成审核。
         </p>
 
         <div class="passport-card">

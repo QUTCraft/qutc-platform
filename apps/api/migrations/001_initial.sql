@@ -196,3 +196,25 @@ CREATE TABLE IF NOT EXISTS media_assets (
   CONSTRAINT fk_media_assets_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_media_assets_uploader FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS applications (
+  id CHAR(36) PRIMARY KEY,
+  organization_id CHAR(36) NOT NULL,
+  type VARCHAR(24) NOT NULL DEFAULT 'whitelist',
+  class_name VARCHAR(120) NOT NULL,
+  applicant_name VARCHAR(80) NOT NULL,
+  game_id VARCHAR(80) NOT NULL,
+  qq_number VARCHAR(32) NOT NULL,
+  email VARCHAR(254) NOT NULL,
+  note VARCHAR(500) NOT NULL DEFAULT '',
+  status VARCHAR(24) NOT NULL DEFAULT 'pending',
+  decided_at DATETIME(3) NULL,
+  decided_by CHAR(36) NOT NULL DEFAULT '',
+  decision_reason VARCHAR(500) NOT NULL DEFAULT '',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY applications_organization_status (organization_id, status),
+  KEY applications_organization_game_status (organization_id, game_id, status),
+  KEY applications_organization_email_status (organization_id, email, status),
+  CONSTRAINT fk_applications_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

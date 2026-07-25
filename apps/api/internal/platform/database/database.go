@@ -43,6 +43,7 @@ func MigrateAndSeed(db *gorm.DB, cfg config.Config) error {
 		&model.RolePermission{}, &model.Membership{}, &model.MembershipEvent{}, &model.MembershipRole{},
 		&model.RefreshToken{}, &model.AuditEvent{}, &model.Content{}, &model.KnowledgeDirectory{}, &model.MediaAsset{},
 		&model.Project{}, &model.ProjectMember{}, &model.ProjectMilestone{},
+		&model.Application{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -63,7 +64,10 @@ func MigrateAndSeed(db *gorm.DB, cfg config.Config) error {
 	if err := seedKnowledgeDirectories(db, organization); err != nil {
 		return err
 	}
-	return seedProjects(db, cfg, organization)
+	if err := seedProjects(db, cfg, organization); err != nil {
+		return err
+	}
+	return seedApplications(db, organization)
 }
 
 func findOrCreateOrganization(db *gorm.DB, slug string) (model.Organization, error) {
@@ -291,6 +295,33 @@ func seedKnowledgeDirectories(db *gorm.DB, organization model.Organization) erro
 		if err := db.Create(&item).Error; err != nil {
 			return fmt.Errorf("seed knowledge directory %s: %w", item.ID, err)
 		}
+	}
+	return nil
+}
+
+func seedApplications(db *gorm.DB, organization model.Organization) error {
+	application := model.Application{
+		ID:             "application_demo",
+		OrganizationID: organization.ID,
+		Type:           "whitelist",
+		ClassName:      "计算机231",
+		ApplicantName:  "Yukino",
+		GameID:         "YukinoCraft",
+		QQNumber:       "123456789",
+		Email:          "yukino@example.com",
+		Note:           "希望参与周末建筑测试。",
+		Status:         "pending",
+	}
+	var existing model.Application
+	err := db.Where("id = ?", application.ID).First(&existing).Error
+	if err == nil {
+		return nil
+	}
+	if err != gorm.ErrRecordNotFound {
+		return fmt.Errorf("find seed application: %w", err)
+	}
+	if err := db.Create(&application).Error; err != nil {
+		return fmt.Errorf("seed application: %w", err)
 	}
 	return nil
 }

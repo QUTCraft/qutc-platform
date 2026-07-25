@@ -94,6 +94,7 @@ func main() {
 	portal.GET("/knowledge/articles", workspaceHandler.PortalKnowledge)
 	portal.GET("/knowledge/directories", workspaceHandler.PortalKnowledgeDirectories)
 	portal.GET("/server-status", workspaceHandler.PortalServer)
+	portal.POST("/apply", workspaceHandler.SubmitApplication)
 	portal.GET("/assets/:id/download", workspaceHandler.DownloadAsset)
 
 	log.Printf("qutcraft api listening on %s", cfg.HTTPAddr)

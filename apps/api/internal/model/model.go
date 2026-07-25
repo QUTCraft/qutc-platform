@@ -157,3 +157,21 @@ type MediaAsset struct {
 	StoragePath    string `gorm:"size:500;not null"`
 	CreatedAt      time.Time
 }
+
+type Application struct {
+	ID             string     `gorm:"primaryKey;type:char(36)"`
+	OrganizationID string     `gorm:"index;type:char(36);not null"`
+	Type           string     `gorm:"index;size:24;not null;default:whitelist"`
+	ClassName      string     `gorm:"size:120;not null"`
+	ApplicantName  string     `gorm:"size:80;not null"`
+	GameID         string     `gorm:"size:80;not null"`
+	QQNumber       string     `gorm:"size:32;not null"`
+	Email          string     `gorm:"size:254;not null"`
+	Note           string     `gorm:"size:500;not null;default:''"`
+	Status         string     `gorm:"index;size:24;not null;default:pending"`
+	DecidedAt      *time.Time `gorm:"index"`
+	DecidedBy      string     `gorm:"type:char(36);not null;default:''"`
+	DecisionReason string     `gorm:"size:500;not null;default:''"`
+	CreatedAt      time.Time  `gorm:"index"`
+	UpdatedAt      time.Time
+}
