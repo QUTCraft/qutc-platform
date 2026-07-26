@@ -74,6 +74,24 @@ CREATE TABLE IF NOT EXISTS membership_events (
   CONSTRAINT fk_membership_events_membership FOREIGN KEY (membership_id) REFERENCES memberships(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS invitations (
+  id CHAR(36) PRIMARY KEY,
+  organization_id CHAR(36) NOT NULL,
+  invited_by CHAR(36) NOT NULL,
+  email VARCHAR(254) NOT NULL,
+  role VARCHAR(24) NOT NULL DEFAULT 'member',
+  token_hash CHAR(64) NOT NULL UNIQUE,
+  expires_at DATETIME(3) NOT NULL,
+  accepted_at DATETIME(3) NULL,
+  revoked_at DATETIME(3) NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY invitations_organization_email (organization_id, email),
+  KEY invitations_expires_at (expires_at),
+  CONSTRAINT fk_invitations_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_invitations_invited_by FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS refresh_tokens (
   id CHAR(36) PRIMARY KEY,
   user_id CHAR(36) NOT NULL,

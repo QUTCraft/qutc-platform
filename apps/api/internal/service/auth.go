@@ -64,6 +64,14 @@ func NewAuthService(db *gorm.DB, cfg config.Config) *AuthService {
 }
 
 func (s *AuthService) Register(email, displayName, password string) (TokenPair, error) {
+	return s.register(email, displayName, password, "")
+}
+
+func (s *AuthService) RegisterWithInvitation(email, displayName, password, invitationToken string) (TokenPair, error) {
+	return s.register(email, displayName, password, invitationToken)
+}
+
+func (s *AuthService) register(email, displayName, password, invitationToken string) (TokenPair, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	displayName = strings.TrimSpace(displayName)
 	if len(password) < 12 {
@@ -73,9 +81,11 @@ func (s *AuthService) Register(email, displayName, password string) (TokenPair, 
 		return TokenPair{}, fmt.Errorf("email and display name are required")
 	}
 
-	var organization model.Organization
-	if err := s.db.Where("slug = ?", s.cfg.DefaultOrganizationSlug).First(&organization).Error; err != nil {
-		return TokenPair{}, fmt.Errorf("find default organization: %w", err)
+	var defaultOrganization model.Organization
+	if strings.TrimSpace(invitationToken) == "" {
+		if err := s.db.Where("slug = ?", s.cfg.DefaultOrganizationSlug).First(&defaultOrganization).Error; err != nil {
+			return TokenPair{}, fmt.Errorf("find default organization: %w", err)
+		}
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -90,26 +100,49 @@ func (s *AuthService) Register(email, displayName, password string) (TokenPair, 
 		} else if err != gorm.ErrRecordNotFound {
 			return err
 		}
+		organizationID := defaultOrganization.ID
+		roleKey := "member"
+		reason := "registered"
+		var invitation model.Invitation
+		if strings.TrimSpace(invitationToken) != "" {
+			var invitationErr error
+			invitation, invitationErr = s.findInvitation(tx, invitationToken, true)
+			if invitationErr != nil {
+				return invitationErr
+			}
+			if !strings.EqualFold(email, invitation.Email) {
+				return ErrInvitationEmailMismatch
+			}
+			organizationID = invitation.OrganizationID
+			roleKey = invitation.Role
+			reason = "invitation_accepted"
+		}
 		user := model.User{ID: uuid.NewString(), Email: email, DisplayName: displayName, PasswordHash: string(hash), State: "active"}
 		if err := tx.Create(&user).Error; err != nil {
 			return err
 		}
-		membership := model.Membership{ID: uuid.NewString(), OrganizationID: organization.ID, UserID: user.ID, State: "active"}
+		membership := model.Membership{ID: uuid.NewString(), OrganizationID: organizationID, UserID: user.ID, State: "active"}
 		if err := tx.Create(&membership).Error; err != nil {
 			return err
 		}
-		if err := tx.Create(&model.MembershipEvent{ID: uuid.NewString(), MembershipID: membership.ID, State: "active", Reason: "registered"}).Error; err != nil {
+		if err := tx.Create(&model.MembershipEvent{ID: uuid.NewString(), MembershipID: membership.ID, State: "active", Reason: reason}).Error; err != nil {
 			return err
 		}
-		var memberRole model.Role
-		if err := tx.Where("`key` = ?", "member").First(&memberRole).Error; err != nil {
+		memberRole, err := roleByKey(tx, roleKey)
+		if err != nil {
 			return err
 		}
 		if err := tx.Create(&model.MembershipRole{MembershipID: membership.ID, RoleID: memberRole.ID}).Error; err != nil {
 			return err
 		}
+		if strings.TrimSpace(invitationToken) != "" {
+			now := time.Now().UTC()
+			if err := tx.Model(&model.Invitation{}).Where("token_hash = ?", tokenHash(strings.TrimSpace(invitationToken))).Updates(map[string]interface{}{"accepted_at": now, "updated_at": now}).Error; err != nil {
+				return err
+			}
+		}
 		var pairErr error
-		pair, pairErr = s.issueTokenPair(tx, user, organization.ID)
+		pair, pairErr = s.issueTokenPair(tx, user, organizationID)
 		return pairErr
 	})
 	return pair, err

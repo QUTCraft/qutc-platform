@@ -70,6 +70,7 @@ func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "asset.metadata_failed", "媒体元数据保存失败。")
 		return
 	}
+	h.invalidatePortalCache(principal.OrganizationID)
 	respond(c, http.StatusCreated, assetResponse(asset))
 }
 

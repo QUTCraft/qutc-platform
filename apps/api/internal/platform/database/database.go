@@ -40,7 +40,7 @@ func Connect(cfg config.Config) (*gorm.DB, error) {
 func MigrateAndSeed(db *gorm.DB, cfg config.Config) error {
 	if err := db.AutoMigrate(
 		&model.Organization{}, &model.User{}, &model.Role{}, &model.Permission{},
-		&model.RolePermission{}, &model.Membership{}, &model.MembershipEvent{}, &model.MembershipRole{},
+		&model.RolePermission{}, &model.Membership{}, &model.MembershipEvent{}, &model.Invitation{}, &model.MembershipRole{},
 		&model.RefreshToken{}, &model.AuditEvent{}, &model.Content{}, &model.KnowledgeDirectory{}, &model.MediaAsset{},
 		&model.Project{}, &model.ProjectMember{}, &model.ProjectMilestone{},
 		&model.Application{},

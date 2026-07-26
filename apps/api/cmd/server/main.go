@@ -38,6 +38,7 @@ func main() {
 
 	authService := service.NewAuthService(db, cfg)
 	authHandler := handler.NewAuthHandler(authService)
+	invitationHandler := handler.NewInvitationHandler(db, authService)
 	workspaceHandler := handler.NewWorkspaceHandler(db, publicCache, cfg.AppEnv)
 	router.GET("/healthz", handler.Health)
 
@@ -49,6 +50,10 @@ func main() {
 	auth.POST("/logout", authHandler.Logout)
 	auth.GET("/me", middleware.RequireAuth(authService), authHandler.Me)
 	auth.PATCH("/me", middleware.RequireAuth(authService), authHandler.UpdateMe)
+
+	invitations := v1.Group("/invitations")
+	invitations.GET("/:token", invitationHandler.Preview)
+	invitations.POST("/:token/accept", middleware.RequireAuth(authService), invitationHandler.Accept)
 
 	membership := v1.Group("/membership", middleware.RequireAuth(authService))
 	membership.GET("/history", workspaceHandler.MembershipHistory)
@@ -69,6 +74,7 @@ func main() {
 	admin.GET("/assets/:id/download", middleware.RequirePermission(authService, "asset:read"), workspaceHandler.DownloadAsset)
 	admin.GET("/users", middleware.RequirePermission(authService, "membership:read"), workspaceHandler.AdminUsers)
 	admin.PATCH("/users/:id", middleware.RequirePermission(authService, "membership:manage"), workspaceHandler.AdminUpdateUser)
+	admin.POST("/invitations", middleware.RequirePermission(authService, "membership:manage"), invitationHandler.Create)
 	admin.GET("/projects", middleware.RequirePermission(authService, "project:read"), workspaceHandler.AdminProjects)
 	admin.POST("/projects", middleware.RequirePermission(authService, "project:manage"), workspaceHandler.AdminCreateProject)
 	admin.PATCH("/projects/:id", middleware.RequirePermission(authService, "project:manage"), workspaceHandler.AdminUpdateProject)
@@ -88,6 +94,7 @@ func main() {
 
 	portal := v1.Group("/portal/organizations/:slug")
 	portal.GET("", workspaceHandler.Organization)
+	portal.GET("/content/:id", workspaceHandler.PortalContentDetail)
 	portal.GET("/posts", workspaceHandler.PortalPosts)
 	portal.GET("/projects", workspaceHandler.PortalProjects)
 	portal.GET("/resources", workspaceHandler.PortalResources)

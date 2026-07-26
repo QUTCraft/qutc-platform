@@ -20,6 +20,32 @@ tags:
   - name: Admin
     description: 受认证的后台管理能力
 paths:
+  /healthz:
+    get:
+      tags: [Auth]
+      operationId: getHealth
+      summary: 检查 API 服务存活状态
+      security: []
+      responses:
+        '200':
+          description: 服务正在运行
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [ok] }
+        '500':
+          description: 服务健康检查失败
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: 健康检查路径不存在
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
   /api/v1/portal/organizations/{organization_slug}:
     get:
       tags: [Portal]
@@ -36,6 +62,25 @@ paths:
                 $ref: '#/components/schemas/OrganizationResponse'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/portal/organizations/{organization_slug}/content/{content_id}:
+    get:
+      tags: [Portal]
+      operationId: getPortalContentDetail
+      summary: 获取一篇已发布内容的完整正文
+      description: 只返回当前组织中已发布的公开内容；草稿、下线内容和管理字段不会被公开。
+      parameters:
+        - $ref: '#/components/parameters/OrganizationSlug'
+        - name: content_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: 公开内容正文
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortalContentDetailResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/portal/organizations/{organization_slug}/posts:
     get:
       tags: [Portal]
@@ -187,7 +232,7 @@ paths:
     post:
       tags: [Auth]
       operationId: registerAuthUser
-      summary: 注册用户并加入默认组织
+      summary: 注册用户并加入默认组织或接受邀请
       requestBody:
         required: true
         content:
@@ -200,7 +245,63 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/TokenPairResponse' }
         '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410':
+          description: 邀请链接已过期或不可用
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/invitations/{token}:
+    get:
+      tags: [Auth]
+      operationId: getInvitation
+      summary: 获取邀请链接公开信息
+      description: 只返回组织名称、邀请邮箱、角色和有效期；token 只作为路径中的一次性凭据，不会在响应中回显。
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string, minLength: 32, maxLength: 128 }
+      responses:
+        '200':
+          description: 邀请信息
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitationResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410':
+          description: 邀请链接已过期、撤销或已使用
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+  /api/v1/invitations/{token}/accept:
+    post:
+      tags: [Auth]
+      operationId: acceptInvitation
+      summary: 当前登录用户接受邀请
+      description: 当前 Bearer JWT 的邮箱必须与邀请邮箱一致；接受时在事务中激活成员关系、授予邀请角色并将 token 标记为已使用。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string, minLength: 32, maxLength: 128 }
+      responses:
+        '200':
+          description: 邀请已接受
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitationAcceptanceResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '410':
+          description: 邀请链接已过期、撤销或已使用
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
   /api/v1/auth/login:
     post:
       tags: [Auth]
@@ -356,6 +457,25 @@ paths:
               schema: { $ref: '#/components/schemas/AdminContentListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      operationId: createAdminContent
+      summary: 创建内容草稿
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAdminContentRequest' }
+      responses:
+        '201':
+          description: 草稿已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminContentResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/knowledge/directories:
     get:
       tags: [Admin]
@@ -420,25 +540,6 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
-    post:
-      tags: [Admin]
-      operationId: createAdminContent
-      summary: 创建内容草稿
-      security: [{ BearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/CreateAdminContentRequest' }
-      responses:
-        '201':
-          description: 草稿已创建
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AdminContentResponse' }
-        '400': { $ref: '#/components/responses/ValidationError' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/content/{content_id}:
     patch:
       tags: [Admin]
@@ -603,6 +704,29 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/invitations:
+    post:
+      tags: [Admin]
+      operationId: createAdminInvitation
+      summary: 创建成员邀请
+      description: 同一组织同一邮箱只能有一个待处理邀请；邀请只允许授予 member、editor 或 administrator，不能授予 owner。
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateInvitationRequest' }
+      responses:
+        '201':
+          description: 邀请已创建；invite_url 中包含仅返回一次的明文 token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateInvitationResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/admin/projects:
     get:
       tags: [Admin]
@@ -1063,6 +1187,35 @@ components:
         category: { type: string, maxLength: 64 }
         published_at: { type: string, format: date-time }
         reading_minutes: { type: integer, minimum: 1 }
+    PortalContentType:
+      type: string
+      enum: [news, resource, knowledge]
+    PortalContentAsset:
+      type: object
+      required: [id, original_name, mime_type, size_bytes]
+      properties:
+        id: { type: string }
+        original_name: { type: string, maxLength: 255 }
+        mime_type: { type: string, maxLength: 120 }
+        size_bytes: { type: integer, format: int64, minimum: 0 }
+    PortalContentDetail:
+      type: object
+      required: [id, title, type, category, excerpt, body, published_at, updated_at, reading_minutes]
+      properties:
+        id: { type: string }
+        title: { type: string, maxLength: 160 }
+        type: { $ref: '#/components/schemas/PortalContentType' }
+        category: { type: string, maxLength: 64 }
+        excerpt: { type: string, maxLength: 500 }
+        body: { type: string }
+        published_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: string, format: date-time }
+        reading_minutes: { type: integer, minimum: 1 }
+        asset:
+          anyOf:
+            - $ref: '#/components/schemas/PortalContentAsset'
+            - type: 'null'
+        download_url: { type: [string, 'null'], format: uri-reference }
     ProjectStatus:
       type: string
       enum: [active, research, completed]
@@ -1091,9 +1244,9 @@ components:
         size_bytes: { type: integer, minimum: 0, format: int64 }
         updated_at: { type: string, format: date-time }
         download_url:
-          type: string
-          format: uri
-          description: 短时、受控下载地址；前端不得自行拼接对象存储 URL。
+          type: [string, 'null']
+          format: uri-reference
+          description: 有关联文件时返回受控下载地址；没有文件时为 null，前端不得自行拼接对象存储 URL。
     KnowledgeArticle:
       type: object
       required: [id, title, summary, category, updated_at, reading_minutes]
@@ -1131,6 +1284,12 @@ components:
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/Organization' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    PortalContentDetailResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/PortalContentDetail' }
         meta: { $ref: '#/components/schemas/Meta' }
     PostListResponse:
       type: object
@@ -1250,15 +1409,67 @@ components:
         role: { $ref: '#/components/schemas/AdminRole' }
         state: { $ref: '#/components/schemas/AdminUserState' }
         joined_at: { type: string, format: date-time }
+    InvitationRole:
+      type: string
+      enum: [member, editor, administrator]
+    InvitationStatus:
+      type: string
+      enum: [pending, accepted, expired, revoked]
+    Invitation:
+      type: object
+      required: [id, organization_id, organization_name, email, role, status, expires_at, created_at]
+      properties:
+        id: { type: string }
+        organization_id: { type: string }
+        organization_name: { type: string, maxLength: 160 }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/InvitationRole' }
+        status: { $ref: '#/components/schemas/InvitationStatus' }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+    CreateInvitationRequest:
+      type: object
+      required: [email, role]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        role: { $ref: '#/components/schemas/InvitationRole' }
+        expires_in_hours: { type: integer, minimum: 1, maximum: 720, default: 168 }
+    CreateInvitationResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          allOf:
+            - $ref: '#/components/schemas/Invitation'
+            - type: object
+              required: [invite_url]
+              properties:
+                invite_url: { type: string, format: uri-reference }
+        meta: { $ref: '#/components/schemas/Meta' }
+    InvitationResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/Invitation' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    InvitationAcceptanceResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          allOf:
+            - $ref: '#/components/schemas/Invitation'
+            - type: object
+              required: [membership_id]
+              properties:
+                membership_id: { type: string }
+        meta: { $ref: '#/components/schemas/Meta' }
     UpdateAdminUserRequest:
       type: object
       required: [role, state]
       properties:
         role: { $ref: '#/components/schemas/AdminRole' }
         state: { $ref: '#/components/schemas/AdminUserState' }
-    ProjectStatus:
-      type: string
-      enum: [active, research, completed]
     AdminProject:
       type: object
       required: [id, title, summary, status, tags, is_public, owner, updated_at]
@@ -1450,6 +1661,7 @@ components:
         email: { type: string, format: email, maxLength: 254 }
         display_name: { type: string, minLength: 1, maxLength: 80 }
         password: { type: string, minLength: 12, maxLength: 128, writeOnly: true }
+        invitation_token: { type: string, minLength: 32, maxLength: 128, writeOnly: true }
     LoginRequest:
       type: object
       required: [email, password]

@@ -44,6 +44,7 @@ const filteredItems = computed(() => data.value?.items.filter((item) => category
             :title="article.title"
             :body="article.summary"
             :meta="`${formatDate(article.updated_at)} · ${article.reading_minutes} 分钟阅读`"
+            :to="`/knowledge/${article.id}`"
           />
           <el-empty v-if="filteredItems.length === 0" description="该分类下暂无公开文章。" />
         </div>

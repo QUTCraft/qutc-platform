@@ -51,6 +51,28 @@ func (h *WorkspaceHandler) cachedPortalPage(c *gin.Context, slug, resource strin
 	pageOf(c, items)
 }
 
+func (h *WorkspaceHandler) cachedPortalItem(c *gin.Context, slug, resource string, loader func() (gin.H, error)) {
+	key := "qutc:" + h.cacheNamespace + ":portal:" + slug + ":" + resource
+	var item gin.H
+	if h.cache != nil && h.cache.Get(context.Background(), key, &item) {
+		respond(c, http.StatusOK, item)
+		return
+	}
+	item, err := loader()
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			fail(c, http.StatusNotFound, "portal.content_not_found", "公开内容不存在或尚未发布。")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "portal."+resource+"_failed", "公开数据暂时无法加载。")
+		return
+	}
+	if h.cache != nil {
+		h.cache.Set(context.Background(), key, item)
+	}
+	respond(c, http.StatusOK, item)
+}
+
 func (h *WorkspaceHandler) invalidatePortalCache(organizationID string) {
 	if h.cache == nil {
 		return
@@ -113,6 +135,22 @@ func (h *WorkspaceHandler) Organization(c *gin.Context) {
 		return
 	}
 	respond(c, http.StatusOK, gin.H{"id": org.ID, "slug": org.Slug, "name": org.Name, "short_name": "QUTCraft", "tagline": "把社团正在发生的事，认真地呈现出来。", "introduction": "QUTCraft 是青岛理工大学的 Minecraft 社团，持续建设内容、项目与公共知识资产。", "contact_email": "contact@qutcraft.example", "social_links": []gin.H{{"label": "GitHub", "href": "https://github.com/QUTCraft/qutc-platform"}}})
+}
+
+func (h *WorkspaceHandler) PortalContentDetail(c *gin.Context) {
+	var organization model.Organization
+	if err := h.db.Where("slug = ?", c.Param("slug")).First(&organization).Error; err != nil {
+		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
+		return
+	}
+	contentID := c.Param("id")
+	h.cachedPortalItem(c, c.Param("slug"), "content:"+contentID, func() (gin.H, error) {
+		var content model.Content
+		if err := h.db.Where("id = ? AND organization_id = ? AND status = ?", contentID, organization.ID, "published").First(&content).Error; err != nil {
+			return nil, gorm.ErrRecordNotFound
+		}
+		return h.contentPublicDetailItem(c.Param("slug"), content), nil
+	})
 }
 
 func (h *WorkspaceHandler) PortalPosts(c *gin.Context) {
@@ -200,8 +238,8 @@ func (h *WorkspaceHandler) PortalResources(c *gin.Context) {
 		}
 		items := make([]gin.H, 0, len(contents))
 		for _, content := range contents {
-			item := gin.H{"id": content.ID, "title": content.Title, "description": content.Excerpt, "kind": "document", "size_bytes": 0, "updated_at": content.UpdatedAt, "download_url": "#"}
-			if kind == "" || kind == "document" {
+			item := h.resourcePublicItem(c.Param("slug"), content)
+			if kind == "" || kind == item["kind"] {
 				items = append(items, item)
 			}
 		}
@@ -481,6 +519,10 @@ func (h *WorkspaceHandler) changeContentStatus(c *gin.Context, status string) {
 		fail(c, http.StatusConflict, "content.already_in_state", "内容已经处于目标状态。")
 		return
 	}
+	if !canTransitionContentStatus(content.Status, status) {
+		fail(c, http.StatusConflict, "content.invalid_transition", "内容不能从当前状态转换到目标状态。")
+		return
+	}
 	content.Status = status
 	if status == "published" {
 		now := time.Now().UTC()
@@ -497,6 +539,17 @@ func (h *WorkspaceHandler) changeContentStatus(c *gin.Context, status string) {
 	respond(c, http.StatusOK, contentAdminItem(content, h.db))
 }
 
+func canTransitionContentStatus(current, target string) bool {
+	switch target {
+	case "published":
+		return current == "draft" || current == "review" || current == "archived"
+	case "archived":
+		return current == "published"
+	default:
+		return false
+	}
+}
+
 func contentPublicItem(content model.Content) gin.H {
 	publishedAt := content.PublishedAt
 	if publishedAt == nil {
@@ -507,6 +560,45 @@ func contentPublicItem(content model.Content) gin.H {
 		category = content.Type
 	}
 	return gin.H{"id": content.ID, "title": content.Title, "excerpt": content.Excerpt, "category": category, "published_at": publishedAt, "reading_minutes": maxInt(1, len([]rune(content.Body))/900+1)}
+}
+
+func (h *WorkspaceHandler) contentPublicDetailItem(slug string, content model.Content) gin.H {
+	item := gin.H{
+		"id":              content.ID,
+		"title":           content.Title,
+		"type":            content.Type,
+		"category":        content.Category,
+		"excerpt":         content.Excerpt,
+		"body":            content.Body,
+		"published_at":    content.PublishedAt,
+		"updated_at":      content.UpdatedAt,
+		"reading_minutes": maxInt(1, len([]rune(content.Body))/900+1),
+	}
+	if content.Type == "resource" {
+		var asset model.MediaAsset
+		if h.db.Where("content_id = ? AND organization_id = ?", content.ID, content.OrganizationID).Order("created_at ASC").First(&asset).Error == nil {
+			item["asset"] = gin.H{"id": asset.ID, "original_name": asset.OriginalName, "mime_type": asset.MimeType, "size_bytes": asset.SizeBytes}
+			item["download_url"] = "/api/v1/portal/organizations/" + slug + "/assets/" + asset.ID + "/download"
+		} else {
+			item["asset"] = nil
+			item["download_url"] = nil
+		}
+	}
+	return item
+}
+
+func (h *WorkspaceHandler) resourcePublicItem(slug string, content model.Content) gin.H {
+	kind := content.Category
+	if kind != "document" && kind != "template" && kind != "package" && kind != "video" {
+		kind = "document"
+	}
+	item := gin.H{"id": content.ID, "title": content.Title, "description": content.Excerpt, "kind": kind, "size_bytes": int64(0), "updated_at": content.UpdatedAt, "download_url": nil}
+	var asset model.MediaAsset
+	if h.db.Where("content_id = ? AND organization_id = ?", content.ID, content.OrganizationID).Order("created_at ASC").First(&asset).Error == nil {
+		item["size_bytes"] = asset.SizeBytes
+		item["download_url"] = "/api/v1/portal/organizations/" + slug + "/assets/" + asset.ID + "/download"
+	}
+	return item
 }
 
 func contentAdminItem(content model.Content, db *gorm.DB) gin.H {
@@ -632,6 +724,22 @@ func (h *WorkspaceHandler) AdminUpdateUser(c *gin.Context) {
 		fail(c, http.StatusNotFound, "user.not_found", "用户不存在。")
 		return
 	}
+	targetRole := membershipRole(h.db, membership.ID)
+	actorRole := membershipRoleByUser(h.db, principal.OrganizationID, principal.UserID)
+	if code := membershipChangeError(actorRole, c.Param("id") == principal.UserID, targetRole, body.Role, body.State); code != "" {
+		status := http.StatusConflict
+		message := "成员权限变更不符合保护规则。"
+		if code == "membership.owner_only" {
+			status = http.StatusForbidden
+			message = "只有所有者可以授予所有者角色。"
+		} else if code == "membership.owner_protected" {
+			message = "所有者不能被停用或降级。"
+		} else if code == "membership.self_change_forbidden" {
+			message = "不能通过成员管理解除自己的所有者或管理权限。"
+		}
+		fail(c, status, code, message)
+		return
+	}
 	var role model.Role
 	if err := h.db.Where("`key` = ?", body.Role).First(&role).Error; err != nil {
 		fail(c, http.StatusBadRequest, "membership.role_not_found", "角色不存在。")
@@ -666,6 +774,31 @@ func validMemberState(value string) bool {
 
 func validRole(value string) bool {
 	return value == "member" || value == "editor" || value == "administrator" || value == "owner"
+}
+
+func membershipRole(db *gorm.DB, membershipID string) string {
+	var role string
+	db.Table("membership_roles AS mr").Select("COALESCE(MAX(r.`key`), 'member')").Joins("JOIN roles AS r ON r.id = mr.role_id").Where("mr.membership_id = ?", membershipID).Scan(&role)
+	return role
+}
+
+func membershipRoleByUser(db *gorm.DB, organizationID, userID string) string {
+	var role string
+	db.Table("memberships AS m").Select("COALESCE(MAX(r.`key`), 'member')").Joins("JOIN membership_roles AS mr ON mr.membership_id = m.id").Joins("JOIN roles AS r ON r.id = mr.role_id").Where("m.organization_id = ? AND m.user_id = ? AND m.state = ?", organizationID, userID, "active").Scan(&role)
+	return role
+}
+
+func membershipChangeError(actorRole string, actorIsSelf bool, currentRole, nextRole, nextState string) string {
+	if currentRole == "owner" && (nextRole != "owner" || nextState != "active") {
+		return "membership.owner_protected"
+	}
+	if nextRole == "owner" && actorRole != "owner" {
+		return "membership.owner_only"
+	}
+	if actorIsSelf && (nextRole != currentRole || nextState != "active") {
+		return "membership.self_change_forbidden"
+	}
+	return ""
 }
 
 func (h *WorkspaceHandler) AdminProjects(c *gin.Context) {

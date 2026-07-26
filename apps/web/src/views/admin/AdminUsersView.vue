@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, reactive, ref } from 'vue'
+import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import AsyncState from '@/components/AsyncState.vue'
 import { adminApi } from '@/api/admin'
-import type { AdminUser } from '@/api/types'
+import type { AdminInvitation, AdminUser, InvitationRole } from '@/api/types'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDate } from '@/utils/format'
 
@@ -14,11 +14,47 @@ const dialogOpen = ref(false)
 const saving = ref(false)
 const editingUser = ref<AdminUser | null>(null)
 const form = reactive({ role: 'member' as AdminUser['role'], state: 'active' as AdminUser['state'] })
+const inviteDialogOpen = ref(false)
+const inviting = ref(false)
+const inviteResult = ref<AdminInvitation | null>(null)
+const inviteForm = reactive<{ email: string; role: InvitationRole; expires_in_hours: number }>({ email: '', role: 'member', expires_in_hours: 168 })
+const inviteRules: FormRules = {
+  email: [{ required: true, type: 'email', message: '请输入有效邮箱账号', trigger: 'blur' }],
+}
+const inviteFormRef = ref<FormInstance>()
+const inviteLink = computed(() => inviteResult.value ? new URL(inviteResult.value.invite_url, window.location.origin).toString() : '')
 
 function openEditor(user: AdminUser) {
   editingUser.value = user
   Object.assign(form, { role: user.role, state: user.state })
   dialogOpen.value = true
+}
+
+function openInvite() {
+  inviteResult.value = null
+  Object.assign(inviteForm, { email: '', role: 'member', expires_in_hours: 168 })
+  inviteDialogOpen.value = true
+}
+
+async function createInvitation() {
+  if (!inviteFormRef.value || !(await inviteFormRef.value.validate().catch(() => false))) return
+  inviting.value = true
+  try {
+    inviteResult.value = await adminApi.createInvitation(inviteForm)
+    ElMessage.success('邀请链接已创建，请复制给对方。')
+    await refresh()
+  } catch (cause) {
+    ElMessage.error(cause instanceof Error ? cause.message : '邀请创建失败。')
+  } finally {
+    inviting.value = false
+  }
+}
+
+async function copyInviteLink() {
+  if (!inviteResult.value) return
+  const link = new URL(inviteResult.value.invite_url, window.location.origin).toString()
+  await navigator.clipboard.writeText(link)
+  ElMessage.success('邀请链接已复制。')
 }
 
 async function saveUser() {
@@ -45,7 +81,7 @@ async function saveUser() {
           <h2>成员与权限</h2>
           <p>管理组织成员及其在工作台中的协作权限与分配状态。</p>
         </div>
-        <el-button round type="primary">+ 邀请成员</el-button>
+        <el-button round type="primary" @click="openInvite">+ 邀请成员</el-button>
       </section>
 
       <section class="admin-panel">
@@ -110,6 +146,35 @@ async function saveUser() {
         <template #footer>
           <el-button @click="dialogOpen = false">取消</el-button>
           <el-button type="primary" :loading="saving" @click="saveUser">保存</el-button>
+        </template>
+      </el-dialog>
+
+      <el-dialog v-model="inviteDialogOpen" :title="inviteResult ? '邀请链接已创建' : '邀请新成员'" width="min(92vw, 520px)">
+        <template v-if="inviteResult">
+          <el-alert title="请立即复制邀请链接" type="success" :closable="false" show-icon>
+            邀请链接只在创建后展示，服务端只保存 token 哈希。
+          </el-alert>
+          <div class="invite-link-box">
+            <el-input :model-value="inviteLink" readonly />
+            <el-button type="primary" @click="copyInviteLink">复制链接</el-button>
+          </div>
+          <p class="form-help">{{ inviteResult.email }} · {{ roleLabel[inviteResult.role] }} · 有效期至 {{ formatDate(inviteResult.expires_at) }}</p>
+        </template>
+        <el-form v-else ref="inviteFormRef" :model="inviteForm" :rules="inviteRules" label-position="top">
+          <el-form-item label="成员邮箱" prop="email"><el-input v-model="inviteForm.email" type="email" autocomplete="email" placeholder="member@example.com" /></el-form-item>
+          <el-form-item label="加入角色">
+            <el-select v-model="inviteForm.role" style="width: 100%">
+              <el-option label="成员" value="member" />
+              <el-option label="编辑者" value="editor" />
+              <el-option label="管理员" value="administrator" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="有效期（小时）"><el-input-number v-model="inviteForm.expires_in_hours" :min="1" :max="720" /></el-form-item>
+          <p class="form-help">默认 7 天；同一组织同一邮箱只能存在一个待处理邀请，不能通过邀请授予所有者角色。</p>
+        </el-form>
+        <template #footer>
+          <el-button @click="inviteDialogOpen = false">关闭</el-button>
+          <el-button v-if="!inviteResult" type="primary" :loading="inviting" @click="createInvitation">创建邀请</el-button>
         </template>
       </el-dialog>
     </template>

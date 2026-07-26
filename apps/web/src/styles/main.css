@@ -1648,11 +1648,42 @@ h1, h2, h3, h4, h5, h6, p {
   overflow: visible;
 }
 
+.resource-download-btn,
 .resource-download-btn.el-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   height: 32px !important;
   min-height: 32px !important;
   padding: 0 16px !important;
   line-height: 1.2 !important;
+  border-radius: var(--md-shape-full);
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.resource-download-btn:hover {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+
+.resource-title-link {
+  color: var(--md-sys-color-on-surface);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.resource-title-link:hover {
+  color: var(--md-sys-color-primary);
+}
+
+.upload-help {
+  display: block;
+  margin-top: 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  line-height: 1.5;
 }
 
 .resource-mobile-meta {
@@ -3043,6 +3074,23 @@ h1, h2, h3, h4, h5, h6, p {
   color: rgba(255, 255, 255, 0.65);
   font-size: 13px;
   margin-bottom: 24px;
+}
+
+.invite-link-box {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.invite-link-box .el-input {
+  flex: 1;
+}
+
+.form-help {
+  margin: 10px 0 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.88rem;
+  line-height: 1.6;
 }
 
 /* Responsive layout system */

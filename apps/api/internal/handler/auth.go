@@ -19,9 +19,10 @@ func NewAuthHandler(auth *service.AuthService) *AuthHandler {
 }
 
 type registerRequest struct {
-	Email       string `json:"email" binding:"required,email"`
-	DisplayName string `json:"display_name" binding:"required,max=80"`
-	Password    string `json:"password" binding:"required,min=12,max=128"`
+	Email           string `json:"email" binding:"required,email"`
+	DisplayName     string `json:"display_name" binding:"required,max=80"`
+	Password        string `json:"password" binding:"required,min=12,max=128"`
+	InvitationToken string `json:"invitation_token"`
 }
 
 type loginRequest struct {
@@ -39,13 +40,29 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "auth.validation_failed", "注册信息不符合要求。")
 		return
 	}
-	pair, err := h.auth.Register(request.Email, request.DisplayName, request.Password)
+	var pair service.TokenPair
+	var err error
+	if strings.TrimSpace(request.InvitationToken) != "" {
+		pair, err = h.auth.RegisterWithInvitation(request.Email, request.DisplayName, request.Password, request.InvitationToken)
+	} else {
+		pair, err = h.auth.Register(request.Email, request.DisplayName, request.Password)
+	}
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrEmailInUse):
 			fail(c, http.StatusConflict, "auth.email_in_use", "该邮箱已注册。")
 		case errors.Is(err, service.ErrInvalidPassword):
 			fail(c, http.StatusBadRequest, "auth.password_too_short", "密码至少需要 12 个字符。")
+		case errors.Is(err, service.ErrInvitationEmailMismatch):
+			fail(c, http.StatusBadRequest, "invitation.email_mismatch", "注册邮箱必须与邀请邮箱一致。")
+		case errors.Is(err, service.ErrInvitationExpired):
+			fail(c, http.StatusGone, "invitation.expired", "邀请链接已过期。")
+		case errors.Is(err, service.ErrInvitationRevoked):
+			fail(c, http.StatusGone, "invitation.revoked", "邀请链接已撤销。")
+		case errors.Is(err, service.ErrInvitationAccepted):
+			fail(c, http.StatusConflict, "invitation.already_accepted", "邀请链接已经被使用。")
+		case errors.Is(err, service.ErrInvitationNotFound):
+			fail(c, http.StatusNotFound, "invitation.not_found", "邀请链接不存在。")
 		default:
 			fail(c, http.StatusInternalServerError, "auth.registration_failed", "注册暂时无法完成。")
 		}

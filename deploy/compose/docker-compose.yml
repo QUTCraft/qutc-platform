@@ -32,6 +32,13 @@ services:
       timeout: 5s
       retries: 20
 
+  media-init:
+    image: alpine:3.22
+    command: ["sh", "-c", "mkdir -p /tmp/qutcraft-uploads && chown -R 65532:65532 /tmp/qutcraft-uploads && chmod 0750 /tmp/qutcraft-uploads"]
+    volumes:
+      - media_data:/tmp/qutcraft-uploads
+    restart: "no"
+
   api:
     build:
       context: ../../apps/api
@@ -52,6 +59,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      media-init:
+        condition: service_completed_successfully
 
   web:
     build:

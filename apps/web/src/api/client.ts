@@ -5,6 +5,12 @@ import type { ApiEnvelope, Page } from '@/api/types'
 const apiMode = import.meta.env.VITE_API_MODE ?? 'mock'
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080').replace(/\/$/, '')
 
+export function resolveApiUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path
+  if (apiMode === 'mock') return path
+  return `${apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`
+}
+
 export class ApiClientError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string) {
     super(message)
@@ -66,6 +72,22 @@ export async function post<T>(path: string, body?: unknown): Promise<T> {
     headers: headers(true),
     credentials: 'include',
     body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
+  if (!response.ok || !payload || !('data' in payload)) {
+    const error = payload && 'error' in payload ? payload.error : undefined
+    throw new ApiClientError(response.status, error?.code ?? 'network.request_failed', error?.message ?? '请求失败，请稍后重试。')
+  }
+  return payload.data
+}
+
+export async function upload<T>(path: string, formData: FormData): Promise<T> {
+  if (apiMode === 'mock') return mockPost<T>(path, formData)
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    method: 'POST',
+    headers: headers(),
+    credentials: 'include',
+    body: formData,
   })
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
   if (!response.ok || !payload || !('data' in payload)) {

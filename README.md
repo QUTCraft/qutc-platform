@@ -4,7 +4,7 @@ QUTCraft Platform 是一个面向校园社团与民间组织的可扩展内容�
 
 青岛理工大学 QUTCraft Minecraft 社团是本项目的首个真实落地场景。它验证了平台既可以保持通用的组织数字化能力，也可以通过公开 API 构建具有社团特色的门户，而不会让 Minecraft 服务器能力污染通用业务核心。
 
-> 当前仓库处于 MVP 开发阶段。前端默认使用契约 Mock 数据；Go API、MySQL 基础迁移、JWT/RBAC、Compose 开发环境已落地为源码。内容发布、资源上传、完整管理 API 与真实服务器适配仍按项目排期逐步建设。
+> 当前仓库处于 MVP 开发阶段。前端支持契约 Mock 与远程 API 两种模式；Go API、MySQL 基础迁移、JWT/RBAC、Compose 开发环境以及内容、资源、项目和申请审核的基础业务端点已经落地，真实服务器适配与全链路收口仍按项目排期推进。
 
 ## 核心原则
 
@@ -40,9 +40,9 @@ QUTCraft Platform 是一个面向校园社团与民间组织的可扩展内容�
 - 注册、登录、刷新令牌轮换、退出撤销与当前会话接口。
 - JWT Bearer 鉴权与基于 `resource:action` 的 RBAC 中间件。
 - 前端登录页、会话恢复、后台路由守卫与 Mock 演示账号。
-- MySQL、Redis、API、Web 及可选 MinIO 的 Docker Compose 开发环境。
+- MySQL、Redis、API、Web 及可选 MinIO 的 Docker Compose 开发环境；媒体卷由一次性 `media-init` 服务初始化权限，API 保持 nonroot 运行。
 
-> Auth API 已由 `apps/api` 实现；Portal/Admin 的内容、资源、项目和审核业务端点在后续“内容发布闭环”阶段落地。当前 Web 的这些页面仍由契约 Mock 支撑演示。
+> Auth、Portal 与 Admin 的基础业务 API 已由 `apps/api` 实现；Web 可通过 `VITE_API_MODE=remote` 联调真实 Compose API，也可切换回契约 Mock 做离线页面演示。
 
 ## 技术栈
 
@@ -61,6 +61,7 @@ QUTCraft Platform 是一个面向校园社团与民间组织的可扩展内容�
 
 - Node.js 20 或更高版本
 - pnpm 9 或更高版本
+- Python 3.10 或更高版本（运行契约检查脚本）
 - Go 1.22 或更高版本（运行 API）
 - Docker Compose v2（运行完整本地依赖环境）
 
@@ -86,6 +87,8 @@ http://localhost:5173
 | `/projects` | 公开项目 |
 | `/resources` | 资源中心 |
 | `/knowledge` | 知识库 |
+| `/invite/:token` | 成员邀请预览与接受 |
+| `/register` | 注册账户并接受邀请 |
 | `/admin` | 管理工作台概览 |
 | `/admin/content` | 内容工作区 |
 | `/admin/users` | 成员与权限 |
@@ -140,7 +143,7 @@ copy .env.example .env
 docker compose up --build
 ```
 
-默认启动 MySQL、Redis、API 与 Web。需要对象存储时使用：
+默认启动 MySQL、Redis、API 与 Web；如果使用仓库当前 `deploy/compose/.env`，Web/API 地址分别为 `http://localhost:5173` 和 `http://localhost:18080`。需要对象存储时使用：
 
 ```bash
 docker compose --profile storage up --build
@@ -173,6 +176,12 @@ docker compose --profile docs up
 pnpm --package=@redocly/cli@1.34.6 dlx redocly lint docs/api/openapi.yaml
 ```
 
+同时检查 Go 的 Gin 路由是否与 OpenAPI 方法、路径和路径参数一致：
+
+```bash
+python scripts/check-openapi-routes.py
+```
+
 ## 项目结构
 
 ```text
@@ -190,7 +199,7 @@ apps/
         ├── styles/               # MD3 Token 与全局样式
         └── views/                # 公开页面与后台页面
 deploy/
-├── compose/                      # Docker Compose 配置（规划）
+├── compose/                      # Docker Compose 开发环境
 └── openresty/                    # 网关配置（规划）
 docs/
 ├── adr/                          # 架构决策记录

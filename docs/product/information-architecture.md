@@ -29,7 +29,7 @@
 | `/projects` | 公开项目目录 | `Project[]` | 不显示内部成员、里程碑或私人备注。 |
 | `/resources` | 资源筛选与受控下载 | `Resource[]` | 不暴露对象键、长期 URL 或存储凭据。 |
 | `/knowledge` | 知识库文章目录 | `KnowledgeArticle[]` | 不显示草稿与未公开文章。 |
-| `/apply` | 成员/白名单公开申请表单 | `ApplicationCreate` | 只允许提交；不能读取审批队列、审核人或服务器内部状态。当前后端契约待补齐。 |
+| `/apply` | 成员/白名单公开申请表单 | `ApplicationCreate` | 只允许提交；不能读取审批队列、审核人或服务器内部状态。已由 Portal API 持久化进入后台待审批队列。 |
 | `/login` | 账户登录 | Auth API | 登录不是门户管理入口；成功后按权限进入独立工作台。 |
 | `/:pathMatch(.*)*` | 公开 404 | 无 | 不泄露内部路由是否存在。 |
 

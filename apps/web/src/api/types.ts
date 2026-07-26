@@ -38,6 +38,20 @@ export interface PublicPost {
   reading_minutes: number
 }
 
+export interface PublicContentDetail {
+  id: string
+  title: string
+  type: 'news' | 'resource' | 'knowledge'
+  category: string
+  excerpt: string
+  body: string
+  published_at?: string | null
+  updated_at: string
+  reading_minutes: number
+  asset?: { id: string; original_name: string; mime_type: string; size_bytes: number } | null
+  download_url?: string | null
+}
+
 export interface Project {
   id: string
   title: string
@@ -55,6 +69,15 @@ export interface Resource {
   kind: 'document' | 'template' | 'package' | 'video'
   size_bytes: number
   updated_at: string
+  download_url: string | null
+}
+
+export interface MediaAsset {
+  id: string
+  content_id?: string
+  original_name: string
+  mime_type: string
+  size_bytes: number
   download_url: string
 }
 
@@ -109,6 +132,17 @@ export interface AdminContent {
   updated_at: string
 }
 
+export interface AdminKnowledgeDirectory {
+  id: string
+  parent_id: string
+  name: string
+  slug: string
+  description: string
+  sort_order: number
+  is_public: boolean
+  updated_at: string
+}
+
 export interface AdminProject {
   id: string
   title: string
@@ -148,6 +182,28 @@ export interface AdminUser {
   role: 'owner' | 'administrator' | 'editor' | 'member'
   state: 'active' | 'invited' | 'disabled'
   joined_at: string
+}
+
+export type InvitationRole = 'member' | 'editor' | 'administrator'
+export type InvitationStatus = 'pending' | 'accepted' | 'expired' | 'revoked'
+
+export interface Invitation {
+  id: string
+  organization_id: string
+  organization_name: string
+  email: string
+  role: InvitationRole
+  status: InvitationStatus
+  expires_at: string
+  created_at: string
+}
+
+export interface AdminInvitation extends Invitation {
+  invite_url: string
+}
+
+export interface InvitationAcceptance extends Invitation {
+  membership_id: string
 }
 
 export interface AdminApplication {

@@ -28,6 +28,7 @@ build/
 # Local tooling
 tmp/
 logs/
+__pycache__/
 
 # User-provided design references; keep them local and out of releases
 /43999E726D018F1D3B6FF5C6E1A67400.png

@@ -4,9 +4,9 @@
 > 契约源：[openapi.yaml](openapi.yaml)（OpenAPI 3.1.1）  
 > 适用对象：Go 后端、Vue 前端、Apifox 测试、Swagger UI、自定义门户开发者
 
-本文说明当前已开发的认证（Auth）、公开门户（Portal）与后台工作台（Admin）接口。它是对 OpenAPI 契约的可读补充：**路径、字段类型、必填性和状态码以 `openapi.yaml` 为最终事实来源**。本文不会把尚未实现的内容正文编辑、文件上传、成员邀请或设置保存接口伪装成已存在能力。
+本文说明当前已开发的认证（Auth）、公开门户（Portal）与后台工作台（Admin）接口。它是对 OpenAPI 契约的可读补充：**路径、字段类型、必填性和状态码以 `openapi.yaml` 为最终事实来源**。本文会明确区分已落地的 CMS/资源/知识目录/成员邀请能力与仍在排期中的门户配置等能力。
 
-> 实现状态：`/api/v1/auth/*`、Portal 公开内容读取、Admin 内容生命周期、媒体资产、用户资料、项目/成员/里程碑和知识库目录接口已在 Go API 底座中实现。资源和服务器状态仍保留开发适配读模型。
+> 实现状态：`/api/v1/auth/*`、邀请注册/接受、Portal 公开内容读取、Admin 内容生命周期、媒体资产、用户资料、项目/成员/里程碑和知识库目录接口已在 Go API 底座中实现。资源和服务器状态仍保留开发适配读模型。
 
 ## 1. 设计边界
 
@@ -622,7 +622,17 @@ Operation ID：`executeRestrictedServerCommand`
 
 当前 Vue mock 环境只记录命令并返回模拟成功，**不会连接任何 Minecraft 服务器**。
 
-### 7.7 外部适配器与通知规范
+### 7.7 成员邀请规范
+
+成员邀请由 Admin 创建、公开链接预览，随后由邀请邮箱对应的账户接受：
+
+1. 管理员调用 `POST /api/v1/admin/invitations`，服务端只保存 token 的 SHA-256 哈希，响应中的 `invite_url` 是唯一一次展示明文 token 的位置。
+2. 邀请链接访问 `GET /api/v1/invitations/{token}`，只返回组织名称、邀请邮箱、角色、状态和过期时间，不返回操作者、成员列表或内部权限数据。
+3. 已有账户登录后调用 `POST /api/v1/invitations/{token}/accept`；新用户可在 `POST /api/v1/auth/register` 传入 `invitation_token`，注册、成员关系、角色和 token 消费在同一事务内完成。
+4. 默认有效期为 7 天，最大 30 天；同一组织同一邮箱只能存在一个待处理邀请，邀请不能授予 `owner`。
+5. 邮箱不匹配返回 `403`；重复、已使用、过期或撤销的链接分别使用统一冲突/失效错误，不返回 token 哈希。
+
+### 7.8 外部适配器与通知规范
 
 #### 1. SMTP 邮件提醒适配器
 - **解耦设计**: 当玩家提交白名单/成员申请或管理员做审批决定时，由后端异步消息队列 Consumer 触发 SMTP 发件程序。
@@ -638,12 +648,18 @@ Operation ID：`executeRestrictedServerCommand`
 | --- | --- | --- |
 | `/` | 门户首页 | 组织、动态、项目、资源、知识库列表、公开服务器状态。 |
 | `/projects` | 公开项目 | 项目列表。 |
-| `/resources` | 资源中心 | 资源列表。 |
-| `/knowledge` | 知识库列表 | 知识库文章列表。 |
+| `/posts/:id` | 动态详情 | 已发布内容详情。 |
+| `/resources` | 资源中心 | 资源列表与受控下载入口。 |
+| `/resources/:id` | 资源详情 | 已发布资源正文、文件元数据与下载入口。 |
+| `/knowledge` | 知识库列表 | 知识库文章与目录列表。 |
+| `/knowledge/:id` | 知识文章详情 | 已发布知识文章正文。 |
+| `/invite/:token` | 成员邀请 | 公开读取邀请状态；登录后接受邀请。 |
+| `/register` | 注册账户 | 可携带邀请 token 完成注册并加入组织。 |
 | `/login` | 管理端登录 | 登录、刷新与当前会话接口。 |
 | `/admin` | 后台概览 | `GET /admin/dashboard`。 |
-| `/admin/content` | 内容工作区 | `GET/POST /admin/content`。 |
-| `/admin/users` | 成员与权限 | `GET/PATCH /admin/users`。 |
+| `/admin/content` | 内容工作区 | 内容创建、编辑、发布/下线与资源上传。 |
+| `/admin/knowledge` | 知识目录 | 知识目录创建与编辑。 |
+| `/admin/users` | 成员与权限 | `GET/PATCH /admin/users`、`POST /admin/invitations`。 |
 | `/admin/projects` | 项目管理 | 项目、项目成员和里程碑管理接口。 |
 | `/admin/reviews` | 审批与 RCON | 申请列表、批准/拒绝、服务器状态、受限命令。 |
 | `/admin/settings` | 组织设置 UI | 当前无持久化 API；仅 mock 页面状态。 |
@@ -671,12 +687,12 @@ Operation ID：`executeRestrictedServerCommand`
 
 ## 11. 当前未定义能力清单
 
-以下能力可能是后续 CMS 所需功能，但**不是当前 API**：
+以下能力可能是后续平台所需功能，但**不是当前 API**：
 
 - 密码重置、SSO、多组织主动切换与基于 Cookie 的刷新令牌投递。
-- 内容正文详情、编辑、审核、发布、撤回、删除与版本历史。
-- 文件直传、分片上传、资源签发、下载刷新与病毒扫描回调。
-- 成员邀请、角色修改、停用/恢复、成员资料编辑。
+- 内容删除、定时发布、复杂审核流与版本历史。
+- 分片上传、资源签发刷新、病毒扫描回调与对象存储适配。
+- 批量邀请、邀请撤销/重发、成员资料编辑。
 - 申请创建、撤回、拒绝原因、申请人通知。
 - RCON 命令白名单配置、命令历史查询、服务器监控明细。
 - 组织设置与自定义门户 Manifest 的读取、保存、发布和回滚。

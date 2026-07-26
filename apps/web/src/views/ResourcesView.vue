@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { Search } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
 import AsyncState from '@/components/AsyncState.vue'
+import { resolveApiUrl } from '@/api/client'
 import { portalApi } from '@/api/portal'
 import type { Resource } from '@/api/types'
 import { useAsyncData } from '@/composables/useAsyncData'
@@ -15,7 +15,6 @@ const kinds: Array<'all' | Resource['kind']> = ['all', 'document', 'template', '
 const kindLabels: Record<'all' | Resource['kind'], string> = { all: '全部', document: '文档', template: '模板', package: '资源包', video: '影音' }
 const filteredItems = computed(() => data.value?.items.filter((item) => (kind.value === 'all' || item.kind === kind.value) && `${item.title}${item.description}`.toLowerCase().includes(keyword.value.toLowerCase())) ?? [])
 const displayKind = (value: Resource['kind']) => kindLabels[value]
-const showDownloadHint = (title: string) => ElMessage.info(`将通过受控下载地址获取「${title}」。`)
 </script>
 
 <template>
@@ -46,7 +45,7 @@ const showDownloadHint = (title: string) => ElMessage.info(`将通过受控下�
         <el-table :data="filteredItems" style="width: 100%">
           <el-table-column prop="title" label="资源">
             <template #default="scope">
-              <strong>{{ scope.row.title }}</strong>
+              <RouterLink class="resource-title-link" :to="`/resources/${scope.row.id}`">{{ scope.row.title }}</RouterLink>
               <p class="table-description">{{ scope.row.description }}</p>
               <div class="resource-mobile-meta">
                 <el-tag round>{{ displayKind(scope.row.kind) }}</el-tag>
@@ -72,9 +71,10 @@ const showDownloadHint = (title: string) => ElMessage.info(`将通过受控下�
           </el-table-column>
           <el-table-column label="" width="110" align="right">
             <template #default="scope">
-              <el-button type="primary" size="small" round class="resource-download-btn" @click="showDownloadHint(scope.row.title)">
+              <a v-if="scope.row.download_url" class="resource-download-btn" :href="resolveApiUrl(scope.row.download_url)" download>
                 下载
-              </el-button>
+              </a>
+              <el-button v-else type="info" size="small" round class="resource-download-btn" disabled>暂无文件</el-button>
             </template>
           </el-table-column>
         </el-table>

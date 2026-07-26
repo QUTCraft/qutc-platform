@@ -1,5 +1,5 @@
-import { del, get, getPage, patch, post } from '@/api/client'
-import type { AdminApplication, AdminContent, AdminDashboard, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, ServerCommandResult } from '@/api/types'
+import { del, get, getPage, patch, post, upload } from '@/api/client'
+import type { AdminApplication, AdminContent, AdminDashboard, AdminInvitation, AdminKnowledgeDirectory, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, InvitationRole, MediaAsset, ServerCommandResult } from '@/api/types'
 
 const adminBase = '/api/v1/admin'
 
@@ -10,7 +10,17 @@ export const adminApi = {
   updateContent: (id: string, payload: Pick<AdminContent, 'title' | 'type' | 'category' | 'excerpt' | 'body'>) => patch<AdminContent>(`${adminBase}/content/${id}`, payload),
   publishContent: (id: string) => post<AdminContent>(`${adminBase}/content/${id}/publish`),
   archiveContent: (id: string) => post<AdminContent>(`${adminBase}/content/${id}/archive`),
+  uploadAsset: (file: File, contentId?: string) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (contentId) formData.append('content_id', contentId)
+    return upload<MediaAsset>(`${adminBase}/assets`, formData)
+  },
+  getKnowledgeDirectories: () => getPage<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories`),
+  createKnowledgeDirectory: (payload: Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>) => post<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories`, payload),
+  updateKnowledgeDirectory: (id: string, payload: Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>) => patch<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories/${id}`, payload),
   getUsers: () => getPage<AdminUser>(`${adminBase}/users`),
+  createInvitation: (payload: { email: string; role: InvitationRole; expires_in_hours?: number }) => post<AdminInvitation>(`${adminBase}/invitations`, payload),
   updateUser: (id: string, payload: Pick<AdminUser, 'state' | 'role'>) => patch<AdminUser>(`${adminBase}/users/${id}`, payload),
   getProjects: () => getPage<AdminProject>(`${adminBase}/projects`),
   createProject: (payload: Pick<AdminProject, 'title' | 'summary' | 'status' | 'tags' | 'is_public'>) => post<AdminProject>(`${adminBase}/projects`, payload),

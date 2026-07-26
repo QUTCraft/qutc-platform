@@ -60,6 +60,20 @@ type MembershipEvent struct {
 	CreatedAt    time.Time `gorm:"index"`
 }
 
+type Invitation struct {
+	ID             string     `gorm:"primaryKey;type:char(36)"`
+	OrganizationID string     `gorm:"index;type:char(36);not null"`
+	InvitedBy      string     `gorm:"index;type:char(36);not null"`
+	Email          string     `gorm:"index;size:254;not null"`
+	Role           string     `gorm:"size:24;not null;default:member"`
+	TokenHash      string     `gorm:"uniqueIndex;type:char(64);not null"`
+	ExpiresAt      time.Time  `gorm:"index;not null"`
+	AcceptedAt     *time.Time `gorm:"index"`
+	RevokedAt      *time.Time `gorm:"index"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type MembershipRole struct {
 	MembershipID string `gorm:"primaryKey;type:char(36)"`
 	RoleID       string `gorm:"primaryKey;type:char(36)"`

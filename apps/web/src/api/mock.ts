@@ -2,7 +2,11 @@ import type {
   AdminApplication,
   AdminContent,
   AdminDashboard,
+  AdminInvitation,
+  AdminKnowledgeDirectory,
   AdminProject,
+  AdminProjectMember,
+  AdminProjectMilestone,
   AdminServerStatus,
   AdminUser,
   AuthUser,
@@ -12,9 +16,11 @@ import type {
   Page,
   Project,
   PublicPost,
+  PublicContentDetail,
   Resource,
   ServerStatus,
   TokenPair,
+  Invitation,
 } from '@/api/types'
 
 const organization: Organization = {
@@ -44,9 +50,9 @@ const projects: Project[] = [
 ]
 
 const resources: Resource[] = [
-  { id: 'resource_overview', title: 'QUTCraft CMS 产品说明', description: '项目目标、公开门户范围与 MVP 路线。', kind: 'document', size_bytes: 2_600_000, updated_at: '2026-07-17T01:00:00Z', download_url: '#' },
-  { id: 'resource_event-kit', title: '社团活动策划模板', description: '用于活动立项、分工和复盘的基础模板。', kind: 'template', size_bytes: 540_000, updated_at: '2026-07-15T01:00:00Z', download_url: '#' },
-  { id: 'resource_portal-api', title: 'Portal API 快速开始', description: '为自定义门户开发者准备的接口与 Manifest 示例。', kind: 'package', size_bytes: 1_400_000, updated_at: '2026-07-12T01:00:00Z', download_url: '#' },
+  { id: 'resource_overview', title: 'QUTCraft CMS 产品说明', description: '项目目标、公开门户范围与 MVP 路线。', kind: 'document', size_bytes: 0, updated_at: '2026-07-17T01:00:00Z', download_url: null },
+  { id: 'resource_event-kit', title: '社团活动策划模板', description: '用于活动立项、分工和复盘的基础模板。', kind: 'template', size_bytes: 0, updated_at: '2026-07-15T01:00:00Z', download_url: null },
+  { id: 'resource_portal-api', title: 'Portal API 快速开始', description: '为自定义门户开发者准备的接口与 Manifest 示例。', kind: 'package', size_bytes: 0, updated_at: '2026-07-12T01:00:00Z', download_url: null },
 ]
 
 const knowledge: KnowledgeArticle[] = [
@@ -60,6 +66,19 @@ const knowledgeDirectories: KnowledgeDirectory[] = [
   { id: 'knowledge_directory_technology', name: '技术规范', slug: 'technology', description: '接口、前端和部署规范。', article_count: 0, updated_at: '2026-07-14T02:00:00Z' },
   { id: 'knowledge_directory_community', name: '社团实践', slug: 'community', description: '适用于组织日常协作的经验。', article_count: 0, updated_at: '2026-07-11T02:00:00Z' },
 ]
+
+let adminKnowledgeDirectories: AdminKnowledgeDirectory[] = knowledgeDirectories.map((directory, index) => ({
+  ...directory,
+  parent_id: '',
+  sort_order: (index + 1) * 10,
+  is_public: true,
+}))
+
+const contentDetails: Record<string, PublicContentDetail> = {
+  post_cms: { id: 'post_cms', title: 'QUTCraft CMS 项目正式启动', type: 'news', category: '社团动态', excerpt: posts[0].excerpt, body: 'QUTCraft CMS 内容闭环演示内容。我们将官网、资源分发与可选的服务器适配能力拆成清晰边界，让社团长期积累的内容能够被持续维护和公开访问。', published_at: posts[0].published_at, updated_at: posts[0].published_at, reading_minutes: 4 },
+  knowledge_handoff: { id: 'knowledge_handoff', title: '如何让社团项目可交接', type: 'knowledge', category: '项目协作', excerpt: knowledge[0].summary, body: '从目标、角色、决策记录到发布节奏，建立不依赖个人记忆的知识库。每次交接都应该留下可复用的背景、当前状态和下一步行动。', published_at: knowledge[0].updated_at, updated_at: knowledge[0].updated_at, reading_minutes: 8 },
+  resource_overview: { id: 'resource_overview', title: 'QUTCraft CMS 产品说明', type: 'resource', category: 'document', excerpt: resources[0].description, body: 'QUTCraft CMS 的公开产品说明与接入资料。当前资源条目没有关联可下载文件，请以管理端上传资源文件后生成受控下载地址。', published_at: resources[0].updated_at, updated_at: resources[0].updated_at, reading_minutes: 3, asset: null, download_url: null },
+}
 
 const serverStatus: ServerStatus = {
   enabled: true,
@@ -85,7 +104,17 @@ const adminUsers: AdminUser[] = [
   { id: 'user_nova', name: 'Nova', email: 'nova@qutcraft.example', role: 'member', state: 'invited', joined_at: '2026-07-16T01:00:00Z' },
 ]
 
-let adminProjects: AdminProject[] = projects.map((project) => ({ ...project, is_public: true, owner: 'BBKarasu' }))
+let adminInvitations: AdminInvitation[] = []
+
+let adminProjects: AdminProject[] = projects.map((project) => ({ ...project, is_public: true, owner: 'BBKarasu', member_count: 1, milestone_count: project.id === 'project_cms' ? 2 : 0 }))
+
+const adminProjectMembers: Record<string, AdminProjectMember[]> = Object.fromEntries(adminProjects.map((project) => [project.id, [{ user_id: 'user_bk', name: 'BBKarasu', email: 'gdd233@qq.com', state: 'active', role: 'owner', assigned_at: '2026-07-14T01:00:00Z' }]]))
+const adminProjectMilestones: Record<string, AdminProjectMilestone[]> = {
+  project_cms: [
+    { id: 'milestone_cms_api', project_id: 'project_cms', title: '完成 API 合同与后台项目闭环', status: 'active', due_at: '2026-08-09T00:00:00Z', completed_at: null, updated_at: '2026-07-26T04:00:00Z' },
+    { id: 'milestone_cms_review', project_id: 'project_cms', title: '完成前端联调与回归检查', status: 'planned', due_at: '2026-08-16T00:00:00Z', completed_at: null, updated_at: '2026-07-26T04:00:00Z' },
+  ],
+}
 
 let applications: AdminApplication[] = [
   { id: 'application_001', applicant: 'Yukino', type: 'whitelist', submitted_at: '2026-07-17T02:30:00Z', note: '希望参与周末建筑测试。', status: 'pending' },
@@ -132,10 +161,28 @@ export async function mockGet<T>(path: string): Promise<T> {
     return dashboard as T
   }
   if (path.endsWith('/admin/content')) return page(adminContent) as T
+  if (path.endsWith('/admin/knowledge/directories')) return page(adminKnowledgeDirectories) as T
   if (path.endsWith('/admin/users')) return page(adminUsers) as T
+  const invitationMatch = path.match(/\/api\/v1\/invitations\/([^/]+)$/)
+  if (invitationMatch) {
+    const invitation = adminInvitations.find((item) => item.invite_url.endsWith(invitationMatch[1]))
+    if (!invitation) throw new Error('邀请链接不存在或已失效。')
+    const { invite_url: _inviteUrl, ...preview } = invitation
+    return preview as Invitation as T
+  }
+  const projectMembersMatch = path.match(/\/admin\/projects\/([^/]+)\/members$/)
+  if (projectMembersMatch) return page(adminProjectMembers[projectMembersMatch[1]] ?? []) as T
+  const projectMilestonesMatch = path.match(/\/admin\/projects\/([^/]+)\/milestones$/)
+  if (projectMilestonesMatch) return page(adminProjectMilestones[projectMilestonesMatch[1]] ?? []) as T
   if (path.endsWith('/admin/projects')) return page(adminProjects) as T
   if (path.endsWith('/admin/applications')) return page(applications) as T
   if (path.endsWith('/admin/server/status')) return adminServer as T
+  const contentMatch = path.match(/\/organizations\/[^/]+\/content\/([^/]+)$/)
+  if (contentMatch) {
+    const detail = contentDetails[contentMatch[1]]
+    if (!detail) throw new Error('公开内容不存在或尚未发布。')
+    return detail as T
+  }
   if (/\/organizations\/[^/]+$/.test(path)) return organization as T
   if (path.endsWith('/posts')) return page(posts) as T
   if (path.endsWith('/projects')) return page(projects) as T
@@ -156,8 +203,11 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     return authPair(user) as T
   }
   if (path.endsWith('/auth/register')) {
-    const payload = body as { email: string; display_name: string }
-    const user: AuthUser = { id: `user_${Date.now()}`, email: payload.email, display_name: payload.display_name, organization_id: 'org_qutcraft', roles: ['member'] }
+    const payload = body as { email: string; display_name: string; invitation_token?: string }
+    const invitation = payload.invitation_token ? adminInvitations.find((item) => item.invite_url.endsWith(payload.invitation_token ?? '')) : undefined
+    if (payload.invitation_token && !invitation) throw new Error('邀请链接不存在或已失效。')
+    if (invitation) invitation.status = 'accepted'
+    const user: AuthUser = { id: `user_${Date.now()}`, email: payload.email, display_name: payload.display_name, organization_id: 'org_qutcraft', roles: [invitation?.role ?? 'member'] }
     saveMockUser(user)
     return authPair(user) as T
   }
@@ -171,6 +221,70 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     adminContent = [content, ...adminContent]
     return content as T
   }
+  if (path.endsWith('/admin/invitations')) {
+    const payload = body as { email: string; role: AdminInvitation['role']; expires_in_hours?: number }
+    const token = `mock-invite-${Date.now()}`
+    const invitation: AdminInvitation = {
+      id: `invitation_${Date.now()}`,
+      organization_id: 'org_qutcraft',
+      organization_name: organization.name,
+      email: payload.email,
+      role: payload.role,
+      status: 'pending',
+      expires_at: new Date(Date.now() + (payload.expires_in_hours ?? 168) * 3600 * 1000).toISOString(),
+      created_at: new Date().toISOString(),
+      invite_url: `/invite/${token}`,
+    }
+    adminInvitations = [invitation, ...adminInvitations]
+    return invitation as T
+  }
+  const invitationAcceptMatch = path.match(/\/api\/v1\/invitations\/([^/]+)\/accept$/)
+  if (invitationAcceptMatch) {
+    requireMockAdmin()
+    const invitation = adminInvitations.find((item) => item.invite_url.endsWith(invitationAcceptMatch[1]))
+    if (!invitation) throw new Error('邀请链接不存在或已失效。')
+    invitation.status = 'accepted'
+    return { ...invitation, membership_id: `membership_${Date.now()}` } as T
+  }
+  if (path.endsWith('/admin/assets')) {
+    return { id: `asset_${Date.now()}`, original_name: 'mock-upload.bin', mime_type: 'application/octet-stream', size_bytes: 0, download_url: '#' } as T
+  }
+  if (path.endsWith('/admin/knowledge/directories')) {
+    const payload = body as Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>
+    const directory: AdminKnowledgeDirectory = { id: `knowledge_directory_${Date.now()}`, ...payload, updated_at: new Date().toISOString() }
+    adminKnowledgeDirectories = [...adminKnowledgeDirectories, directory]
+    return directory as T
+  }
+  const projectMemberCreateMatch = path.match(/\/admin\/projects\/([^/]+)\/members$/)
+  if (projectMemberCreateMatch) {
+    const project = adminProjects.find((item) => item.id === projectMemberCreateMatch[1])
+    const payload = body as { user_id: string; role: AdminProjectMember['role'] }
+    const user = adminUsers.find((item) => item.id === payload.user_id && item.state === 'active')
+    if (!project || !user) throw new Error('只能添加当前组织中的活跃成员。')
+    const members = adminProjectMembers[project.id] ?? (adminProjectMembers[project.id] = [])
+    const existing = members.find((item) => item.user_id === user.id)
+    if (existing) {
+      if (existing.role === 'owner') throw new Error('项目负责人不能通过成员角色接口修改。')
+      existing.role = payload.role
+      return existing as T
+    }
+    const member: AdminProjectMember = { user_id: user.id, name: user.name, email: user.email, state: user.state, role: payload.role, assigned_at: new Date().toISOString() }
+    members.push(member)
+    project.member_count = members.length
+    return member as T
+  }
+  const projectMilestoneCreateMatch = path.match(/\/admin\/projects\/([^/]+)\/milestones$/)
+  if (projectMilestoneCreateMatch) {
+    const project = adminProjects.find((item) => item.id === projectMilestoneCreateMatch[1])
+    if (!project) throw new Error('项目不存在。')
+    const payload = body as { title: string; status: AdminProjectMilestone['status']; due_at?: string }
+    const now = new Date().toISOString()
+    const milestone: AdminProjectMilestone = { id: `milestone_${Date.now()}`, project_id: project.id, title: payload.title, status: payload.status, due_at: payload.due_at || null, completed_at: payload.status === 'completed' ? now : null, updated_at: now }
+    const milestones = adminProjectMilestones[project.id] ?? (adminProjectMilestones[project.id] = [])
+    milestones.push(milestone)
+    project.milestone_count = milestones.length
+    return milestone as T
+  }
   const contentDecision = path.match(/\/admin\/content\/([^/]+)\/(publish|archive)$/)
   if (contentDecision) {
     const content = adminContent.find((item) => item.id === contentDecision[1])
@@ -183,6 +297,10 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     const payload = body as Pick<AdminProject, 'title' | 'summary' | 'status' | 'tags' | 'is_public'>
     const project: AdminProject = { id: `project_${Date.now()}`, ...payload, owner: mockUser?.display_name ?? 'BBKarasu', updated_at: new Date().toISOString() }
     adminProjects = [project, ...adminProjects]
+    adminProjectMembers[project.id] = [{ user_id: 'user_bk', name: 'BBKarasu', email: 'gdd233@qq.com', state: 'active', role: 'owner', assigned_at: new Date().toISOString() }]
+    adminProjectMilestones[project.id] = []
+    project.member_count = 1
+    project.milestone_count = 0
     return project as T
   }
   const decision = path.match(/\/admin\/applications\/([^/]+)\/(approve|reject)$/)
@@ -210,12 +328,35 @@ export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
     Object.assign(user, body)
     return user as T
   }
+  const projectMemberMatch = path.match(/\/admin\/projects\/([^/]+)\/members\/([^/]+)$/)
+  if (projectMemberMatch) {
+    const member = (adminProjectMembers[projectMemberMatch[1]] ?? []).find((item) => item.user_id === projectMemberMatch[2])
+    if (!member) throw new Error('项目成员不存在。')
+    if (member.role === 'owner') throw new Error('项目负责人不能通过成员角色接口修改。')
+    Object.assign(member, body)
+    return member as T
+  }
+  const projectMilestoneMatch = path.match(/\/admin\/projects\/([^/]+)\/milestones\/([^/]+)$/)
+  if (projectMilestoneMatch) {
+    const milestone = (adminProjectMilestones[projectMilestoneMatch[1]] ?? []).find((item) => item.id === projectMilestoneMatch[2])
+    if (!milestone) throw new Error('里程碑不存在。')
+    const payload = body as Partial<Pick<AdminProjectMilestone, 'title' | 'status' | 'due_at'>>
+    Object.assign(milestone, payload, { due_at: payload.due_at || null, completed_at: payload.status === 'completed' ? new Date().toISOString() : null, updated_at: new Date().toISOString() })
+    return milestone as T
+  }
   const projectMatch = path.match(/\/admin\/projects\/([^/]+)$/)
   if (projectMatch) {
     const project = adminProjects.find((item) => item.id === projectMatch[1])
     if (!project) throw new Error('项目不存在。')
     Object.assign(project, body, { updated_at: new Date().toISOString() })
     return project as T
+  }
+  const directoryMatch = path.match(/\/admin\/knowledge\/directories\/([^/]+)$/)
+  if (directoryMatch) {
+    const directory = adminKnowledgeDirectories.find((item) => item.id === directoryMatch[1])
+    if (!directory) throw new Error('知识库目录不存在。')
+    Object.assign(directory, body, { updated_at: new Date().toISOString() })
+    return directory as T
   }
   const match = path.match(/\/admin\/content\/([^/]+)$/)
   if (!match) throw new Error(`Mock endpoint not implemented: ${path}`)
@@ -231,10 +372,23 @@ export async function mockDelete<T>(path: string): Promise<T> {
   requireMockAdmin()
   const memberMatch = path.match(/\/admin\/projects\/([^/]+)\/members\/([^/]+)$/)
   if (memberMatch) {
+    const members = adminProjectMembers[memberMatch[1]] ?? []
+    const memberIndex = members.findIndex((item) => item.user_id === memberMatch[2])
+    if (memberIndex < 0) throw new Error('项目成员不存在。')
+    if (members[memberIndex].role === 'owner') throw new Error('项目负责人不能移除。')
+    members.splice(memberIndex, 1)
+    const project = adminProjects.find((item) => item.id === memberMatch[1])
+    if (project) project.member_count = members.length
     return { removed: true } as T
   }
   const milestoneMatch = path.match(/\/admin\/projects\/([^/]+)\/milestones\/([^/]+)$/)
   if (milestoneMatch) {
+    const milestones = adminProjectMilestones[milestoneMatch[1]] ?? []
+    const milestoneIndex = milestones.findIndex((item) => item.id === milestoneMatch[2])
+    if (milestoneIndex < 0) throw new Error('里程碑不存在。')
+    milestones.splice(milestoneIndex, 1)
+    const project = adminProjects.find((item) => item.id === milestoneMatch[1])
+    if (project) project.milestone_count = milestones.length
     return { removed: true } as T
   }
   throw new Error(`Mock endpoint not implemented: ${path}`)

@@ -15,6 +15,16 @@
 
 后端启动后将同一份 OpenAPI 契约提供给 Swagger UI。开发期间可以用任意支持 OpenAPI 3.1 的 Swagger/Redoc 工具加载 `openapi.yaml` 预览。
 
+## 契约检查
+
+提交前运行以下脚本，检查 `apps/api/cmd/server/main.go` 的 Gin 路由与 OpenAPI 的方法、路径、`operationId` 及路径参数是否一致：
+
+```bash
+python scripts/check-openapi-routes.py
+```
+
+脚本依赖 PyYAML；如果本机尚未安装，执行 `python -m pip install pyyaml`。健康检查 `/healthz` 也纳入契约，以便 Compose 冒烟和文档检查使用同一套入口。
+
 ## API 边界
 
 - 所有路径以 `/api/v1/portal` 开头，且只返回已发布的公开数据。
@@ -24,4 +34,4 @@
 - Auth API 负责注册、登录、刷新令牌、退出和当前会话；刷新令牌在服务端只保存哈希，并在刷新时轮换。
 - Admin API 以 `/api/v1/admin` 开头，必须携带 Bearer JWT，并由服务端以组织成员身份和 RBAC 二次授权。
 - 草稿、成员隐私、审核、后台 Dashboard 和 RCON 命令只允许出现在 Admin API，绝不可从 Portal API 泄露。
-- 资源下载地址由服务端返回短时受控 URL，前端不得暴露或拼接对象存储凭据。
+- 资源下载地址由服务端返回受控 Portal 路径（未来可替换为短时签名 URL）；没有关联文件时返回 `null`，前端不得暴露或拼接对象存储凭据。

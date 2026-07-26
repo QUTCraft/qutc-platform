@@ -13,22 +13,27 @@ const submitting = ref(false)
 const formRef = ref<FormInstance>()
 const editingId = ref<string | null>(null)
 
-const form = reactive({ title: '', type: 'news' as 'news' | 'resource' | 'knowledge', category: '', excerpt: '', body: '' })
+const form = reactive<{ title: string; type: 'news' | 'resource' | 'knowledge'; category: string; excerpt: string; body: string; file: File | null }>({ title: '', type: 'news', category: '', excerpt: '', body: '', file: null })
 const rules: FormRules = { title: [{ required: true, message: '请填写内容标题', trigger: 'blur' }] }
 
-function resetForm() { editingId.value = null; Object.assign(form, { title: '', type: 'news', category: '', excerpt: '', body: '' }); dialogOpen.value = true }
-function editContent(item: AdminContent) { editingId.value = item.id; Object.assign(form, { title: item.title, type: item.type, category: item.category ?? '', excerpt: item.excerpt ?? '', body: item.body ?? '' }); dialogOpen.value = true }
+function resetForm() { editingId.value = null; Object.assign(form, { title: '', type: 'news', category: '', excerpt: '', body: '', file: null }); dialogOpen.value = true }
+function editContent(item: AdminContent) { editingId.value = item.id; Object.assign(form, { title: item.title, type: item.type, category: item.category ?? '', excerpt: item.excerpt ?? '', body: item.body ?? '', file: null }); dialogOpen.value = true }
+function selectFile(event: Event) { form.file = (event.target as HTMLInputElement).files?.[0] ?? null }
 async function changeStatus(id: string, action: 'publish' | 'archive') { try { if (action === 'publish') await adminApi.publishContent(id); else await adminApi.archiveContent(id); ElMessage.success(action === 'publish' ? '内容已发布到门户。' : '内容已下线。'); refresh() } catch (error) { ElMessage.error(error instanceof Error ? error.message : '操作失败。') } }
 
 async function submit() {
   if (!formRef.value || !(await formRef.value.validate().catch(() => false))) return
   submitting.value = true
   try {
-    if (editingId.value) { await adminApi.updateContent(editingId.value, form); ElMessage.success('内容草稿已保存。') }
-    else { await adminApi.createContent(form); ElMessage.success('已成功创建草稿！') }
+    const contentPayload = { title: form.title, type: form.type, category: form.category, excerpt: form.excerpt, body: form.body }
+    const saved = editingId.value ? await adminApi.updateContent(editingId.value, contentPayload) : await adminApi.createContent(contentPayload)
+    if (form.file) await adminApi.uploadAsset(form.file, saved.id)
+    ElMessage.success(editingId.value ? '内容草稿已保存。' : '已成功创建草稿！')
     dialogOpen.value = false
-    Object.assign(form, { title: '', type: 'news', category: '', excerpt: '', body: '' }); editingId.value = null
+    Object.assign(form, { title: '', type: 'news', category: '', excerpt: '', body: '', file: null }); editingId.value = null
     refresh()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '内容保存失败。')
   } finally {
     submitting.value = false
   }
@@ -90,6 +95,10 @@ async function submit() {
           <el-form-item label="分类 / 目录"><el-input v-model="form.category" maxlength="64" placeholder="例如：公告、项目协作、开发规范" /></el-form-item>
           <el-form-item label="门户摘要"><el-input v-model="form.excerpt" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="发布后显示在门户卡片中" /></el-form-item>
           <el-form-item label="正文"><el-input v-model="form.body" type="textarea" :rows="6" placeholder="开发阶段支持纯文本正文" /></el-form-item>
+          <el-form-item v-if="form.type === 'resource'" label="资源文件">
+            <input type="file" accept="image/png,image/jpeg,image/webp,application/pdf,application/zip,video/mp4" @change="selectFile" />
+            <small class="upload-help">单文件不超过 10 MB；保存内容后由服务端建立受控下载地址。</small>
+          </el-form-item>
         </el-form>
         <template #footer>
           <el-button @click="dialogOpen = false">取消</el-button>
