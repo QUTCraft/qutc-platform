@@ -143,7 +143,9 @@ copy .env.example .env
 docker compose up --build
 ```
 
-默认启动 MySQL、Redis、API 与 Web；如果使用仓库当前 `deploy/compose/.env`，Web/API 地址分别为 `http://localhost:8082` 和 `http://localhost:18080`。需要对象存储时使用：
+默认启动 MySQL、Redis、API 与 Web；如果使用仓库当前 `deploy/compose/.env`，Web/API 地址分别为 `http://localhost:8082` 和 `http://localhost:18080`。
+
+需要对象存储时使用：
 
 ```bash
 docker compose --profile storage up --build
