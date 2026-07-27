@@ -11,7 +11,9 @@
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
+    "dompurify": "^3.4.12",
     "element-plus": "^2.10.4",
+    "marked": "^18.0.7",
     "vue": "^3.5.17",
     "vue-router": "^4.5.1"
   },

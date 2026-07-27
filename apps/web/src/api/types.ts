@@ -74,7 +74,7 @@ export interface Resource {
 
 export interface MediaAsset {
   id: string
-  content_id?: string
+  content_id?: string | null
   original_name: string
   mime_type: string
   size_bytes: number
@@ -124,6 +124,7 @@ export interface AdminContent {
   title: string
   type: 'news' | 'resource' | 'knowledge'
   category?: string
+  knowledge_directory_id?: string | null
   status: 'draft' | 'published' | 'review' | 'archived'
   author: string
   excerpt?: string

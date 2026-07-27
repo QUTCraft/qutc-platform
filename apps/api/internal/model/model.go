@@ -101,18 +101,19 @@ type AuditEvent struct {
 }
 
 type Content struct {
-	ID             string     `gorm:"primaryKey;type:char(36)"`
-	OrganizationID string     `gorm:"index;type:char(36);not null"`
-	AuthorUserID   string     `gorm:"index;type:char(36);not null"`
-	Title          string     `gorm:"size:160;not null"`
-	Type           string     `gorm:"size:24;not null"`
-	Category       string     `gorm:"size:64;not null;default:''"`
-	Status         string     `gorm:"index;size:24;not null;default:draft"`
-	Excerpt        string     `gorm:"size:500"`
-	Body           string     `gorm:"type:longtext"`
-	PublishedAt    *time.Time `gorm:"index"`
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID                   string     `gorm:"primaryKey;type:char(36)"`
+	OrganizationID       string     `gorm:"index;type:char(36);not null"`
+	AuthorUserID         string     `gorm:"index;type:char(36);not null"`
+	Title                string     `gorm:"size:160;not null"`
+	Type                 string     `gorm:"size:24;not null"`
+	Category             string     `gorm:"size:64;not null;default:''"`
+	KnowledgeDirectoryID *string    `gorm:"index;type:char(36)"`
+	Status               string     `gorm:"index;size:24;not null;default:draft"`
+	Excerpt              string     `gorm:"size:500"`
+	Body                 string     `gorm:"type:longtext"`
+	PublishedAt          *time.Time `gorm:"index"`
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 type KnowledgeDirectory struct {

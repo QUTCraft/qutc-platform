@@ -67,7 +67,7 @@ paths:
       tags: [Portal]
       operationId: getPortalContentDetail
       summary: 获取一篇已发布内容的完整正文
-      description: 只返回当前组织中已发布的公开内容；草稿、下线内容和管理字段不会被公开。
+      description: 只返回当前组织中已发布的公开内容；草稿、下线内容和管理字段不会被公开。body 使用标准 Markdown，正文内由 CMS 上传的媒体会通过组织门户地址加载。
       parameters:
         - $ref: '#/components/parameters/OrganizationSlug'
         - name: content_id
@@ -620,8 +620,8 @@ paths:
               type: object
               required: [file]
               properties:
-                file: { type: string, format: binary }
-                content_id: { type: string }
+                file: { type: string, format: binary, description: '仅允许 PNG、JPEG、WebP、PDF、ZIP、MP4；单文件不超过 10 MiB。' }
+                content_id: { type: string, minLength: 1, maxLength: 64, description: '可选；存在时关联同组织的 news、resource 或 knowledge 内容。内容发布后，引用的图片与附件可通过门户地址公开读取。' }
       responses:
         '201':
           description: 资产已保存
@@ -651,7 +651,7 @@ paths:
     get:
       tags: [Portal]
       operationId: downloadPortalAsset
-      summary: 下载已公开媒体资源
+      summary: 获取已公开媒体资源
       parameters:
         - $ref: '#/components/parameters/OrganizationSlug'
         - name: asset_id
@@ -659,7 +659,7 @@ paths:
           required: true
           schema: { type: string, minLength: 1, maxLength: 64 }
       responses:
-        '200': { description: 文件流 }
+        '200': { description: 文件流；图片媒体以内联方式返回，其余类型作为附件下载 }
         '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/admin/users:
     get:
@@ -1207,7 +1207,7 @@ components:
         type: { $ref: '#/components/schemas/PortalContentType' }
         category: { type: string, maxLength: 64 }
         excerpt: { type: string, maxLength: 500 }
-        body: { type: string }
+        body: { type: string, description: '标准 Markdown 正文；正文中的 CMS 媒体会以 /api/v1/portal/organizations/{organization_slug}/assets/{asset_id}/download 公开地址返回。' }
         published_at: { type: [string, 'null'], format: date-time }
         updated_at: { type: string, format: date-time }
         reading_minutes: { type: integer, minimum: 1 }
@@ -1359,6 +1359,7 @@ components:
         title: { type: string, maxLength: 160 }
         type: { $ref: '#/components/schemas/AdminContentType' }
         category: { type: [string, 'null'], maxLength: 64 }
+        knowledge_directory_id: { type: [string, 'null'], maxLength: 64, description: '知识库文章所属目录；type=knowledge 时必填，且必须属于当前组织。' }
         status: { $ref: '#/components/schemas/AdminContentStatus' }
         author: { type: string, maxLength: 80 }
         excerpt: { type: [string, 'null'], maxLength: 500 }
@@ -1372,8 +1373,9 @@ components:
         title: { type: string, minLength: 1, maxLength: 160 }
         type: { $ref: '#/components/schemas/AdminContentType' }
         category: { type: string, maxLength: 64 }
+        knowledge_directory_id: { type: [string, 'null'], maxLength: 64, description: '仅 knowledge 类型使用；必须关联当前组织中的知识库目录。' }
         excerpt: { type: string, maxLength: 500 }
-        body: { type: string }
+        body: { type: string, description: '标准 Markdown 正文；正文中的 CMS 媒体可使用 /api/v1/admin/assets/{asset_id}/download 链接。' }
     UpdateAdminContentRequest:
       type: object
       required: [title, type]
@@ -1381,8 +1383,9 @@ components:
         title: { type: string, minLength: 1, maxLength: 160 }
         type: { $ref: '#/components/schemas/AdminContentType' }
         category: { type: string, maxLength: 64 }
+        knowledge_directory_id: { type: [string, 'null'], maxLength: 64, description: '仅 knowledge 类型使用；必须关联当前组织中的知识库目录。' }
         excerpt: { type: string, maxLength: 500 }
-        body: { type: string }
+        body: { type: string, description: '标准 Markdown 正文；发布后门户客户端会将 CMS 媒体链接转换为公开媒体地址。' }
     MediaAsset:
       type: object
       required: [id, original_name, mime_type, size_bytes, download_url]
@@ -1641,9 +1644,9 @@ components:
       required: [name, slug, description, parent_id, sort_order, is_public]
       properties:
         name: { type: string, minLength: 1, maxLength: 120 }
-        slug: { type: string, minLength: 1, maxLength: 120 }
+        slug: { type: string, minLength: 1, maxLength: 120, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' }
         description: { type: string, maxLength: 500 }
-        parent_id: { type: string, maxLength: 64 }
+        parent_id: { type: string, maxLength: 64, description: '可选父目录 ID；必须属于当前组织，且不能形成循环。' }
         sort_order: { type: integer, minimum: 0 }
         is_public: { type: boolean }
     AdminKnowledgeDirectory:

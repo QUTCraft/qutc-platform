@@ -214,10 +214,12 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
   if (path.endsWith('/auth/refresh')) { if (!mockUser) throw new Error('刷新令牌已失效。'); return authPair(mockUser) as T }
   if (path.endsWith('/auth/logout')) { saveMockUser(null); return { revoked: true } as T }
   if (path.endsWith('/apply')) return { id: `application_${Date.now()}`, status: 'pending', submitted_at: new Date().toISOString() } as T
-  if (path.includes('/admin/')) requireMockAdmin()
-  if (path.endsWith('/admin/content')) {
-    const payload = body as Pick<AdminContent, 'title' | 'type'>
-    const content: AdminContent = { id: `content_${Date.now()}`, title: payload.title, type: payload.type, status: 'draft', author: mockUser?.display_name ?? 'BBKarasu', updated_at: new Date().toISOString() }
+	if (path.includes('/admin/')) requireMockAdmin()
+	if (path.endsWith('/admin/content')) {
+		const payload = body as Pick<AdminContent, 'title' | 'type' | 'category' | 'knowledge_directory_id' | 'excerpt' | 'body'>
+		if (payload.type === 'knowledge' && !payload.knowledge_directory_id) throw new Error('知识库文章必须关联目录。')
+		if (payload.knowledge_directory_id && !adminKnowledgeDirectories.some((directory) => directory.id === payload.knowledge_directory_id)) throw new Error('知识库目录不存在。')
+		const content: AdminContent = { id: `content_${Date.now()}`, title: payload.title, type: payload.type, category: payload.category, knowledge_directory_id: payload.knowledge_directory_id ?? null, excerpt: payload.excerpt, body: payload.body, status: 'draft', author: mockUser?.display_name ?? 'BBKarasu', updated_at: new Date().toISOString() }
     adminContent = [content, ...adminContent]
     return content as T
   }
@@ -362,7 +364,9 @@ export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
   if (!match) throw new Error(`Mock endpoint not implemented: ${path}`)
   const item = adminContent.find((content) => content.id === match[1])
   if (!item) throw new Error('内容不存在。')
-  const payload = body as Pick<AdminContent, 'title' | 'type' | 'category' | 'excerpt' | 'body'>
+	const payload = body as Pick<AdminContent, 'title' | 'type' | 'category' | 'knowledge_directory_id' | 'excerpt' | 'body'>
+	if (payload.type === 'knowledge' && !payload.knowledge_directory_id) throw new Error('知识库文章必须关联目录。')
+	if (payload.knowledge_directory_id && !adminKnowledgeDirectories.some((directory) => directory.id === payload.knowledge_directory_id)) throw new Error('知识库目录不存在。')
   Object.assign(item, payload, { updated_at: new Date().toISOString() })
   return item as T
 }

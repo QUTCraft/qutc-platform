@@ -1,6 +1,31 @@
 package handler
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+	"time"
+
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/model"
+)
+
+func TestDetectAssetTypeUsesFileSignature(t *testing.T) {
+	png, err := detectAssetType(bytes.NewReader([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}))
+	if err != nil || png != "image/png" {
+		t.Fatalf("detectAssetType(png) = %q, %v", png, err)
+	}
+
+	spoofed, err := detectAssetType(bytes.NewReader([]byte("not an image")))
+	if err != nil || allowedAssetType(spoofed) {
+		t.Fatalf("expected spoofed content to be rejected, got %q, %v", spoofed, err)
+	}
+}
+
+func TestAssetResponseUsesNullForUnlinkedAsset(t *testing.T) {
+	response := assetResponse(model.MediaAsset{ID: "asset-1", OriginalName: "guide.pdf", MimeType: "application/pdf", SizeBytes: 12})
+	if response["content_id"] != nil {
+		t.Fatalf("unlinked asset content_id = %#v, want nil", response["content_id"])
+	}
+}
 
 func validApplicationFixture() applicationRequest {
 	return applicationRequest{
@@ -69,6 +94,61 @@ func TestContentStatusTransitions(t *testing.T) {
 				t.Fatalf("canTransitionContentStatus(%q, %q) = %v, want %v", test.current, test.target, got, test.valid)
 			}
 		})
+	}
+}
+
+func TestKnowledgeDirectoryRequestRequiresSafeSlug(t *testing.T) {
+	valid := knowledgeDirectoryRequest{Name: "技术规范", Slug: "technology", Description: "接口规范", ParentID: "", SortOrder: 10, IsPublic: true}
+	if !validKnowledgeDirectoryRequest(valid) {
+		t.Fatal("expected a lowercase hyphenated slug to be valid")
+	}
+	for _, slug := range []string{"Technology", "tech_spec", "技术规范", "-technology", "technology-"} {
+		value := valid
+		value.Slug = slug
+		if validKnowledgeDirectoryRequest(value) {
+			t.Fatalf("slug %q should be rejected", slug)
+		}
+	}
+}
+
+func TestContentPublicItemsExcludeInternalFields(t *testing.T) {
+	publishedAt := time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC)
+	content := model.Content{
+		ID:             "content-public-1",
+		OrganizationID: "org-private",
+		AuthorUserID:   "author-private",
+		Title:          "公开动态",
+		Type:           "news",
+		Category:       "公告",
+		Status:         "published",
+		Excerpt:        "公开摘要",
+		Body:           "公开正文",
+		PublishedAt:    &publishedAt,
+	}
+
+	listItem := contentPublicItem(content)
+	detailItem := (&WorkspaceHandler{}).contentPublicDetailItem("qutcraft", content)
+	for name, item := range map[string]map[string]interface{}{"list": listItem, "detail": detailItem} {
+		for _, privateField := range []string{"organization_id", "author_user_id", "status"} {
+			if _, exists := item[privateField]; exists {
+				t.Fatalf("%s response leaked private field %q", name, privateField)
+			}
+		}
+	}
+	if _, exists := listItem["body"]; exists {
+		t.Fatal("list response must not include full body")
+	}
+	if detailItem["body"] != "公开正文" {
+		t.Fatal("detail response should include the published body")
+	}
+}
+
+func TestContentPublicDetailRewritesAdminAssetURLs(t *testing.T) {
+	content := model.Content{ID: "content-public-markdown", Type: "news", Body: "![封面](/api/v1/admin/assets/asset-1/download)"}
+	item := (&WorkspaceHandler{}).contentPublicDetailItem("qutcraft", content)
+	want := "![封面](/api/v1/portal/organizations/qutcraft/assets/asset-1/download)"
+	if item["body"] != want {
+		t.Fatalf("public body = %v, want %q", item["body"], want)
 	}
 }
 

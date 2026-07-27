@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/mail"
 	"regexp"
@@ -25,6 +26,16 @@ type WorkspaceHandler struct {
 	cache          *cache.Cache
 	cacheNamespace string
 }
+
+var (
+	errContentDirectoryTypeInvalid = errors.New("knowledge directory can only be used by knowledge content")
+	errContentDirectoryRequired    = errors.New("knowledge content requires a directory")
+	errContentDirectoryNotFound    = errors.New("knowledge directory does not belong to the organization")
+	errKnowledgeParentInvalid      = errors.New("knowledge directory parent is invalid")
+	errKnowledgeParentCycle        = errors.New("knowledge directory parent creates a cycle")
+)
+
+var markdownAdminAssetPattern = regexp.MustCompile(`/api/v1/admin/assets/([a-zA-Z0-9-]+)/download`)
 
 func NewWorkspaceHandler(db *gorm.DB, publicCache *cache.Cache, environment string) *WorkspaceHandler {
 	if strings.TrimSpace(environment) == "" {
@@ -146,7 +157,7 @@ func (h *WorkspaceHandler) PortalContentDetail(c *gin.Context) {
 	contentID := c.Param("id")
 	h.cachedPortalItem(c, c.Param("slug"), "content:"+contentID, func() (gin.H, error) {
 		var content model.Content
-		if err := h.db.Where("id = ? AND organization_id = ? AND status = ?", contentID, organization.ID, "published").First(&content).Error; err != nil {
+		if err := h.db.Where("id = ? AND organization_id = ? AND status = ?", contentID, organization.ID, service.ContentStatusPublished).Where("(type <> ? OR knowledge_directory_id IS NULL OR knowledge_directory_id = '' OR EXISTS (SELECT 1 FROM knowledge_directories AS directory WHERE directory.id = contents.knowledge_directory_id AND directory.organization_id = contents.organization_id AND directory.is_public = ?))", service.ContentTypeKnowledge, true).First(&content).Error; err != nil {
 			return nil, gorm.ErrRecordNotFound
 		}
 		return h.contentPublicDetailItem(c.Param("slug"), content), nil
@@ -260,21 +271,27 @@ func (h *WorkspaceHandler) PortalKnowledge(c *gin.Context) {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
-	query := h.db.Where("organization_id = ? AND type = ? AND status = ?", organization.ID, "knowledge", "published").Order("updated_at DESC")
+	query := h.db.Table("contents AS content").Select("content.*").Joins("LEFT JOIN knowledge_directories AS directory ON directory.id = content.knowledge_directory_id AND directory.organization_id = content.organization_id").Where("content.organization_id = ? AND content.type = ? AND content.status = ?", organization.ID, service.ContentTypeKnowledge, service.ContentStatusPublished).Where("(content.knowledge_directory_id IS NULL OR content.knowledge_directory_id = '' OR directory.is_public = ?)", true).Order("content.updated_at DESC")
 	if category != "" {
-		query = query.Where("category = ? OR title LIKE ? OR excerpt LIKE ?", category, "%"+category+"%", "%"+category+"%")
+		query = query.Where("(content.category = ? OR directory.name = ? OR directory.slug = ? OR content.title LIKE ? OR content.excerpt LIKE ?)", category, category, category, "%"+category+"%", "%"+category+"%")
 	}
 	if q != "" {
-		query = query.Where("title LIKE ? OR excerpt LIKE ? OR body LIKE ?", "%"+q+"%", "%"+q+"%", "%"+q+"%")
+		query = query.Where("(content.title LIKE ? OR content.excerpt LIKE ? OR content.body LIKE ?)", "%"+q+"%", "%"+q+"%", "%"+q+"%")
 	}
 	h.cachedPortalPage(c, c.Param("slug"), "knowledge", func() ([]gin.H, error) {
 		var contents []model.Content
 		if err := query.Find(&contents).Error; err != nil {
 			return nil, err
 		}
+		directoryNames := h.knowledgeDirectoryNames(organization.ID, contents)
 		items := make([]gin.H, 0, len(contents))
 		for _, content := range contents {
 			categoryName := content.Category
+			if content.KnowledgeDirectoryID != nil {
+				if name := directoryNames[*content.KnowledgeDirectoryID]; name != "" {
+					categoryName = name
+				}
+			}
 			if categoryName == "" {
 				categoryName = "知识库"
 			}
@@ -298,11 +315,38 @@ func (h *WorkspaceHandler) PortalKnowledgeDirectories(c *gin.Context) {
 		items := make([]gin.H, 0, len(directories))
 		for _, directory := range directories {
 			var articleCount int64
-			h.db.Model(&model.Content{}).Where("organization_id = ? AND type = ? AND status = ? AND category = ?", organization.ID, "knowledge", "published", directory.Name).Count(&articleCount)
+			h.db.Model(&model.Content{}).Where("organization_id = ? AND type = ? AND status = ? AND (knowledge_directory_id = ? OR ((knowledge_directory_id IS NULL OR knowledge_directory_id = '') AND category = ?))", organization.ID, service.ContentTypeKnowledge, service.ContentStatusPublished, directory.ID, directory.Name).Count(&articleCount)
 			items = append(items, gin.H{"id": directory.ID, "name": directory.Name, "slug": directory.Slug, "description": directory.Description, "article_count": articleCount, "updated_at": directory.UpdatedAt})
 		}
 		return items, nil
 	})
+}
+
+func (h *WorkspaceHandler) knowledgeDirectoryNames(organizationID string, contents []model.Content) map[string]string {
+	ids := make([]string, 0, len(contents))
+	seen := make(map[string]struct{})
+	for _, content := range contents {
+		if content.KnowledgeDirectoryID == nil || *content.KnowledgeDirectoryID == "" {
+			continue
+		}
+		if _, exists := seen[*content.KnowledgeDirectoryID]; exists {
+			continue
+		}
+		seen[*content.KnowledgeDirectoryID] = struct{}{}
+		ids = append(ids, *content.KnowledgeDirectoryID)
+	}
+	if len(ids) == 0 {
+		return map[string]string{}
+	}
+	var directories []model.KnowledgeDirectory
+	if h.db.Where("organization_id = ? AND is_public = ? AND id IN ?", organizationID, true, ids).Find(&directories).Error != nil {
+		return map[string]string{}
+	}
+	names := make(map[string]string, len(directories))
+	for _, directory := range directories {
+		names[directory.ID] = directory.Name
+	}
+	return names
 }
 func (h *WorkspaceHandler) PortalServer(c *gin.Context) {
 	respond(c, http.StatusOK, gin.H{"enabled": true, "label": "QUTCraft Java 生存服", "state": "online", "version": "Java 1.21.x", "online_players": 18, "max_players": 60, "updated_at": time.Now().UTC(), "apply_url": "#join"})
@@ -388,8 +432,46 @@ type knowledgeDirectoryRequest struct {
 	IsPublic    bool   `json:"is_public"`
 }
 
+var knowledgeDirectorySlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
 func validKnowledgeDirectoryRequest(body knowledgeDirectoryRequest) bool {
-	return strings.TrimSpace(body.Name) != "" && strings.TrimSpace(body.Slug) != "" && len([]rune(body.Name)) <= 120 && len([]rune(body.Slug)) <= 120 && len([]rune(body.Description)) <= 500 && body.SortOrder >= 0
+	return strings.TrimSpace(body.Name) != "" && knowledgeDirectorySlugPattern.MatchString(strings.TrimSpace(body.Slug)) && len([]rune(body.Name)) <= 120 && len([]rune(body.Slug)) <= 120 && len([]rune(body.Description)) <= 500 && len([]rune(body.ParentID)) <= 64 && body.SortOrder >= 0
+}
+
+func (h *WorkspaceHandler) validateKnowledgeDirectoryParent(organizationID, directoryID, parentID string) error {
+	parentID = strings.TrimSpace(parentID)
+	if parentID == "" {
+		return nil
+	}
+	if directoryID != "" && directoryID == parentID {
+		return errKnowledgeParentCycle
+	}
+	var parent model.KnowledgeDirectory
+	if err := h.db.Where("id = ? AND organization_id = ?", parentID, organizationID).First(&parent).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return errKnowledgeParentInvalid
+		}
+		return err
+	}
+	visited := map[string]bool{parent.ID: true}
+	for parent.ParentID != "" {
+		if directoryID != "" && parent.ParentID == directoryID {
+			return errKnowledgeParentCycle
+		}
+		if visited[parent.ParentID] {
+			return errKnowledgeParentCycle
+		}
+		visited[parent.ParentID] = true
+		var ancestor model.KnowledgeDirectory
+		if err := h.db.Where("id = ? AND organization_id = ?", parent.ParentID, organizationID).First(&ancestor).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return errKnowledgeParentInvalid
+			}
+			return err
+		}
+		parent = ancestor
+	}
+	return nil
 }
 
 func (h *WorkspaceHandler) AdminCreateKnowledgeDirectory(c *gin.Context) {
@@ -403,7 +485,16 @@ func (h *WorkspaceHandler) AdminCreateKnowledgeDirectory(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "knowledge_directory.validation_failed", "知识库目录字段不符合规范。")
 		return
 	}
-	directory := model.KnowledgeDirectory{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ParentID: strings.TrimSpace(body.ParentID), Name: strings.TrimSpace(body.Name), Slug: strings.TrimSpace(body.Slug), Description: strings.TrimSpace(body.Description), SortOrder: body.SortOrder, IsPublic: body.IsPublic}
+	directoryID := uuid.NewString()
+	if err := h.validateKnowledgeDirectoryParent(principal.OrganizationID, directoryID, body.ParentID); err != nil {
+		if errors.Is(err, errKnowledgeParentInvalid) || errors.Is(err, errKnowledgeParentCycle) {
+			fail(c, http.StatusBadRequest, "knowledge_directory.parent_invalid", "父目录不存在或会造成目录循环。")
+		} else {
+			fail(c, http.StatusInternalServerError, "knowledge_directory.validation_failed", "知识库目录关系校验失败。")
+		}
+		return
+	}
+	directory := model.KnowledgeDirectory{ID: directoryID, OrganizationID: principal.OrganizationID, ParentID: strings.TrimSpace(body.ParentID), Name: strings.TrimSpace(body.Name), Slug: strings.TrimSpace(body.Slug), Description: strings.TrimSpace(body.Description), SortOrder: body.SortOrder, IsPublic: body.IsPublic}
 	if err := h.db.Create(&directory).Error; err != nil {
 		fail(c, http.StatusConflict, "knowledge_directory.slug_in_use", "知识库目录标识已存在。")
 		return
@@ -428,6 +519,14 @@ func (h *WorkspaceHandler) AdminUpdateKnowledgeDirectory(c *gin.Context) {
 		fail(c, http.StatusNotFound, "knowledge_directory.not_found", "知识库目录不存在。")
 		return
 	}
+	if err := h.validateKnowledgeDirectoryParent(principal.OrganizationID, directory.ID, body.ParentID); err != nil {
+		if errors.Is(err, errKnowledgeParentInvalid) || errors.Is(err, errKnowledgeParentCycle) {
+			fail(c, http.StatusBadRequest, "knowledge_directory.parent_invalid", "父目录不存在或会造成目录循环。")
+		} else {
+			fail(c, http.StatusInternalServerError, "knowledge_directory.validation_failed", "知识库目录关系校验失败。")
+		}
+		return
+	}
 	directory.ParentID, directory.Name, directory.Slug, directory.Description, directory.SortOrder, directory.IsPublic = strings.TrimSpace(body.ParentID), strings.TrimSpace(body.Name), strings.TrimSpace(body.Slug), strings.TrimSpace(body.Description), body.SortOrder, body.IsPublic
 	if err := h.db.Save(&directory).Error; err != nil {
 		fail(c, http.StatusConflict, "knowledge_directory.slug_in_use", "知识库目录标识已存在。")
@@ -441,24 +540,60 @@ func knowledgeDirectoryItem(directory model.KnowledgeDirectory) gin.H {
 	return gin.H{"id": directory.ID, "parent_id": directory.ParentID, "name": directory.Name, "slug": directory.Slug, "description": directory.Description, "sort_order": directory.SortOrder, "is_public": directory.IsPublic, "updated_at": directory.UpdatedAt}
 }
 
-func (h *WorkspaceHandler) AdminCreateContent(c *gin.Context) {
-	var body struct {
-		Title    string `json:"title"`
-		Type     string `json:"type"`
-		Category string `json:"category"`
-		Excerpt  string `json:"excerpt"`
-		Body     string `json:"body"`
+func (h *WorkspaceHandler) resolveContentDirectory(organizationID, contentType, directoryID string) (*string, error) {
+	directoryID = strings.TrimSpace(directoryID)
+	if directoryID == "" {
+		if contentType == service.ContentTypeKnowledge {
+			return nil, errContentDirectoryRequired
+		}
+		return nil, nil
 	}
-	if err := c.ShouldBindJSON(&body); err != nil || body.Title == "" {
+	if contentType != service.ContentTypeKnowledge {
+		return nil, errContentDirectoryTypeInvalid
+	}
+	var directory model.KnowledgeDirectory
+	if err := h.db.Where("id = ? AND organization_id = ?", directoryID, organizationID).First(&directory).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, errContentDirectoryNotFound
+		}
+		return nil, err
+	}
+	return &directory.ID, nil
+}
+
+func (h *WorkspaceHandler) respondContentDirectoryError(c *gin.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, errContentDirectoryTypeInvalid) || errors.Is(err, errContentDirectoryRequired) || errors.Is(err, errContentDirectoryNotFound) {
+		message := "知识库文章必须关联当前组织中存在的知识库目录。"
+		if errors.Is(err, errContentDirectoryTypeInvalid) {
+			message = "只有 knowledge 类型内容可以关联知识库目录。"
+		}
+		fail(c, http.StatusBadRequest, "content.knowledge_directory_invalid", message)
+		return true
+	}
+	fail(c, http.StatusInternalServerError, "content.knowledge_directory_check_failed", "知识库目录关联校验失败。")
+	return true
+}
+
+func (h *WorkspaceHandler) AdminCreateContent(c *gin.Context) {
+	var body service.ContentInput
+	if err := c.ShouldBindJSON(&body); err != nil {
 		fail(c, http.StatusBadRequest, "content.validation_failed", "内容标题不能为空。")
 		return
 	}
-	if len([]rune(body.Title)) > 160 || len([]rune(body.Category)) > 64 || len([]rune(body.Excerpt)) > 500 || (body.Type != "news" && body.Type != "resource" && body.Type != "knowledge") {
-		fail(c, http.StatusBadRequest, "content.validation_failed", "title 最长 160 字符，type 必须为 news、resource 或 knowledge。")
+	normalized, err := service.NormalizeContentInput(body)
+	if err != nil {
+		fail(c, http.StatusBadRequest, "content.validation_failed", "内容字段不符合规范。")
 		return
 	}
 	principal, _ := middleware.PrincipalFromContext(c)
-	content := model.Content{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, AuthorUserID: principal.UserID, Title: body.Title, Type: body.Type, Category: strings.TrimSpace(body.Category), Status: "draft", Excerpt: body.Excerpt, Body: body.Body}
+	directoryID, directoryErr := h.resolveContentDirectory(principal.OrganizationID, normalized.Type, normalized.KnowledgeDirectoryID)
+	if h.respondContentDirectoryError(c, directoryErr) {
+		return
+	}
+	content := model.Content{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, AuthorUserID: principal.UserID, Title: normalized.Title, Type: normalized.Type, Category: normalized.Category, KnowledgeDirectoryID: directoryID, Status: service.ContentStatusDraft, Excerpt: normalized.Excerpt, Body: normalized.Body}
 	if err := h.db.Create(&content).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "content.create_failed", "内容草稿创建失败。")
 		return
@@ -468,18 +603,13 @@ func (h *WorkspaceHandler) AdminCreateContent(c *gin.Context) {
 }
 
 func (h *WorkspaceHandler) AdminUpdateContent(c *gin.Context) {
-	var body struct {
-		Title    string `json:"title"`
-		Type     string `json:"type"`
-		Category string `json:"category"`
-		Excerpt  string `json:"excerpt"`
-		Body     string `json:"body"`
-	}
+	var body service.ContentInput
 	if err := c.ShouldBindJSON(&body); err != nil {
 		fail(c, http.StatusBadRequest, "content.validation_failed", "内容格式不正确。")
 		return
 	}
-	if strings.TrimSpace(body.Title) == "" || len([]rune(body.Title)) > 160 || len([]rune(body.Category)) > 64 || len([]rune(body.Excerpt)) > 500 || (body.Type != "news" && body.Type != "resource" && body.Type != "knowledge") {
+	normalized, err := service.NormalizeContentInput(body)
+	if err != nil {
 		fail(c, http.StatusBadRequest, "content.validation_failed", "内容字段不符合规范。")
 		return
 	}
@@ -493,8 +623,17 @@ func (h *WorkspaceHandler) AdminUpdateContent(c *gin.Context) {
 		fail(c, http.StatusConflict, "content.published_immutable", "已发布内容不能直接编辑，请先下线。")
 		return
 	}
-	content.Title, content.Type, content.Category, content.Excerpt, content.Body = strings.TrimSpace(body.Title), body.Type, strings.TrimSpace(body.Category), body.Excerpt, body.Body
-	if err := h.db.Save(&content).Error; err != nil {
+	directoryID, directoryErr := h.resolveContentDirectory(principal.OrganizationID, normalized.Type, normalized.KnowledgeDirectoryID)
+	if h.respondContentDirectoryError(c, directoryErr) {
+		return
+	}
+	content.Title, content.Type, content.Category, content.KnowledgeDirectoryID, content.Excerpt, content.Body = normalized.Title, normalized.Type, normalized.Category, directoryID, normalized.Excerpt, normalized.Body
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&content).Error; err != nil {
+			return err
+		}
+		return bindMarkdownAssets(tx, principal.OrganizationID, content.ID, content.Body)
+	}); err != nil {
 		fail(c, http.StatusInternalServerError, "content.update_failed", "内容保存失败。")
 		return
 	}
@@ -511,7 +650,7 @@ func (h *WorkspaceHandler) changeContentStatus(c *gin.Context, status string) {
 		fail(c, http.StatusNotFound, "content.not_found", "内容不存在。")
 		return
 	}
-	if status == "published" && strings.TrimSpace(content.Title) == "" {
+	if status == service.ContentStatusPublished && strings.TrimSpace(content.Title) == "" {
 		fail(c, http.StatusBadRequest, "content.not_publishable", "内容标题不能为空。")
 		return
 	}
@@ -519,18 +658,25 @@ func (h *WorkspaceHandler) changeContentStatus(c *gin.Context, status string) {
 		fail(c, http.StatusConflict, "content.already_in_state", "内容已经处于目标状态。")
 		return
 	}
-	if !canTransitionContentStatus(content.Status, status) {
+	if !service.CanTransitionContentStatus(content.Status, status) {
 		fail(c, http.StatusConflict, "content.invalid_transition", "内容不能从当前状态转换到目标状态。")
 		return
 	}
 	content.Status = status
-	if status == "published" {
+	if status == service.ContentStatusPublished {
 		now := time.Now().UTC()
 		content.PublishedAt = &now
 	} else {
 		content.PublishedAt = nil
 	}
-	if err := h.db.Save(&content).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if status == service.ContentStatusPublished {
+			if err := bindMarkdownAssets(tx, principal.OrganizationID, content.ID, content.Body); err != nil {
+				return err
+			}
+		}
+		return tx.Save(&content).Error
+	}); err != nil {
 		fail(c, http.StatusInternalServerError, "content.status_update_failed", "内容状态更新失败。")
 		return
 	}
@@ -539,15 +685,48 @@ func (h *WorkspaceHandler) changeContentStatus(c *gin.Context, status string) {
 	respond(c, http.StatusOK, contentAdminItem(content, h.db))
 }
 
-func canTransitionContentStatus(current, target string) bool {
-	switch target {
-	case "published":
-		return current == "draft" || current == "review" || current == "archived"
-	case "archived":
-		return current == "published"
-	default:
-		return false
+func bindMarkdownAssets(db *gorm.DB, organizationID, contentID, body string) error {
+	matches := markdownAdminAssetPattern.FindAllStringSubmatch(body, -1)
+	if len(matches) == 0 {
+		return nil
 	}
+
+	assetIDs := make([]string, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		if _, exists := seen[match[1]]; exists {
+			continue
+		}
+		seen[match[1]] = struct{}{}
+		assetIDs = append(assetIDs, match[1])
+	}
+	if len(assetIDs) == 0 {
+		return nil
+	}
+
+	var assets []model.MediaAsset
+	if err := db.Where("organization_id = ? AND id IN ?", organizationID, assetIDs).Find(&assets).Error; err != nil {
+		return err
+	}
+	for _, asset := range assets {
+		if asset.ContentID != "" && asset.ContentID != contentID {
+			continue
+		}
+		if asset.ContentID == contentID {
+			continue
+		}
+		if err := db.Model(&model.MediaAsset{}).Where("id = ? AND organization_id = ?", asset.ID, organizationID).Update("content_id", contentID).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func canTransitionContentStatus(current, target string) bool {
+	return service.CanTransitionContentStatus(current, target)
 }
 
 func contentPublicItem(content model.Content) gin.H {
@@ -563,13 +742,20 @@ func contentPublicItem(content model.Content) gin.H {
 }
 
 func (h *WorkspaceHandler) contentPublicDetailItem(slug string, content model.Content) gin.H {
+	category := content.Category
+	if content.Type == service.ContentTypeKnowledge && content.KnowledgeDirectoryID != nil {
+		var directory model.KnowledgeDirectory
+		if h.db != nil && h.db.Where("id = ? AND organization_id = ? AND is_public = ?", *content.KnowledgeDirectoryID, content.OrganizationID, true).First(&directory).Error == nil {
+			category = directory.Name
+		}
+	}
 	item := gin.H{
 		"id":              content.ID,
 		"title":           content.Title,
 		"type":            content.Type,
-		"category":        content.Category,
+		"category":        category,
 		"excerpt":         content.Excerpt,
-		"body":            content.Body,
+		"body":            publicContentBody(slug, content.Body),
 		"published_at":    content.PublishedAt,
 		"updated_at":      content.UpdatedAt,
 		"reading_minutes": maxInt(1, len([]rune(content.Body))/900+1),
@@ -585,6 +771,11 @@ func (h *WorkspaceHandler) contentPublicDetailItem(slug string, content model.Co
 		}
 	}
 	return item
+}
+
+func publicContentBody(slug, body string) string {
+	publicPrefix := "/api/v1/portal/organizations/" + slug + "/assets/"
+	return markdownAdminAssetPattern.ReplaceAllString(body, publicPrefix+"$1/download")
 }
 
 func (h *WorkspaceHandler) resourcePublicItem(slug string, content model.Content) gin.H {
@@ -604,7 +795,11 @@ func (h *WorkspaceHandler) resourcePublicItem(slug string, content model.Content
 func contentAdminItem(content model.Content, db *gorm.DB) gin.H {
 	var author model.User
 	_ = db.First(&author, "id = ?", content.AuthorUserID).Error
-	return gin.H{"id": content.ID, "title": content.Title, "type": content.Type, "category": content.Category, "status": content.Status, "author": author.DisplayName, "excerpt": content.Excerpt, "body": content.Body, "published_at": content.PublishedAt, "updated_at": content.UpdatedAt}
+	var directoryID interface{} = nil
+	if content.KnowledgeDirectoryID != nil && *content.KnowledgeDirectoryID != "" {
+		directoryID = *content.KnowledgeDirectoryID
+	}
+	return gin.H{"id": content.ID, "title": content.Title, "type": content.Type, "category": content.Category, "knowledge_directory_id": directoryID, "status": content.Status, "author": author.DisplayName, "excerpt": content.Excerpt, "body": content.Body, "published_at": content.PublishedAt, "updated_at": content.UpdatedAt}
 }
 
 func maxInt(a, b int) int {

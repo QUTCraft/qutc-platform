@@ -49,7 +49,7 @@ services:
       HTTP_ADDR: :8080
       REDIS_ADDR: redis:6379
       MYSQL_DSN: ${MYSQL_USER:-qutcraft}:${MYSQL_PASSWORD:-qutcraft}@tcp(mysql:3306)/${MYSQL_DATABASE:-qutcraft}?charset=utf8mb4&parseTime=True&loc=UTC
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8082,http://127.0.0.1:8082,http://localhost,http://127.0.0.1}
     ports:
       - "127.0.0.1:${API_PORT:-8080}:8080"
     volumes:
@@ -70,7 +70,7 @@ services:
         VITE_API_MODE: remote
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
     ports:
-      - "127.0.0.1:${WEB_PORT:-5173}:80"
+      - "127.0.0.1:${WEB_PORT:-8082}:80"
     depends_on:
       - api
 

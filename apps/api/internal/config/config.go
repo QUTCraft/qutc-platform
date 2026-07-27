@@ -39,7 +39,7 @@ func Load() Config {
 		RedisPassword:           os.Getenv("REDIS_PASSWORD"),
 		RedisDB:                 integer("REDIS_DB", 0),
 		PublicCacheTTL:          duration("PUBLIC_CACHE_TTL", 30*time.Second),
-		CORSAllowedOrigins:      strings.Split(value("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost,http://127.0.0.1"), ","),
+		CORSAllowedOrigins:      strings.Split(value("CORS_ALLOWED_ORIGINS", "http://localhost:8082,http://127.0.0.1:8082,http://localhost,http://127.0.0.1"), ","),
 		DefaultOrganizationSlug: value("DEFAULT_ORGANIZATION_SLUG", "qutcraft"),
 		BootstrapAdminEmail:     strings.ToLower(strings.TrimSpace(os.Getenv("BOOTSTRAP_ADMIN_EMAIL"))),
 		BootstrapAdminPassword:  os.Getenv("BOOTSTRAP_ADMIN_PASSWORD"),

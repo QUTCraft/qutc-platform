@@ -1,8 +1,8 @@
 import { get, getPage, post } from '@/api/client'
 import type { ApplicationPayload, KnowledgeArticle, KnowledgeDirectory, Organization, Project, PublicContentDetail, PublicPost, Resource, ServerStatus } from '@/api/types'
 
-const organizationSlug = import.meta.env.VITE_ORGANIZATION_SLUG ?? 'qutcraft'
-const portalBase = `/api/v1/portal/organizations/${organizationSlug}`
+export const organizationSlug = import.meta.env.VITE_ORGANIZATION_SLUG ?? 'qutcraft'
+export const portalBase = `/api/v1/portal/organizations/${organizationSlug}`
 
 export const portalApi = {
   getOrganization: () => get<Organization>(portalBase),

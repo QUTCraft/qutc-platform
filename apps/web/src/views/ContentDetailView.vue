@@ -1,44 +1,52 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AsyncState from '@/components/AsyncState.vue'
-import { resolveApiUrl } from '@/api/client'
+import { ApiClientError, resolveApiUrl } from '@/api/client'
 import { portalApi } from '@/api/portal'
 import type { PublicContentDetail } from '@/api/types'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { formatBytes, formatDate } from '@/utils/format'
+import { renderMarkdown } from '@/utils/markdown'
 
 const props = defineProps<{ contentType: PublicContentDetail['type'] }>()
 const route = useRoute()
 const { data, error, loading, refresh } = useAsyncData(() => portalApi.getContentDetail(String(route.params.id)))
 const typeLabels: Record<PublicContentDetail['type'], string> = { news: '社团动态', resource: '共享资源', knowledge: '公共知识库' }
-const paragraphs = computed(() => data.value?.body.split(/\n{2,}/).filter(Boolean) ?? [])
+const content = computed(() => data.value?.type === props.contentType ? data.value : undefined)
+const notFound = computed(() => !loading.value && ((error.value instanceof ApiClientError && error.value.status === 404) || (!!data.value && !content.value)))
+const bodyHtml = computed(() => renderMarkdown(content.value?.body ?? '', true))
 const backPath = computed(() => props.contentType === 'news' ? '/posts' : props.contentType === 'resource' ? '/resources' : '/knowledge')
+
+watch(() => route.params.id, () => refresh())
 </script>
 
 <template>
-  <AsyncState :loading="loading" :error="error" @retry="refresh">
-    <template v-if="data">
+  <el-result v-if="notFound" icon="warning" title="内容不存在或尚未发布" sub-title="公开门户只展示已发布内容，链接可能已下线或已失效。">
+    <template #extra>
+      <RouterLink :to="backPath"><el-button type="primary" round>返回{{ typeLabels[props.contentType] }}</el-button></RouterLink>
+    </template>
+  </el-result>
+  <AsyncState v-else :loading="loading" :error="error" @retry="refresh">
+    <template v-if="content">
       <article class="content-detail-page">
         <RouterLink :to="backPath" class="detail-back">← 返回{{ typeLabels[props.contentType] }}</RouterLink>
         <header class="content-detail-header">
-          <div class="eyebrow">{{ data.category }} · {{ typeLabels[data.type] }}</div>
-          <h1>{{ data.title }}</h1>
-          <p class="content-detail-excerpt">{{ data.excerpt }}</p>
-          <small>{{ formatDate(data.published_at ?? data.updated_at) }} · {{ data.reading_minutes }} 分钟阅读</small>
+          <div class="eyebrow">{{ content.category }} · {{ typeLabels[content.type] }}</div>
+          <h1>{{ content.title }}</h1>
+          <p class="content-detail-excerpt">{{ content.excerpt }}</p>
+          <small>{{ formatDate(content.published_at ?? content.updated_at) }} · {{ content.reading_minutes }} 分钟阅读</small>
         </header>
 
-        <section class="content-detail-body">
-          <p v-for="(paragraph, index) in paragraphs" :key="index">{{ paragraph }}</p>
-        </section>
+        <section class="content-detail-body" v-html="bodyHtml" />
 
-        <aside v-if="data.type === 'resource'" class="content-detail-asset surface-panel">
+        <aside v-if="content.type === 'resource'" class="content-detail-asset surface-panel">
           <div>
-            <strong>{{ data.asset?.original_name ?? '尚未关联可下载文件' }}</strong>
-            <small v-if="data.asset">{{ data.asset.mime_type }} · {{ formatBytes(data.asset.size_bytes) }}</small>
+            <strong>{{ content.asset?.original_name ?? '尚未关联可下载文件' }}</strong>
+            <small v-if="content.asset">{{ content.asset.mime_type }} · {{ formatBytes(content.asset.size_bytes) }}</small>
             <small v-else>请等待管理端上传资源文件。</small>
           </div>
-          <a v-if="data.download_url" class="button button-primary" :href="resolveApiUrl(data.download_url)" download>下载资源</a>
+          <a v-if="content.download_url" class="button button-primary" :href="resolveApiUrl(content.download_url)" download>下载资源</a>
           <span v-else class="asset-unavailable">暂无文件</span>
         </aside>
       </article>
@@ -89,11 +97,94 @@ const backPath = computed(() => props.contentType === 'news' ? '/posts' : props.
   color: var(--md-sys-color-on-surface);
   font-size: 1.08rem;
   line-height: 2;
-  white-space: pre-wrap;
 }
 
-.content-detail-body p {
+.content-detail-body :deep(h1),
+.content-detail-body :deep(h2),
+.content-detail-body :deep(h3),
+.content-detail-body :deep(h4) {
+  margin: 34px 0 14px;
+  line-height: 1.25;
+}
+
+.content-detail-body :deep(h1) { font-size: 2rem; }
+.content-detail-body :deep(h2) { font-size: 1.6rem; }
+.content-detail-body :deep(h3) { font-size: 1.3rem; }
+
+.content-detail-body :deep(p),
+.content-detail-body :deep(ul),
+.content-detail-body :deep(ol),
+.content-detail-body :deep(blockquote),
+.content-detail-body :deep(pre),
+.content-detail-body :deep(table) {
   margin: 0 0 22px;
+}
+
+.content-detail-body :deep(ul),
+.content-detail-body :deep(ol) {
+  padding-left: 1.5em;
+}
+
+.content-detail-body :deep(a) {
+  color: var(--md-sys-color-primary);
+  font-weight: 700;
+}
+
+.content-detail-body :deep(blockquote) {
+  padding: 12px 18px;
+  border-left: 4px solid var(--md-sys-color-primary);
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.content-detail-body :deep(code) {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--md-sys-color-surface-container-high);
+  font-size: 0.92em;
+}
+
+.content-detail-body :deep(pre) {
+  overflow-x: auto;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container-highest);
+}
+
+.content-detail-body :deep(pre code) {
+  padding: 0;
+  background: transparent;
+}
+
+.content-detail-body :deep(img) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 24px auto;
+  border-radius: 16px;
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--md-sys-color-shadow) 18%, transparent);
+}
+
+.content-detail-body :deep(hr) {
+  margin: 32px 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 24%, transparent);
+}
+
+.content-detail-body :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.content-detail-body :deep(th),
+.content-detail-body :deep(td) {
+  padding: 10px 12px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  text-align: left;
+}
+
+.content-detail-body :deep(th) {
+  background: var(--md-sys-color-surface-container);
 }
 
 .content-detail-asset {

@@ -18,7 +18,7 @@ const navigation = [
   { label: '系统设置', to: '/admin/settings', icon: Setting },
 ]
 
-const title = computed(() => navigation.find((item) => item.to === route.path)?.label ?? '后台管理')
+const title = computed(() => route.path.startsWith('/admin/content/') ? '内容编辑器' : navigation.find((item) => item.to === route.path)?.label ?? '后台管理')
 const roleLabel = computed(() => session.user?.roles.includes('owner') ? '所有者' : session.user?.roles.includes('administrator') ? '管理员' : '成员')
 
 async function logout() {

@@ -9,7 +9,7 @@ import { formatDate } from '@/utils/format'
 const category = ref('全部')
 const { data, error, loading, refresh } = useAsyncData(portalApi.getKnowledgeArticles)
 const { data: directoryData } = useAsyncData(portalApi.getKnowledgeDirectories)
-const categories = computed(() => ['全部', ...(directoryData.value?.items.map((item) => item.name) ?? [...new Set(data.value?.items.map((item) => item.category) ?? [])])])
+const categories = computed(() => ['全部', ...new Set([...(directoryData.value?.items.map((item) => item.name) ?? []), ...(data.value?.items.map((item) => item.category) ?? [])])])
 const filteredItems = computed(() => data.value?.items.filter((item) => category.value === '全部' || item.category === category.value) ?? [])
 </script>
 
