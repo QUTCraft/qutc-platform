@@ -1,5 +1,5 @@
 import { mockDelete, mockGet, mockPatch, mockPost } from '@/api/mock'
-import { getAccessToken } from '@/auth/token-storage'
+import { clearTokens, getAccessToken, getRefreshToken, saveTokens } from '@/auth/token-storage'
 import type { ApiEnvelope, Page } from '@/api/types'
 
 const apiMode = import.meta.env.VITE_API_MODE ?? 'mock'
@@ -27,14 +27,59 @@ function headers(json = false) {
   }
 }
 
+let refreshInFlight: Promise<boolean> | null = null
+
+function isAuthPath(path: string) {
+  return path === '/api/v1/auth/login' || path === '/api/v1/auth/register' || path === '/api/v1/auth/refresh' || path === '/api/v1/auth/logout'
+}
+
+function notifySessionExpired() {
+  clearTokens()
+  window.dispatchEvent(new Event('qutc:session-expired'))
+}
+
+async function refreshAccessToken() {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) return false
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/v1/auth/refresh`, {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        })
+        const payload = await response.json().catch(() => null) as ApiEnvelope<{ access_token: string; refresh_token: string }> | null
+        if (!response.ok || !payload || !('data' in payload)) return false
+        saveTokens(payload.data.access_token, payload.data.refresh_token)
+        return true
+      } catch {
+        return false
+      } finally {
+        refreshInFlight = null
+      }
+    })()
+  }
+  return refreshInFlight
+}
+
+async function fetchWithSessionRetry(path: string, request: () => RequestInit) {
+  let response = await fetch(`${apiBaseUrl}${path}`, request())
+  if (apiMode === 'mock' || response.status !== 401 || isAuthPath(path)) return response
+  if (!await refreshAccessToken()) {
+    notifySessionExpired()
+    return response
+  }
+  response = await fetch(`${apiBaseUrl}${path}`, request())
+  if (response.status === 401) notifySessionExpired()
+  return response
+}
+
 export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   if (apiMode === 'mock') return mockGet<T>(path)
 
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    headers: headers(),
-    credentials: 'include',
-    signal,
-  })
+  const response = await fetchWithSessionRetry(path, () => ({ headers: headers(), credentials: 'include', signal }))
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
   if (!response.ok || !payload || !('data' in payload)) {
     const error = payload && 'error' in payload ? payload.error : undefined
@@ -46,11 +91,7 @@ export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
 export async function getPage<T>(path: string, signal?: AbortSignal): Promise<Page<T>> {
   if (apiMode === 'mock') return mockGet<Page<T>>(path)
 
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    headers: headers(),
-    credentials: 'include',
-    signal,
-  })
+  const response = await fetchWithSessionRetry(path, () => ({ headers: headers(), credentials: 'include', signal }))
   const payload = await response.json().catch(() => null) as ApiEnvelope<T[]> | { error?: { code?: string; message?: string } } | null
   if (!response.ok || !payload || !('data' in payload) || !Array.isArray(payload.data)) {
     const error = payload && 'error' in payload ? payload.error : undefined
@@ -67,12 +108,7 @@ export async function getPage<T>(path: string, signal?: AbortSignal): Promise<Pa
 export async function post<T>(path: string, body?: unknown): Promise<T> {
   if (apiMode === 'mock') return mockPost<T>(path, body)
 
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    method: 'POST',
-    headers: headers(true),
-    credentials: 'include',
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+  const response = await fetchWithSessionRetry(path, () => ({ method: 'POST', headers: headers(true), credentials: 'include', body: body === undefined ? undefined : JSON.stringify(body) }))
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
   if (!response.ok || !payload || !('data' in payload)) {
     const error = payload && 'error' in payload ? payload.error : undefined
@@ -83,12 +119,7 @@ export async function post<T>(path: string, body?: unknown): Promise<T> {
 
 export async function upload<T>(path: string, formData: FormData): Promise<T> {
   if (apiMode === 'mock') return mockPost<T>(path, formData)
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    method: 'POST',
-    headers: headers(),
-    credentials: 'include',
-    body: formData,
-  })
+  const response = await fetchWithSessionRetry(path, () => ({ method: 'POST', headers: headers(), credentials: 'include', body: formData }))
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
   if (!response.ok || !payload || !('data' in payload)) {
     const error = payload && 'error' in payload ? payload.error : undefined
@@ -99,7 +130,7 @@ export async function upload<T>(path: string, formData: FormData): Promise<T> {
 
 export async function patch<T>(path: string, body: unknown): Promise<T> {
   if (apiMode === 'mock') return mockPatch<T>(path, body)
-  const response = await fetch(`${apiBaseUrl}${path}`, { method: 'PATCH', headers: headers(true), credentials: 'include', body: JSON.stringify(body) })
+  const response = await fetchWithSessionRetry(path, () => ({ method: 'PATCH', headers: headers(true), credentials: 'include', body: JSON.stringify(body) }))
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
   if (!response.ok || !payload || !('data' in payload)) { const error = payload && 'error' in payload ? payload.error : undefined; throw new ApiClientError(response.status, error?.code ?? 'network.request_failed', error?.message ?? '请求失败，请稍后重试。') }
   return payload.data
@@ -107,7 +138,7 @@ export async function patch<T>(path: string, body: unknown): Promise<T> {
 
 export async function del<T>(path: string): Promise<T> {
   if (apiMode === 'mock') return mockDelete<T>(path)
-  const response = await fetch(`${apiBaseUrl}${path}`, { method: 'DELETE', headers: headers(), credentials: 'include' })
+  const response = await fetchWithSessionRetry(path, () => ({ method: 'DELETE', headers: headers(), credentials: 'include' }))
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
   if (!response.ok || !payload || !('data' in payload)) { const error = payload && 'error' in payload ? payload.error : undefined; throw new ApiClientError(response.status, error?.code ?? 'network.request_failed', error?.message ?? '请求失败，请稍后重试。') }
   return payload.data
