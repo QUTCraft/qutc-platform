@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import AsyncState from '@/components/AsyncState.vue'
 import ContentCard from '@/components/ContentCard.vue'
 import { portalApi } from '@/api/portal'
@@ -7,9 +7,23 @@ import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDate } from '@/utils/format'
 
 const category = ref('全部')
-const { data, error, loading, refresh } = useAsyncData(portalApi.getPosts)
-const categories = computed(() => ['全部', ...new Set(data.value?.items.map((item) => item.category) ?? [])])
-const filteredItems = computed(() => data.value?.items.filter((item) => category.value === '全部' || item.category === category.value) ?? [])
+const page = ref(1)
+const { data, error, loading, refresh } = useAsyncData(() => portalApi.getPosts({
+  page: page.value,
+  category: category.value === '全部' ? undefined : category.value,
+}))
+const { data: categoryData } = useAsyncData(() => portalApi.getPosts({ page_size: 100 }))
+const categories = computed(() => ['全部', ...new Set(categoryData.value?.items.map((item) => item.category).filter(Boolean) ?? [])])
+
+watch(category, async () => {
+  page.value = 1
+  await refresh()
+})
+
+async function changePage(value: number) {
+  page.value = value
+  await refresh()
+}
 </script>
 
 <template>
@@ -37,7 +51,7 @@ const filteredItems = computed(() => data.value?.items.filter((item) => category
 
         <div class="knowledge-list">
           <ContentCard
-            v-for="post in filteredItems"
+            v-for="post in data.items"
             :key="post.id"
             :eyebrow="post.category"
             :title="post.title"
@@ -45,7 +59,17 @@ const filteredItems = computed(() => data.value?.items.filter((item) => category
             :meta="`${formatDate(post.published_at)} · ${post.reading_minutes} 分钟阅读`"
             :to="`/posts/${post.id}`"
           />
-          <el-empty v-if="filteredItems.length === 0" description="该分类下暂无公开动态。" />
+          <el-empty v-if="data.items.length === 0" description="该分类下暂无公开动态。" />
+          <el-pagination
+            v-if="data.total > data.page_size"
+            class="application-pagination"
+            background
+            layout="total, prev, pager, next"
+            :current-page="data.page"
+            :page-size="data.page_size"
+            :total="data.total"
+            @current-change="changePage"
+          />
         </div>
       </section>
     </template>

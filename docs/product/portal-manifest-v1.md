@@ -2,7 +2,9 @@
 
 > 状态：设计冻结  
 > Schema：`qutc.portal/v1`  
-> 适用范围：默认 MD3 门户、QUTCraft Minecraft 第一方门户及未来第三方门户
+> 适用范围：默认 MD3 门户及遵循公开能力边界的自定义门户
+>
+> 实现状态：Go 校验器、组织级草稿/生效配置持久化、Admin RBAC、审计、管理端保存/预览/启用、公开运行时加载、MD3 自动回退与永久恢复均已落地；CSP 与现有门户兼容检查已完成。当前版本不交付第一方主题门户。
 
 ## 1. 目的
 
@@ -13,13 +15,13 @@ Manifest 是门户呈现层的注册声明，不是可执行插件，也不是�
 ```json
 {
   "schema": "qutc.portal/v1",
-  "id": "qutcraft-minecraft",
+  "id": "campus-club",
   "version": "0.1.0",
-  "display_name": "QUTCraft Minecraft Portal",
-  "entry": "/portals/qutcraft-minecraft/index.html",
+  "display_name": "Campus Club Portal",
+  "entry": "/portals/campus-club/index.html",
   "theme": {
     "mode": "custom",
-    "tokens": "/portals/qutcraft-minecraft/theme.json"
+    "tokens": "/portals/campus-club/theme.json"
   },
   "capabilities": [
     "organization.read",
@@ -33,7 +35,7 @@ Manifest 是门户呈现层的注册声明，不是可执行插件，也不是�
 }
 ```
 
-可参考 [Manifest 示例](examples/qutcraft-minecraft.portal.json) 与 [主题 Token 示例](examples/qutcraft-minecraft.theme.json)。
+可参考 [Manifest 示例](examples/custom-portal.portal.json) 与 [主题 Token 示例](examples/custom-portal.theme.json)。
 
 ## 3. 字段定义
 
@@ -49,6 +51,15 @@ Manifest 是门户呈现层的注册声明，不是可执行插件，也不是�
 | `capabilities` | 是 | 非空 string[] | 声明的公开读取能力。 |
 | `fallback` | 是 | 固定 `md3` | 加载/兼容性失败后的回退门户。 |
 | `integrity` | 后续推荐 | SRI/hash | 生产发布时校验入口资源内容。 |
+
+当前校验器还执行以下安全约束：
+
+- `entry` 必须以单个 `/` 开头并指向 `.html`，`theme.tokens` 必须指向 `.json`。
+- 路径不得包含主机名、查询参数、片段、反斜杠、编码目录穿越或非规范化路径。
+- 能力最多 6 项，不得重复，且必须完全属于本文公开能力白名单。
+- 可选 `integrity` 只接受 `sha256`、`sha384` 或 `sha512` SRI 格式。
+- 主题颜色使用 `#RRGGBB`；圆角满足 `0 ≤ small ≤ medium ≤ large ≤ 48`。
+- 字体族不得包含 `url(...)`、分号或 CSS 块，防止借主题 Token 加载外部资源或注入声明。
 
 ## 4. 允许能力
 
@@ -102,9 +113,35 @@ Manifest 是门户呈现层的注册声明，不是可执行插件，也不是�
 
 回退页面必须继续可访问公开内容，并可提供不含敏感信息的提示；不得因自定义门户失败暴露管理端、内部 API 或错误堆栈。
 
+当前运行时通过 `GET /api/v1/portal/organizations/{organization_slug}/configuration` 读取再次校验后的生效 Manifest。没有生效配置或数据库中的生效 Manifest 已损坏时，接口返回 `source=default` 和内置 `qutc-md3`，不会向公开响应泄露草稿、操作者或审计信息。
+
+浏览器在公开页面启动时执行以下检查：
+
+1. 获取运行时配置，超过 1.8 秒或请求失败则保留默认 MD3。
+2. 自定义入口必须返回成功的 `text/html`，并包含 `<meta name="qutc-portal-id" content="<manifest.id>">`。
+3. 入口 404、超时、类型错误或标记不匹配时保留 MD3，并显示通用回退提示。
+4. `/admin`、登录、注册、邀请和申请页面始终由平台自身提供，不参与门户切换。
+5. 访问公开页面时添加 `?portal=md3` 可强制使用默认门户，用于恢复和排错。
+
+### 6.1 管理端配置 API
+
+| 方法与路径 | 权限 | 语义 |
+| --- | --- | --- |
+| `GET /api/v1/admin/portal/config` | `organization:configure` | 读取当前组织的草稿与生效 Manifest；未配置时两者均为 `null`。 |
+| `PATCH /api/v1/admin/portal/config` | `organization:configure` | 校验并保存草稿，写入 `portal.config_update` 审计；不改变当前生效版本。 |
+| `POST /api/v1/admin/portal/config/enable` | `organization:configure` | 再次校验草稿并在事务内复制为生效版本，写入 `portal.config_enable` 审计。 |
+| `POST /api/v1/admin/portal/config/restore-default` | `organization:configure` | 在单个事务内将内置 MD3 同时写为草稿和生效版本，记录 `portal.config_restore_default`。 |
+| `GET /api/v1/portal/organizations/{slug}/configuration` | 公开 | 只返回已校验生效 Manifest；无有效配置时返回内置 MD3。 |
+
+管理页的“预览入口”只打开草稿声明的同源入口，不会启用草稿。草稿和生效 Manifest 分列存储，刷新或 API 重启后仍可读取。
+
+“恢复默认 MD3”是永久恢复操作：服务端原子替换草稿和生效版本，避免两次请求导致半完成状态。`?portal=md3` 仅为当前访问的临时回退，不改数据库。
+
 ## 7. 资源加载安全规则
 
 - `entry` 和 `theme.tokens` 必须是同源、已发布、可校验的静态资源。
+- `/portals/` 下不存在的文件必须返回真实 `404`，不得由 SPA fallback 返回首页冒充门户包。
+- 每个入口 HTML 必须声明与 Manifest 一致的 `qutc-portal-id` meta；不一致时不得切换。
 - 门户内容使用 Portal API 的结构化 JSON，不从 Manifest 注入未信任 HTML 或 JavaScript。
 - Content Security Policy 至少禁止门户加载未经批准的脚本源，限制 `connect-src` 到 Portal API 与必要的受控资源域名。
 - 服务端对门户包版本做状态管理：`draft`、`review`、`published`、`disabled`；只有 `published` 可被公开加载。

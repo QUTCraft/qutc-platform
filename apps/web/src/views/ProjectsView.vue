@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { ref, watch } from 'vue'
 import AsyncState from '@/components/AsyncState.vue'
 import ContentCard from '@/components/ContentCard.vue'
 import { portalApi } from '@/api/portal'
@@ -8,11 +8,12 @@ import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDate } from '@/utils/format'
 
 const activeFilter = ref<'all' | Project['status']>('all')
-const { data, error, loading, refresh } = useAsyncData(portalApi.getProjects)
-
-const filteredItems = computed(() =>
-  data.value?.items.filter((item) => activeFilter.value === 'all' || item.status === activeFilter.value) ?? []
-)
+const page = ref(1)
+const { data, error, loading, refresh } = useAsyncData(() => portalApi.getProjects({
+  page: page.value,
+  status: activeFilter.value === 'all' ? undefined : activeFilter.value,
+}))
+const { data: countData } = useAsyncData(() => portalApi.getProjects({ page_size: 100 }))
 
 const labels: Record<'all' | Project['status'], string> = {
   all: '全部',
@@ -22,9 +23,19 @@ const labels: Record<'all' | Project['status'], string> = {
 }
 
 function getCount(key: 'all' | Project['status']): number {
-  if (!data.value) return 0
-  if (key === 'all') return data.value.items.length
-  return data.value.items.filter((item) => item.status === key).length
+  if (!countData.value) return 0
+  if (key === 'all') return countData.value.total
+  return countData.value.items.filter((item) => item.status === key).length
+}
+
+watch(activeFilter, async () => {
+  page.value = 1
+  await refresh()
+})
+
+async function changePage(value: number) {
+  page.value = value
+  await refresh()
 }
 </script>
 
@@ -61,7 +72,7 @@ function getCount(key: 'all' | Project['status']): number {
       <section class="projects-content">
         <div class="card-grid">
           <ContentCard
-            v-for="project in filteredItems"
+            v-for="project in data.items"
             :key="project.id"
             :eyebrow="`PROJECT / ${labels[project.status]}`"
             :title="project.title"
@@ -71,7 +82,17 @@ function getCount(key: 'all' | Project['status']): number {
           />
         </div>
 
-        <el-empty v-if="filteredItems.length === 0" description="该筛选条件下暂时没有公开项目。" />
+        <el-empty v-if="data.items.length === 0" description="该筛选条件下暂时没有公开项目。" />
+        <el-pagination
+          v-if="data.total > data.page_size"
+          class="application-pagination"
+          background
+          layout="total, prev, pager, next"
+          :current-page="data.page"
+          :page-size="data.page_size"
+          :total="data.total"
+          @current-change="changePage"
+        />
       </section>
     </template>
   </AsyncState>

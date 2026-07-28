@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import AsyncState from '@/components/AsyncState.vue'
 import { resolveApiUrl } from '@/api/client'
@@ -10,11 +10,27 @@ import { formatBytes, formatDate } from '@/utils/format'
 
 const keyword = ref('')
 const kind = ref<'all' | Resource['kind']>('all')
-const { data, error, loading, refresh } = useAsyncData(portalApi.getResources)
+const page = ref(1)
+const { data, error, loading, refresh } = useAsyncData(() => portalApi.getResources({
+  page: page.value,
+  kind: kind.value === 'all' ? undefined : kind.value,
+  q: keyword.value.trim() || undefined,
+}))
 const kinds: Array<'all' | Resource['kind']> = ['all', 'document', 'template', 'package', 'video']
 const kindLabels: Record<'all' | Resource['kind'], string> = { all: '全部', document: '文档', template: '模板', package: '资源包', video: '影音' }
-const filteredItems = computed(() => data.value?.items.filter((item) => (kind.value === 'all' || item.kind === kind.value) && `${item.title}${item.description}`.toLowerCase().includes(keyword.value.toLowerCase())) ?? [])
 const displayKind = (value: Resource['kind']) => kindLabels[value]
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+
+watch([kind, keyword], () => {
+  page.value = 1
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => void refresh(), 250)
+})
+
+async function changePage(value: number) {
+  page.value = value
+  await refresh()
+}
 </script>
 
 <template>
@@ -42,7 +58,7 @@ const displayKind = (value: Resource['kind']) => kindLabels[value]
       </section>
 
       <section class="resource-table surface-panel">
-        <el-table :data="filteredItems" style="width: 100%">
+        <el-table :data="data.items" style="width: 100%">
           <el-table-column prop="title" label="资源">
             <template #default="scope">
               <RouterLink class="resource-title-link" :to="`/resources/${scope.row.id}`">{{ scope.row.title }}</RouterLink>
@@ -78,7 +94,17 @@ const displayKind = (value: Resource['kind']) => kindLabels[value]
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-if="filteredItems.length === 0" description="没有找到匹配的公开资源。" />
+        <el-empty v-if="data.items.length === 0" description="没有找到匹配的公开资源。" />
+        <el-pagination
+          v-if="data.total > data.page_size"
+          class="application-pagination"
+          background
+          layout="total, prev, pager, next"
+          :current-page="data.page"
+          :page-size="data.page_size"
+          :total="data.total"
+          @current-change="changePage"
+        />
       </section>
     </template>
   </AsyncState>

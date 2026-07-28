@@ -12,6 +12,7 @@ QUTCraft Platform 是一个面向校园社团与民间组织的可扩展内容�
 - **API-first**：Portal 与 Admin 接口均以 OpenAPI 3.1 契约为先，前端类型与接口文档同步演进。
 - **安全边界明确**：成员邮箱、草稿、审核、RCON 命令和服务端凭据只允许在受控管理 API 中处理。
 - **可替换门户**：默认提供 MD3 门户；组织可以基于 Portal API 开发自己的公开门户主题。
+- **安全回退**：自定义入口需通过同源、类型和门户 ID 标记探测；超时或资源错误自动保留 MD3，`?portal=md3` 可强制恢复。
 - **可验证的适配**：QUTCraft 服务器状态与白名单审批属于可选服务器适配器能力；没有真实服务器时使用 Mock 保持演示可复现。
 
 ## 当前能力
@@ -29,14 +30,14 @@ QUTCraft Platform 是一个面向校园社团与民间组织的可扩展内容�
 - 内容工作区：查看内容状态并创建草稿。
 - 成员与权限：查看成员、组织角色和状态。
 - 审核与服务器：处理白名单/成员申请，演示受限 RCON 命令入口。
-- 组织设置页面与 Portal/Admin 安全边界提示。
+- 门户 Manifest 设置：真实读取、草稿保存、JSON 导入、同源预览、独立启用与 Portal/Admin 安全边界提示。
 
-> 后台当前为前端 Mock 实现。页面操作会更新浏览器运行时 Mock 数据，但不会连接 Minecraft 服务器或写入真实数据库。
+> 前端仍保留契约 Mock 供离线演示；Compose 默认使用 remote 模式连接真实 API/MySQL。服务器操作使用明确标识的 Mock ServerAdapter，不会连接真实 Minecraft RCON；SMTP 通知仍未接入。
 
 ### 身份与工程底座
 
 - Go + Gin + GORM API 服务，包含健康检查与统一 JSON 响应。
-- MySQL 初始迁移：组织、用户、角色、权限、成员关系、刷新令牌与审计事件。
+- MySQL 迁移：组织、用户、角色、权限、成员关系、内容/项目/申请、门户配置、刷新令牌与审计事件。
 - 注册、登录、刷新令牌轮换、退出撤销与当前会话接口。
 - JWT Bearer 鉴权与基于 `resource:action` 的 RBAC 中间件。
 - 前端登录页、会话恢复、后台路由守卫与 Mock 演示账号。
@@ -93,7 +94,7 @@ http://localhost:8082
 | `/admin/content` | 内容工作区 |
 | `/admin/users` | 成员与权限 |
 | `/admin/reviews` | 申请审核与服务器适配 |
-| `/admin/settings` | 组织设置 |
+| `/admin/settings` | 门户 Manifest 与通知设置 |
 
 访问 `/admin` 会先进入登录页。默认 Mock 演示账号为：
 
@@ -157,32 +158,85 @@ docker compose --profile storage up --build
 docker compose --profile docs up
 ```
 
-随后访问 `http://localhost:8081`。Swagger UI 加载仓库中的 `docs/api/openapi.yaml`，因此它与 Apifox 的事实来源一致；本地联调时在 Swagger/Apifox 中将 API Server 覆盖为 `http://localhost:8080`。
+随后访问 `http://localhost:8081`。Swagger UI 加载仓库中的 `docs/api/openapi.yaml`，因此它与 Apifox 的事实来源一致；使用仓库当前 Compose 配置联调时，在 Swagger/Apifox 中将 API Server 覆盖为 `http://localhost:18080`。
 
 当前电脑若未安装 Go 或 Docker，可继续使用前端 Mock 模式；安装工具链后按以上命令验证 API 和 Compose。
+
+### 演示数据
+
+数据库迁移、默认组织、RBAC 和可选的 `BOOTSTRAP_ADMIN_*` 所有者属于基础引导。内容、知识目录、项目、里程碑、申请和 Mock 同步记录属于演示数据，默认不会自动创建。需要本地或比赛演示数据时，在 `deploy/compose/.env` 中显式设置：
+
+```dotenv
+DEMO_SEED_ENABLED=true
+```
+
+然后重新创建 API 容器：
+
+```bash
+cd deploy/compose
+docker compose up -d --build api
+```
+
+演示 seed 使用固定 ID，只补充缺失记录；重复启动不会生成重复数据，也不会覆盖已有记录的人工修改。当前会创建 4 条内容、3 个知识目录、3 个项目及 2 个里程碑，以及待处理、已通过、已拒绝三种申请和一条明确标识为 Mock 的服务器同步结果。
+
+生产环境必须保持 `DEMO_SEED_ENABLED=false`，且必须替换引导密码与 JWT 密钥。关闭 seed 不会删除已有数据；如需清理演示记录，应使用受控清理脚本或重建专用演示数据库，不能在生产库直接执行通配删除。
 
 ## API 与接口协作
 
 [docs/api/openapi.yaml](docs/api/openapi.yaml) 是 Portal 与 Admin API 的唯一机器可读契约源，支持直接导入 Apifox 或 Swagger / Redoc 工具。
 
 - [完整 API 文档](docs/api/API.md)：认证、RBAC、响应封装、字段说明、错误语义、示例与安全边界。
+- [申请审批与 ServerAdapter API 规范](docs/api/server-adapter.md)：审批事务、外部同步状态、失败重试、错误码与审计约束。
 - [API 协作说明](docs/api/README.md)：Apifox、Swagger 与契约变更流程。
+- [AI 智能体集成设计](docs/architecture/ai-agent-integration.md)：组织运营智能体的能力边界、架构、权限、工具与分阶段落地方案。
 - Portal API 前缀：`/api/v1/portal/organizations/{organization_slug}`，无认证、仅返回公开已发布数据。
 - Admin API 前缀：`/api/v1/admin`，要求 Bearer JWT 与服务端 RBAC 授权。
 
 接口或字段变更必须按以下顺序进行：更新 OpenAPI → 更新文档与示例 → 更新后端 DTO/鉴权/测试 → 更新前端 API client 与页面。禁止在前端猜测尚未定义的 URL 或字段。
 
-可使用以下命令校验 OpenAPI：
+仓库内置统一质量门禁，覆盖 OpenAPI 结构与安全语义、58 条 Gin 路由、52 个前端请求、13 个 Apifox 核心请求、Go 测试、前端类型检查和生产构建：
 
-```bash
-pnpm --package=@redocly/cli@1.34.6 dlx redocly lint docs/api/openapi.yaml
+```powershell
+.\scripts\run-quality-gate.ps1
 ```
 
-同时检查 Go 的 Gin 路由是否与 OpenAPI 方法、路径和路径参数一致：
+Compose 已启动时，可同时执行 Web/API 路由冒烟和 S1—S4 真实 MySQL/Redis 集成套件：
 
-```bash
-python scripts/check-openapi-routes.py
+```powershell
+.\scripts\run-quality-gate.ps1 -Integration
 ```
+
+Apifox 集合、环境模板、各检查器的单独运行方式见 [API 协作说明](docs/api/README.md)。GitHub Actions 会在 push 与 pull request 上运行不依赖外部服务的质量门禁。
+
+### S1 内容闭环集成测试
+
+启动 Compose 后，可在 Windows PowerShell 中运行：
+
+```powershell
+.\scripts\run-s1-integration.ps1
+```
+
+脚本读取本机 `deploy/compose/.env`，不会输出管理员密码，并以 `integration` 构建标签运行真实 API、MySQL 与 Redis 测试。测试连续执行三轮“草稿不可见 → 发布可见 → 重复发布冲突 → 下线不可见”，同时确认 Portal 列表与详情缓存被及时失效；资源用例覆盖草稿、跨组织、已发布和已下线四种下载边界。临时数据库记录和测试文件会在用例结束时清理。
+
+### S2 成员与项目协作集成测试
+
+启动 Compose 后，可在 Windows PowerShell 中运行：
+
+```powershell
+.\scripts\run-s2-integration.ps1
+```
+
+该套件执行“创建邀请 → 公开预览 → 携带 token 注册 → 分配项目 → 完成里程碑”的真实 API 流程，并覆盖重复邀请、邮箱不匹配、token 重用、Editor 越权、Owner 保护、成员角色幂等更新和 RFC3339 日期校验。测试还会确认邀请只持久化 token 哈希，并在结束前清理、复查临时账户、成员关系、邀请和里程碑。
+
+### S3 申请审批与服务器适配集成测试
+
+启动 Compose 后运行：
+
+```powershell
+.\scripts\run-s3-integration.ps1
+```
+
+该套件验证申请提交、审批事务、重复审批冲突、Mock 白名单同步、失败重试和受限命令，并注入故障适配器确认“审批决定”不会因外部同步失败而回滚。Mock 响应会明确返回 `mode: mock` 与 `executed: false`；同步记录独立保存状态、尝试次数和脱敏错误，测试数据结束后自动清理。适配调用超时由 `SERVER_ADAPTER_TIMEOUT` 控制，默认 5 秒。
 
 ## 项目结构
 
@@ -225,10 +279,12 @@ tests/integration/                # 集成测试
 | [RBAC 权限矩阵](docs/architecture/rbac-matrix.md) | 角色、权限名称、范围限制和后台路由建议。 |
 | [信息架构](docs/product/information-architecture.md) | Portal/Admin 路由、状态字典与页面组件边界。 |
 | [Portal Manifest v1](docs/product/portal-manifest-v1.md) | 自定义门户注册、主题 Token、能力边界与回退规则。 |
+| [自定义门户包指南](docs/product/custom-portal-package.md) | 静态包结构、入口标记、Portal API、安全策略、发布与恢复流程。 |
 | [完整 API 文档](docs/api/API.md) | 当前 API 的可读说明与安全约束。 |
+| [申请审批与 ServerAdapter API 规范](docs/api/server-adapter.md) | 审批、服务器同步、失败重试、错误码和审计的详细规范。 |
 | [OpenAPI 契约](docs/api/openapi.yaml) | 可导入 Apifox / Swagger 的事实来源。 |
+| [AI 智能体集成设计](docs/architecture/ai-agent-integration.md) | 比赛版组织运营智能体的架构、安全边界与 API 草案。 |
 | [MD3 门户演示](docs/product/style_demo.html) | 默认门户视觉演示。 |
-| [Minecraft 门户演示](docs/product/style_mc.html) | QUTCraft 第一方主题探索。 |
 
 ## 开发约定
 
@@ -241,7 +297,7 @@ tests/integration/                # 集成测试
 
 ## 路线图
 
-`v0.1.0-mvp` 的目标完成时间为 **2026 年 8 月 31 日**。当前开发按三个可验收闭环收口：内容发布到门户、申请审批到服务器适配器、自定义门户加载与 MD3 回退。随后依次进入成员/项目协作、质量加固和比赛交付冻结。
+比赛版本的目标完成时间为 **2026 年 8 月 31 日**。当前先按三个可验收闭环收口：内容发布到门户、申请审批到服务器适配器、自定义门户加载与 MD3 回退；核心功能和质量阶段通过后，再接入比赛要求的 AI 内容协作闭环，最后完成交付冻结。
 
 实时模块状态、未完成错位和中长期扩展见 [功能地图 v2](docs/product/feature-map-v2.md)；日期、阶段门和延期规则见 [项目排期 v2](schedule.md)。
 

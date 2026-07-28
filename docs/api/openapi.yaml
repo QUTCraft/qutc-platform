@@ -62,6 +62,23 @@ paths:
                 $ref: '#/components/schemas/OrganizationResponse'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/portal/organizations/{organization_slug}/configuration:
+    get:
+      tags: [Portal]
+      operationId: getPortalRuntimeConfiguration
+      summary: 获取当前公开门户运行时配置
+      description: 无生效配置或生效 Manifest 已损坏时返回内置 MD3 Manifest；不会返回配置操作者、草稿或审计信息。
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/OrganizationSlug'
+      responses:
+        '200':
+          description: 已校验的生效 Manifest 或安全默认值
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortalRuntimeConfigurationResponse' }
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/portal/organizations/{organization_slug}/content/{content_id}:
     get:
       tags: [Portal]
@@ -228,6 +245,7 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /api/v1/auth/register:
     post:
       tags: [Auth]
@@ -252,6 +270,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /api/v1/invitations/{token}:
     get:
       tags: [Auth]
@@ -275,6 +294,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /api/v1/invitations/{token}/accept:
     post:
       tags: [Auth]
@@ -302,6 +322,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /api/v1/auth/login:
     post:
       tags: [Auth]
@@ -320,6 +341,7 @@ paths:
               schema: { $ref: '#/components/schemas/TokenPairResponse' }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /api/v1/auth/refresh:
     post:
       tags: [Auth]
@@ -338,6 +360,7 @@ paths:
               schema: { $ref: '#/components/schemas/TokenPairResponse' }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /api/v1/auth/logout:
     post:
       tags: [Auth]
@@ -440,6 +463,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AdminDashboardResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/content:
     get:
       tags: [Admin]
@@ -541,6 +565,26 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/admin/content/{content_id}:
+    get:
+      tags: [Admin]
+      operationId: getAdminContent
+      summary: 获取单条后台内容
+      description: 按内容 ID 返回当前组织范围内的完整正文，用于独立内容编辑页，不受列表分页影响。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: content_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: 内容详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminContentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [Admin]
       operationId: updateAdminContent
@@ -631,6 +675,8 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /api/v1/admin/assets/{asset_id}/download:
     get:
       tags: [Admin]
@@ -997,12 +1043,29 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          description: 按审批状态筛选。
+          schema: { type: string, enum: [pending, approved, rejected] }
+        - name: type
+          in: query
+          description: 按申请类型筛选。
+          schema: { type: string, enum: [whitelist, membership] }
+        - name: server_sync_status
+          in: query
+          description: 按服务器同步状态筛选；none 表示没有同步任务。
+          schema: { type: string, enum: [none, pending, succeeded, failed] }
+        - name: query
+          in: query
+          description: 在申请人姓名、游戏 ID、邮箱和 QQ 中进行模糊搜索。
+          schema: { type: string, maxLength: 80 }
       responses:
         '200':
           description: 申请列表
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AdminApplicationListResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/applications/{application_id}/approve:
@@ -1013,12 +1076,18 @@ paths:
       security: [{ BearerAuth: [] }]
       parameters:
         - $ref: '#/components/parameters/ApplicationId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApplicationApproveRequest' }
       responses:
         '200':
           description: 已通过并写入审计记录
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AdminApplicationResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
@@ -1030,15 +1099,106 @@ paths:
       security: [{ BearerAuth: [] }]
       parameters:
         - $ref: '#/components/parameters/ApplicationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApplicationRejectRequest' }
       responses:
         '200':
           description: 已拒绝并写入审计记录
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AdminApplicationResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/applications/{application_id}/server-sync/retry:
+    post:
+      tags: [Admin]
+      operationId: retryAdminApplicationServerSync
+      summary: 重试失败的服务器同步
+      description: 仅允许重试已批准白名单申请的最新 failed 同步记录；并发重试、pending 或 succeeded 状态返回 409。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        '200':
+          description: 重试已执行，响应返回最新同步结果；外部适配仍失败时 data.status 为 failed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApplicationServerSyncResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/portal/config:
+    get:
+      tags: [Admin]
+      operationId: getAdminPortalConfiguration
+      summary: 读取门户草稿与生效配置
+      description: 需要 organization:configure；首次配置时 draft_manifest 与 active_manifest 均为 null，运行时使用默认 MD3 回退门户。
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 当前组织的门户配置
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortalConfigurationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      tags: [Admin]
+      operationId: saveAdminPortalDraft
+      summary: 校验并保存门户草稿
+      description: 保存草稿不会改变 active_manifest，也不会影响当前公开门户；成功写入 portal.config_update 审计事件。
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PortalConfigurationRequest' }
+      responses:
+        '200':
+          description: 草稿已持久化
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortalConfigurationResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/portal/config/enable:
+    post:
+      tags: [Admin]
+      operationId: enableAdminPortalConfiguration
+      summary: 启用已保存的门户草稿
+      description: 在事务内重新校验草稿并复制为 active_manifest；成功写入 portal.config_enable 审计事件。
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 草稿已成为生效配置
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortalConfigurationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/portal/config/restore-default:
+    post:
+      tags: [Admin]
+      operationId: restoreDefaultAdminPortalConfiguration
+      summary: 原子恢复默认 MD3 门户
+      description: 在单个数据库事务中将内置 MD3 Manifest 同时写为草稿和生效版本，并写入 portal.config_restore_default 审计事件。
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 默认 MD3 已成为草稿和生效配置
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortalConfigurationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/server/status:
     get:
       tags: [Admin]
@@ -1074,6 +1234,12 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502':
+          description: 服务器适配器不可用或执行失败
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 components:
   securitySchemes:
     BearerAuth:
@@ -1130,6 +1296,29 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
+    PayloadTooLarge:
+      description: 上传请求体超过服务端限制
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    TooManyRequests:
+      description: 当前客户端对该接口的请求超过限额
+      headers:
+        Retry-After:
+          description: 建议等待的秒数
+          schema: { type: integer, minimum: 1 }
+        X-RateLimit-Limit:
+          description: 当前窗口允许的最大请求数
+          schema: { type: integer, minimum: 1 }
+        X-RateLimit-Remaining:
+          description: 当前窗口剩余请求数
+          schema: { type: integer, minimum: 0 }
+        X-RateLimit-Reset:
+          description: 当前窗口结束的 Unix 时间戳
+          schema: { type: integer, format: int64 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
   schemas:
     Meta:
       type: object
@@ -1155,7 +1344,10 @@ components:
           properties:
             code: { type: string, example: portal.organization_not_found }
             message: { type: string, example: 未找到可公开展示的组织。 }
-            details: { type: object, additionalProperties: true }
+            details:
+              oneOf:
+                - { type: object, additionalProperties: true }
+                - { type: array, items: { type: object, additionalProperties: true } }
             request_id: { type: string, example: req_01J0QUTC9B7ABCD }
     Organization:
       type: object
@@ -1547,9 +1739,25 @@ components:
     ApplicationStatus:
       type: string
       enum: [pending, approved, rejected]
+    ApplicationApproveRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+          description: 可选的通过备注，仅在 Admin API 中展示。
+    ApplicationRejectRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: 必填的拒绝原因，仅在 Admin API 中展示。
     AdminApplication:
       type: object
-      required: [id, applicant, type, submitted_at, note, status, class_name, game_id, qq_number, email]
+      required: [id, applicant, type, submitted_at, note, status, class_name, game_id, qq_number, email, decision_reason, server_sync]
       properties:
         id: { type: string }
         applicant: { type: string, maxLength: 80 }
@@ -1563,16 +1771,113 @@ components:
         email: { type: string, format: email }
         decided_at: { type: [string, 'null'], format: date-time }
         decided_by: { type: string, maxLength: 36 }
+        decision_reason:
+          type: string
+          maxLength: 500
+          description: 审核备注或拒绝原因，仅限 Admin API。
+        server_sync:
+          oneOf:
+            - $ref: '#/components/schemas/ApplicationServerSync'
+            - type: 'null'
+          description: 白名单批准后的服务器同步结果；审批决定与此状态相互独立。
+    ApplicationServerSync:
+      type: object
+      required: [id, operation, adapter, mode, status, attempts, message, last_error, requested_at]
+      properties:
+        id: { type: string }
+        operation: { type: string, enum: [whitelist.add] }
+        adapter: { type: string, maxLength: 64 }
+        mode: { type: string, enum: [mock, rcon] }
+        status: { type: string, enum: [pending, succeeded, failed] }
+        attempts: { type: integer, minimum: 0 }
+        message: { type: string, maxLength: 500 }
+        last_error:
+          type: string
+          maxLength: 500
+          description: 已脱敏的稳定错误摘要，不包含 RCON 地址、账号、密码或原始响应。
+        requested_at: { type: string, format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
     AdminServerStatus:
       type: object
-      required: [enabled, label, state, online_players, max_players]
+      required: [enabled, adapter, mode, label, state, online_players, max_players, updated_at]
       properties:
         enabled: { type: boolean }
+        adapter: { type: string, maxLength: 64 }
+        mode: { type: string, enum: [mock, rcon] }
         label: { type: string, maxLength: 100 }
         state: { type: string, enum: [online, maintenance, offline] }
         online_players: { type: integer, minimum: 0 }
         max_players: { type: integer, minimum: 1 }
+        updated_at: { type: string, format: date-time }
         last_command_at: { type: [string, 'null'], format: date-time }
+        last_error: { type: string, maxLength: 500 }
+    PortalThemeReference:
+      type: object
+      required: [mode]
+      properties:
+        mode: { type: string, enum: [md3, custom] }
+        tokens:
+          type: string
+          description: custom 模式必填的同源 .json 路径；md3 模式不得提供。
+          example: /portals/campus-club/theme.json
+    PortalManifest:
+      type: object
+      required: [schema, id, version, display_name, entry, theme, capabilities, fallback]
+      properties:
+        schema: { type: string, const: qutc.portal/v1 }
+        id: { type: string, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$', maxLength: 64 }
+        version: { type: string, example: 0.1.0 }
+        display_name: { type: string, minLength: 1, maxLength: 80 }
+        entry:
+          type: string
+          description: 以单个 / 开头、无查询参数或片段的同源 .html 静态入口。
+          example: /index.html
+        theme: { $ref: '#/components/schemas/PortalThemeReference' }
+        capabilities:
+          type: array
+          minItems: 1
+          maxItems: 6
+          uniqueItems: true
+          items:
+            type: string
+            enum: [organization.read, public_content.read, projects.read, assets.read, knowledge.read, server.status.read]
+        fallback: { type: string, const: md3 }
+        integrity:
+          type: string
+          description: 可选的 sha256、sha384 或 sha512 SRI。
+    PortalConfigurationRequest:
+      type: object
+      required: [manifest]
+      properties:
+        manifest: { $ref: '#/components/schemas/PortalManifest' }
+    PortalConfiguration:
+      type: object
+      required: [draft_manifest, active_manifest, active]
+      properties:
+        id: { type: string }
+        draft_manifest:
+          oneOf:
+            - { $ref: '#/components/schemas/PortalManifest' }
+            - { type: 'null' }
+        active_manifest:
+          oneOf:
+            - { $ref: '#/components/schemas/PortalManifest' }
+            - { type: 'null' }
+        active: { type: boolean }
+        updated_by: { type: string }
+        updated_at: { type: string, format: date-time }
+        activated_by: { type: string }
+        activated_at: { type: [string, 'null'], format: date-time }
+    PortalRuntimeConfiguration:
+      type: object
+      required: [manifest, source]
+      properties:
+        manifest: { $ref: '#/components/schemas/PortalManifest' }
+        source:
+          type: string
+          enum: [default, active]
+          description: default 表示当前使用内置 MD3 安全回退；active 表示返回已启用并再次校验的 Manifest。
+        activated_at: { type: string, format: date-time }
     DashboardMetric:
       type: object
       required: [label, value, tone]
@@ -1603,9 +1908,13 @@ components:
           example: list
     ServerCommandResult:
       type: object
-      required: [accepted, message, executed_at]
+      required: [accepted, executed, mode, message, executed_at]
       properties:
         accepted: { type: boolean }
+        executed:
+          type: boolean
+          description: 是否由真实外部服务执行；Mock 模式固定为 false。
+        mode: { type: string, enum: [mock, rcon] }
         message: { type: string }
         executed_at: { type: string, format: date-time }
     AuthRole:
@@ -1808,6 +2117,12 @@ components:
       properties:
         data: { $ref: '#/components/schemas/AdminApplication' }
         meta: { $ref: '#/components/schemas/Meta' }
+    ApplicationServerSyncResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/ApplicationServerSync' }
+        meta: { $ref: '#/components/schemas/Meta' }
     AdminApplicationListResponse:
       type: object
       required: [data, meta]
@@ -1819,6 +2134,18 @@ components:
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/AdminServerStatus' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    PortalConfigurationResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/PortalConfiguration' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    PortalRuntimeConfigurationResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/PortalRuntimeConfiguration' }
         meta: { $ref: '#/components/schemas/Meta' }
     AdminDashboardResponse:
       type: object

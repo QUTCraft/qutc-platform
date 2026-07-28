@@ -1,11 +1,26 @@
 import { del, get, getPage, patch, post, upload } from '@/api/client'
-import type { AdminApplication, AdminContent, AdminDashboard, AdminInvitation, AdminKnowledgeDirectory, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, InvitationRole, MediaAsset, ServerCommandResult } from '@/api/types'
+import type { AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminKnowledgeDirectory, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, InvitationRole, MediaAsset, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
 
 const adminBase = '/api/v1/admin'
 
+export interface PageQuery {
+  page?: number
+  page_size?: number
+}
+
+function withQuery(path: string, params: object = {}) {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== '') query.set(key, String(value))
+  })
+  const suffix = query.toString()
+  return `${path}${suffix ? `?${suffix}` : ''}`
+}
+
 export const adminApi = {
   getDashboard: () => get<AdminDashboard>(`${adminBase}/dashboard`),
-  getContent: () => getPage<AdminContent>(`${adminBase}/content`),
+  getContent: (params: PageQuery = {}) => getPage<AdminContent>(withQuery(`${adminBase}/content`, params)),
+  getContentById: (id: string) => get<AdminContent>(`${adminBase}/content/${id}`),
   createContent: (payload: Pick<AdminContent, 'title' | 'type' | 'category' | 'knowledge_directory_id' | 'excerpt' | 'body'>) => post<AdminContent>(`${adminBase}/content`, payload),
   updateContent: (id: string, payload: Pick<AdminContent, 'title' | 'type' | 'category' | 'knowledge_directory_id' | 'excerpt' | 'body'>) => patch<AdminContent>(`${adminBase}/content/${id}`, payload),
   publishContent: (id: string) => post<AdminContent>(`${adminBase}/content/${id}/publish`),
@@ -16,26 +31,38 @@ export const adminApi = {
     if (contentId) formData.append('content_id', contentId)
     return upload<MediaAsset>(`${adminBase}/assets`, formData)
   },
-  getKnowledgeDirectories: () => getPage<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories`),
+  getKnowledgeDirectories: (params: PageQuery = {}) => getPage<AdminKnowledgeDirectory>(withQuery(`${adminBase}/knowledge/directories`, params)),
   createKnowledgeDirectory: (payload: Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>) => post<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories`, payload),
   updateKnowledgeDirectory: (id: string, payload: Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>) => patch<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories/${id}`, payload),
-  getUsers: () => getPage<AdminUser>(`${adminBase}/users`),
+  getUsers: (params: PageQuery = {}) => getPage<AdminUser>(withQuery(`${adminBase}/users`, params)),
   createInvitation: (payload: { email: string; role: InvitationRole; expires_in_hours?: number }) => post<AdminInvitation>(`${adminBase}/invitations`, payload),
   updateUser: (id: string, payload: Pick<AdminUser, 'state' | 'role'>) => patch<AdminUser>(`${adminBase}/users/${id}`, payload),
-  getProjects: () => getPage<AdminProject>(`${adminBase}/projects`),
+  getProjects: (params: PageQuery = {}) => getPage<AdminProject>(withQuery(`${adminBase}/projects`, params)),
   createProject: (payload: Pick<AdminProject, 'title' | 'summary' | 'status' | 'tags' | 'is_public'>) => post<AdminProject>(`${adminBase}/projects`, payload),
   updateProject: (id: string, payload: Pick<AdminProject, 'title' | 'summary' | 'status' | 'tags' | 'is_public'>) => patch<AdminProject>(`${adminBase}/projects/${id}`, payload),
-  getProjectMembers: (id: string) => getPage<AdminProjectMember>(`${adminBase}/projects/${id}/members`),
+  getProjectMembers: (id: string, params: PageQuery = {}) => getPage<AdminProjectMember>(withQuery(`${adminBase}/projects/${id}/members`, params)),
   addProjectMember: (id: string, payload: { user_id: string; role: AdminProjectMember['role'] }) => post<AdminProjectMember>(`${adminBase}/projects/${id}/members`, payload),
   updateProjectMember: (projectId: string, userId: string, payload: { role: AdminProjectMember['role'] }) => patch<AdminProjectMember>(`${adminBase}/projects/${projectId}/members/${userId}`, payload),
   removeProjectMember: (projectId: string, userId: string) => del<{ removed: boolean }>(`${adminBase}/projects/${projectId}/members/${userId}`),
-  getProjectMilestones: (id: string) => getPage<AdminProjectMilestone>(`${adminBase}/projects/${id}/milestones`),
+  getProjectMilestones: (id: string, params: PageQuery = {}) => getPage<AdminProjectMilestone>(withQuery(`${adminBase}/projects/${id}/milestones`, params)),
   createProjectMilestone: (id: string, payload: { title: string; status: AdminProjectMilestone['status']; due_at?: string }) => post<AdminProjectMilestone>(`${adminBase}/projects/${id}/milestones`, payload),
   updateProjectMilestone: (projectId: string, milestoneId: string, payload: { title: string; status: AdminProjectMilestone['status']; due_at?: string }) => patch<AdminProjectMilestone>(`${adminBase}/projects/${projectId}/milestones/${milestoneId}`, payload),
   removeProjectMilestone: (projectId: string, milestoneId: string) => del<{ removed: boolean }>(`${adminBase}/projects/${projectId}/milestones/${milestoneId}`),
-  getApplications: () => getPage<AdminApplication>(`${adminBase}/applications`),
-  approveApplication: (id: string) => post<AdminApplication>(`${adminBase}/applications/${id}/approve`),
-  rejectApplication: (id: string) => post<AdminApplication>(`${adminBase}/applications/${id}/reject`),
+  getApplications: (filters: AdminApplicationFilters = {}) => {
+    const query = new URLSearchParams()
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== '') query.set(key, String(value))
+    })
+    const suffix = query.toString()
+    return getPage<AdminApplication>(`${adminBase}/applications${suffix ? `?${suffix}` : ''}`)
+  },
+  approveApplication: (id: string, reason = '') => post<AdminApplication>(`${adminBase}/applications/${id}/approve`, { reason }),
+  rejectApplication: (id: string, reason: string) => post<AdminApplication>(`${adminBase}/applications/${id}/reject`, { reason }),
+  retryApplicationServerSync: (id: string) => post<NonNullable<AdminApplication['server_sync']>>(`${adminBase}/applications/${id}/server-sync/retry`),
   getServerStatus: () => get<AdminServerStatus>(`${adminBase}/server/status`),
   runServerCommand: (command: string) => post<ServerCommandResult>(`${adminBase}/server/commands`, { command }),
+  getPortalConfiguration: () => get<PortalConfiguration>(`${adminBase}/portal/config`),
+  savePortalDraft: (manifest: PortalManifest) => patch<PortalConfiguration>(`${adminBase}/portal/config`, { manifest }),
+  enablePortalConfiguration: () => post<PortalConfiguration>(`${adminBase}/portal/config/enable`),
+  restoreDefaultPortal: () => post<PortalConfiguration>(`${adminBase}/portal/config/restore-default`),
 }

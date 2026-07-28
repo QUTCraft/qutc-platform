@@ -7,7 +7,8 @@ import type { AdminProject, AdminProjectMember, AdminProjectMilestone, AdminUser
 import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDate } from '@/utils/format'
 
-const { data, error, loading, refresh } = useAsyncData(adminApi.getProjects)
+const page = ref(1)
+const { data, error, loading, refresh } = useAsyncData(() => adminApi.getProjects({ page: page.value }))
 const dialogOpen = ref(false)
 const submitting = ref(false)
 const editingId = ref<string | null>(null)
@@ -35,6 +36,11 @@ const editingMilestone = ref<AdminProjectMilestone | null>(null)
 const milestoneForm = reactive({ title: '', status: 'planned' as AdminProjectMilestone['status'], due_at: '' })
 const milestoneStatusLabel: Record<AdminProjectMilestone['status'], string> = { planned: '未开始', active: '进行中', completed: '已完成' }
 const milestoneStatusType: Record<AdminProjectMilestone['status'], '' | 'success' | 'warning'> = { planned: '', active: 'warning', completed: 'success' }
+
+async function changePage(value: number) {
+  page.value = value
+  await refresh()
+}
 
 function resetForm() {
   editingId.value = null
@@ -68,7 +74,11 @@ async function loadProjectWorkspace() {
   if (!selectedProject.value) return
   workspaceLoading.value = true
   try {
-    const [members, milestones, users] = await Promise.all([adminApi.getProjectMembers(selectedProject.value.id), adminApi.getProjectMilestones(selectedProject.value.id), adminApi.getUsers()])
+    const [members, milestones, users] = await Promise.all([
+      adminApi.getProjectMembers(selectedProject.value.id, { page_size: 100 }),
+      adminApi.getProjectMilestones(selectedProject.value.id, { page_size: 100 }),
+      adminApi.getUsers({ page_size: 100 }),
+    ])
     projectMembers.value = members.items
     projectMilestones.value = milestones.items
     organizationUsers.value = users.items
@@ -206,6 +216,16 @@ async function removeMilestone(milestone: AdminProjectMilestone) {
             </template>
           </el-table-column>
         </el-table>
+        <el-pagination
+          v-if="data.total > data.page_size"
+          class="application-pagination"
+          background
+          layout="total, prev, pager, next"
+          :current-page="data.page"
+          :page-size="data.page_size"
+          :total="data.total"
+          @current-change="changePage"
+        />
       </section>
 
       <el-dialog v-model="dialogOpen" :title="editingId ? '编辑项目' : '新建项目'" width="min(92vw, 560px)">

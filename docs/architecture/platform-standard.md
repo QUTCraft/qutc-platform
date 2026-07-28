@@ -2,7 +2,7 @@
 
 > 状态：草案冻结，适用于 2026-07-14 至 2026-08-31 的 MVP 与比赛演示。
 >
-> 适用对象：QUTCraft 技术部门、通用组织管理平台、QUTCraft Minecraft 第一方门户及未来第三方自定义门户。
+> 适用对象：QUTCraft 技术部门、通用组织管理平台及未来自定义门户开发者。
 >
 > 关联交付物：[需求范围](../product/requirements-v1.md)、[RBAC 权限矩阵](rbac-matrix.md)、[信息架构](../product/information-architecture.md)、[Portal Manifest v1](../product/portal-manifest-v1.md)。
 
@@ -13,13 +13,12 @@
 业务核心只负责身份、组织、内容、项目、知识库、资源、审批、审计和适配器接口。门户是消费这些能力的呈现层：
 
 - 默认门户使用统一 Material Design 3（MD3）。
-- QUTCraft 门户可以使用 Minecraft 主题，但不能复制核心业务逻辑。
 - 自定义门户必须通过 Portal API 与 Manifest 接入，不得直接访问数据库、管理 API、RCON 或服务端密钥。
 - 没有可用的自定义门户、版本不兼容或加载失败时，系统必须回退到默认 MD3 门户。
 
 ### 1.2 比赛版与社团版的边界
 
-比赛版强调组织数字化管理的通用能力；社团版增加 Minecraft 服务器适配器。Minecraft 相关内容应位于适配器、门户主题和演示数据层，而不是散落在用户、内容、项目等通用模块中。
+比赛版强调组织数字化管理的通用能力；社团版可增加 Minecraft 服务器适配器。Minecraft 相关内容应位于适配器和演示数据层，而不是散落在用户、内容、项目等通用模块中。当前版本不建设独立 Minecraft 主题门户。
 
 ### 1.3 服务端是权限与事实来源
 
@@ -176,13 +175,13 @@ docs/product              # 产品文档与页面演示
 ```json
 {
   "schema": "qutc.portal/v1",
-  "id": "qutcraft-minecraft",
+  "id": "campus-club",
   "version": "0.1.0",
-  "display_name": "QUTCraft Minecraft Portal",
-  "entry": "/portals/qutcraft/index.html",
+  "display_name": "Campus Club Portal",
+  "entry": "/portals/campus-club/index.html",
   "theme": {
     "mode": "custom",
-    "tokens": "/portals/qutcraft/theme.json"
+    "tokens": "/portals/campus-club/theme.json"
   },
   "capabilities": ["organization.read", "public_content.read", "projects.read", "assets.read", "knowledge.read", "server.status.read"],
   "fallback": "md3"
@@ -207,6 +206,11 @@ docs/product              # 产品文档与页面演示
 ## 9. 文件、缓存与适配器
 
 - 文件上传先申请上传凭证，服务端校验 MIME、大小、扩展名、哈希和组织归属；下载按可见范围重新鉴权。
+- 当前本地资产实现必须在 multipart 解析前限制整个请求体为 11 MiB，文件内容再以 10 MiB 上限二次限制；超限返回 `413`，不进入持久化。
+- 认证、公开写入、资产上传和服务器命令必须限流。单实例可使用进程内固定窗口；多实例必须改用 Redis 等共享计数器。
+- Gin 不得默认信任任意代理头。只有部署清单显式声明的反向代理地址才能参与真实客户端 IP 解析。
+- 生产启动必须拒绝占位 JWT 密钥、通配 CORS、短引导密码和启用演示 seed 的配置。
+- 质量门禁必须扫描高置信度密钥格式，并禁止服务端密码、JWT、数据库或 RCON 配置名进入前端源码。
 - Redis Key 使用 `qutc:{env}:{domain}:{id}`，必须设置 TTL；写操作要使相关缓存失效。
 - 当前公开门户列表缓存使用 `qutc:{env}:portal:{organization_slug}:{resource}:{query}`，默认 TTL 为 30 秒；内容发布、下线、编辑和项目写操作删除该组织门户前缀下的所有缓存。
 - 缓存只保存可由 MySQL 重建的公开组织、内容、资源、知识库和项目列表；Redis 不作为事实数据源，缓存不可用时必须回源数据库。
@@ -224,7 +228,6 @@ docs/product              # 产品文档与页面演示
 ## 11. MVP 验收清单
 
 - [ ] 非 Minecraft 组织可以创建内容、项目、成员和资源并在 MD3 门户展示。
-- [ ] QUTCraft Minecraft 门户使用同一套 Portal API，但视觉与导航可以独立。
 - [ ] 管理端所有写操作有权限校验和审计记录。
 - [ ] 白名单审批在 Mock Adapter 下可重复演示，在真实 RCON 下不会误报成功。
 - [ ] 自定义门户只能使用声明的公开能力，加载失败会回退 MD3。

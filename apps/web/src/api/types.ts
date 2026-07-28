@@ -220,21 +220,83 @@ export interface AdminApplication {
   email?: string
   decided_at?: string | null
   decided_by?: string
+  decision_reason: string
+  server_sync?: ApplicationServerSync | null
+}
+
+export interface AdminApplicationFilters {
+  page?: number
+  page_size?: number
+  status?: '' | AdminApplication['status']
+  type?: '' | AdminApplication['type']
+  server_sync_status?: '' | 'none' | ApplicationServerSync['status']
+  query?: string
+}
+
+export interface ApplicationServerSync {
+  id: string
+  operation: 'whitelist.add'
+  adapter: string
+  mode: 'mock' | 'rcon'
+  status: 'pending' | 'succeeded' | 'failed'
+  attempts: number
+  message: string
+  last_error: string
+  requested_at: string
+  completed_at?: string | null
 }
 
 export interface AdminServerStatus {
   enabled: boolean
+  adapter: string
+  mode: 'mock' | 'rcon'
   label: string
   state: 'online' | 'maintenance' | 'offline'
   online_players: number
   max_players: number
   last_command_at?: string
+  updated_at: string
+  last_error?: string
 }
 
 export interface ServerCommandResult {
   accepted: boolean
+  executed: boolean
+  mode: 'mock' | 'rcon'
   message: string
   executed_at: string
+}
+
+export interface PortalManifest {
+  schema: 'qutc.portal/v1'
+  id: string
+  version: string
+  display_name: string
+  entry: string
+  theme: {
+    mode: 'md3' | 'custom'
+    tokens?: string
+  }
+  capabilities: Array<'organization.read' | 'public_content.read' | 'projects.read' | 'assets.read' | 'knowledge.read' | 'server.status.read'>
+  fallback: 'md3'
+  integrity?: string
+}
+
+export interface PortalConfiguration {
+  id?: string
+  draft_manifest: PortalManifest | null
+  active_manifest: PortalManifest | null
+  active: boolean
+  updated_by?: string
+  updated_at?: string
+  activated_by?: string
+  activated_at?: string
+}
+
+export interface PortalRuntimeConfiguration {
+  manifest: PortalManifest
+  source: 'default' | 'active'
+  activated_at?: string
 }
 
 export interface AuthUser {

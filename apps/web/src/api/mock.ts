@@ -14,6 +14,9 @@ import type {
   KnowledgeDirectory,
   Organization,
   Page,
+  PortalConfiguration,
+  PortalManifest,
+  PortalRuntimeConfiguration,
   Project,
   PublicPost,
   PublicContentDetail,
@@ -117,17 +120,36 @@ const adminProjectMilestones: Record<string, AdminProjectMilestone[]> = {
 }
 
 let applications: AdminApplication[] = [
-  { id: 'application_001', applicant: 'Yukino', type: 'whitelist', submitted_at: '2026-07-17T02:30:00Z', note: '希望参与周末建筑测试。', status: 'pending' },
-  { id: 'application_002', applicant: 'Dawn', type: 'membership', submitted_at: '2026-07-16T10:00:00Z', note: '想加入资源整理与 Wiki 维护。', status: 'pending' },
-  { id: 'application_003', applicant: 'Kite', type: 'whitelist', submitted_at: '2026-07-15T08:00:00Z', note: '已参加过新生联机活动。', status: 'approved' },
+  { id: 'application_001', applicant: 'Yukino', type: 'whitelist', submitted_at: '2026-07-17T02:30:00Z', note: '希望参与周末建筑测试。', status: 'pending', decision_reason: '' },
+  { id: 'application_002', applicant: 'Dawn', type: 'membership', submitted_at: '2026-07-16T10:00:00Z', note: '想加入资源整理与 Wiki 维护。', status: 'pending', decision_reason: '' },
+  { id: 'application_003', applicant: 'Kite', type: 'whitelist', submitted_at: '2026-07-15T08:00:00Z', note: '已参加过新生联机活动。', status: 'approved', decision_reason: '资料符合要求。' },
 ]
 
 const adminServer: AdminServerStatus = {
   enabled: true,
-  label: 'QUTCraft Java 生存服',
-  state: 'online',
-  online_players: 18,
+  adapter: 'minecraft-mock',
+  mode: 'mock',
+  label: 'QUTCraft Minecraft Mock',
+  state: 'maintenance',
+  online_players: 0,
   max_players: 60,
+  updated_at: '2026-07-28T04:10:00Z',
+}
+
+const defaultPortalManifest: PortalManifest = {
+  schema: 'qutc.portal/v1',
+  id: 'qutcraft-md3',
+  version: '0.1.0',
+  display_name: 'QUTCraft MD3 Portal',
+  entry: '/index.html',
+  theme: { mode: 'md3' },
+  capabilities: ['organization.read', 'public_content.read', 'projects.read', 'assets.read', 'knowledge.read', 'server.status.read'],
+  fallback: 'md3',
+}
+let portalConfiguration: PortalConfiguration = {
+  draft_manifest: null,
+  active_manifest: null,
+  active: false,
 }
 
 const mockUserKey = 'qutc.mock_user'
@@ -175,8 +197,35 @@ export async function mockGet<T>(path: string): Promise<T> {
   const projectMilestonesMatch = path.match(/\/admin\/projects\/([^/]+)\/milestones$/)
   if (projectMilestonesMatch) return page(adminProjectMilestones[projectMilestonesMatch[1]] ?? []) as T
   if (path.endsWith('/admin/projects')) return page(adminProjects) as T
-  if (path.endsWith('/admin/applications')) return page(applications) as T
+  if (new URL(path, 'http://mock.local').pathname.endsWith('/admin/applications')) {
+    const requestUrl = new URL(path, 'http://mock.local')
+    const status = requestUrl.searchParams.get('status')
+    const applicationType = requestUrl.searchParams.get('type')
+    const syncStatus = requestUrl.searchParams.get('server_sync_status')
+    const query = requestUrl.searchParams.get('query')?.trim().toLowerCase() ?? ''
+    const pageNumber = Math.max(1, Number(requestUrl.searchParams.get('page') ?? 1))
+    const pageSize = Math.min(100, Math.max(1, Number(requestUrl.searchParams.get('page_size') ?? 20)))
+    const filtered = applications.filter((item) => {
+      if (status && item.status !== status) return false
+      if (applicationType && item.type !== applicationType) return false
+      if (syncStatus === 'none' && item.server_sync) return false
+      if (syncStatus && syncStatus !== 'none' && item.server_sync?.status !== syncStatus) return false
+      if (query && ![item.applicant, item.game_id, item.email, item.qq_number].some((value) => value?.toLowerCase().includes(query))) return false
+      return true
+    })
+    const start = (pageNumber - 1) * pageSize
+    return { items: filtered.slice(start, start + pageSize), page: pageNumber, page_size: pageSize, total: filtered.length } as T
+  }
   if (path.endsWith('/admin/server/status')) return adminServer as T
+  if (path.endsWith('/admin/portal/config')) return structuredClone(portalConfiguration) as T
+  if (path.endsWith('/configuration')) {
+    const runtime: PortalRuntimeConfiguration = {
+      manifest: structuredClone(portalConfiguration.active_manifest ?? defaultPortalManifest),
+      source: portalConfiguration.active_manifest ? 'active' : 'default',
+      activated_at: portalConfiguration.activated_at,
+    }
+    return runtime as T
+  }
   const contentMatch = path.match(/\/organizations\/[^/]+\/content\/([^/]+)$/)
   if (contentMatch) {
     const detail = contentDetails[contentMatch[1]]
@@ -215,6 +264,32 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
   if (path.endsWith('/auth/logout')) { saveMockUser(null); return { revoked: true } as T }
   if (path.endsWith('/apply')) return { id: `application_${Date.now()}`, status: 'pending', submitted_at: new Date().toISOString() } as T
 	if (path.includes('/admin/')) requireMockAdmin()
+  if (path.endsWith('/admin/portal/config/enable')) {
+    if (!portalConfiguration.draft_manifest) throw new Error('请先保存有效的门户草稿。')
+    portalConfiguration = {
+      ...portalConfiguration,
+      active_manifest: structuredClone(portalConfiguration.draft_manifest),
+      active: true,
+      activated_by: mockUser?.id,
+      activated_at: new Date().toISOString(),
+    }
+    return structuredClone(portalConfiguration) as T
+  }
+  if (path.endsWith('/admin/portal/config/restore-default')) {
+    const restoredAt = new Date().toISOString()
+    portalConfiguration = {
+      ...portalConfiguration,
+      id: portalConfiguration.id ?? 'portal_config_mock',
+      draft_manifest: structuredClone(defaultPortalManifest),
+      active_manifest: structuredClone(defaultPortalManifest),
+      active: true,
+      updated_by: mockUser?.id,
+      updated_at: restoredAt,
+      activated_by: mockUser?.id,
+      activated_at: restoredAt,
+    }
+    return structuredClone(portalConfiguration) as T
+  }
 	if (path.endsWith('/admin/content')) {
 		const payload = body as Pick<AdminContent, 'title' | 'type' | 'category' | 'knowledge_directory_id' | 'excerpt' | 'body'>
 		if (payload.type === 'knowledge' && !payload.knowledge_directory_id) throw new Error('知识库文章必须关联目录。')
@@ -309,13 +384,28 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
   if (decision) {
     const application = applications.find((item) => item.id === decision[1])
     if (!application) throw new Error('Application not found')
+    const reason = String((body as { reason?: string } | undefined)?.reason ?? '').trim()
+    if (decision[2] === 'reject' && !reason) throw new Error('拒绝申请时必须填写审核原因。')
     application.status = decision[2] === 'approve' ? 'approved' : 'rejected'
+    application.decision_reason = reason
+    application.decided_at = new Date().toISOString()
     return application as T
+  }
+  const retrySync = path.match(/\/admin\/applications\/([^/]+)\/server-sync\/retry$/)
+  if (retrySync) {
+    const application = applications.find((item) => item.id === retrySync[1])
+    if (!application?.server_sync || application.server_sync.status !== 'failed') throw new Error('当前服务器同步状态不能重试。')
+    application.server_sync.status = 'succeeded'
+    application.server_sync.attempts += 1
+    application.server_sync.last_error = ''
+    application.server_sync.message = 'Mock 适配器已模拟白名单同步。'
+    application.server_sync.completed_at = new Date().toISOString()
+    return application.server_sync as T
   }
   if (path.endsWith('/admin/server/commands')) {
     const command = (body as { command: string }).command
     adminServer.last_command_at = new Date().toISOString()
-    return { accepted: true, message: `命令“${command}”已被模拟环境记录。`, executed_at: adminServer.last_command_at } as T
+    return { accepted: true, executed: false, mode: 'mock', message: `命令“${command}”已被模拟环境记录，未连接真实 RCON。`, executed_at: adminServer.last_command_at } as T
   }
   throw new Error(`Mock endpoint not implemented: ${path}`)
 }
@@ -323,6 +413,17 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
 export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
   await wait()
   requireMockAdmin()
+  if (path.endsWith('/admin/portal/config')) {
+    const payload = body as { manifest: PortalManifest }
+    portalConfiguration = {
+      ...portalConfiguration,
+      id: portalConfiguration.id ?? 'portal_config_mock',
+      draft_manifest: structuredClone(payload.manifest ?? defaultPortalManifest),
+      updated_by: mockUser?.id,
+      updated_at: new Date().toISOString(),
+    }
+    return structuredClone(portalConfiguration) as T
+  }
   const userMatch = path.match(/\/admin\/users\/([^/]+)$/)
   if (userMatch) {
     const user = adminUsers.find((item) => item.id === userMatch[1])

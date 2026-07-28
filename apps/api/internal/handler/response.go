@@ -22,6 +22,11 @@ func fail(c *gin.Context, status int, code, message string) {
 	c.JSON(status, gin.H{"error": gin.H{"code": code, "message": message, "request_id": requestID}})
 }
 
+func failWithDetails(c *gin.Context, status int, code, message string, details interface{}) {
+	requestID := ensureRequestID(c)
+	c.JSON(status, gin.H{"error": gin.H{"code": code, "message": message, "details": details, "request_id": requestID}})
+}
+
 func ensureRequestID(c *gin.Context) string {
 	requestID := c.GetHeader("X-Request-ID")
 	if requestID == "" {

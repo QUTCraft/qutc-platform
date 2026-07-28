@@ -5,6 +5,7 @@ import ElementPlus from 'element-plus'
 import App from '@/App.vue'
 import router from '@/router'
 import { expireSession } from '@/stores/session'
+import { bootstrapPortalRuntime } from '@/portal/runtime'
 
 window.addEventListener('qutc:session-expired', () => {
   const redirect = router.currentRoute.value.fullPath
@@ -14,4 +15,6 @@ window.addEventListener('qutc:session-expired', () => {
   }
 })
 
-createApp(App).use(router).use(ElementPlus).mount('#app')
+void bootstrapPortalRuntime().finally(() => {
+  createApp(App).use(router).use(ElementPlus).mount('#app')
+})

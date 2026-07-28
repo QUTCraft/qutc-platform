@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import AsyncState from '@/components/AsyncState.vue'
 import ContentCard from '@/components/ContentCard.vue'
 import { portalApi } from '@/api/portal'
@@ -7,10 +7,24 @@ import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDate } from '@/utils/format'
 
 const category = ref('全部')
-const { data, error, loading, refresh } = useAsyncData(portalApi.getKnowledgeArticles)
-const { data: directoryData } = useAsyncData(portalApi.getKnowledgeDirectories)
-const categories = computed(() => ['全部', ...new Set([...(directoryData.value?.items.map((item) => item.name) ?? []), ...(data.value?.items.map((item) => item.category) ?? [])])])
-const filteredItems = computed(() => data.value?.items.filter((item) => category.value === '全部' || item.category === category.value) ?? [])
+const page = ref(1)
+const { data, error, loading, refresh } = useAsyncData(() => portalApi.getKnowledgeArticles({
+  page: page.value,
+  category: category.value === '全部' ? undefined : category.value,
+}))
+const { data: directoryData } = useAsyncData(() => portalApi.getKnowledgeDirectories({ page_size: 100 }))
+const { data: categoryData } = useAsyncData(() => portalApi.getKnowledgeArticles({ page_size: 100 }))
+const allCategories = computed(() => ['全部', ...new Set([...(directoryData.value?.items.map((item) => item.name) ?? []), ...(categoryData.value?.items.map((item) => item.category).filter(Boolean) ?? [])])])
+
+watch(category, async () => {
+  page.value = 1
+  await refresh()
+})
+
+async function changePage(value: number) {
+  page.value = value
+  await refresh()
+}
 </script>
 
 <template>
@@ -26,7 +40,7 @@ const filteredItems = computed(() => data.value?.items.filter((item) => category
         <aside class="knowledge-sidebar">
           <strong>文章分类</strong>
           <button
-            v-for="item in categories"
+            v-for="item in allCategories"
             :key="item"
             type="button"
             :class="{ active: category === item }"
@@ -38,7 +52,7 @@ const filteredItems = computed(() => data.value?.items.filter((item) => category
 
         <div class="knowledge-list">
           <ContentCard
-            v-for="article in filteredItems"
+            v-for="article in data.items"
             :key="article.id"
             :eyebrow="article.category"
             :title="article.title"
@@ -46,7 +60,17 @@ const filteredItems = computed(() => data.value?.items.filter((item) => category
             :meta="`${formatDate(article.updated_at)} · ${article.reading_minutes} 分钟阅读`"
             :to="`/knowledge/${article.id}`"
           />
-          <el-empty v-if="filteredItems.length === 0" description="该分类下暂无公开文章。" />
+          <el-empty v-if="data.items.length === 0" description="该分类下暂无公开文章。" />
+          <el-pagination
+            v-if="data.total > data.page_size"
+            class="application-pagination"
+            background
+            layout="total, prev, pager, next"
+            :current-page="data.page"
+            :page-size="data.page_size"
+            :total="data.total"
+            @current-change="changePage"
+          />
         </div>
       </section>
     </template>

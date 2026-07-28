@@ -2,12 +2,14 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/config"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/handler"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/middleware"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/cache"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/database"
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/serveradapter"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -15,6 +17,9 @@ import (
 
 func main() {
 	cfg := config.Load()
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("invalid configuration: %v", err)
+	}
 	db, err := database.Connect(cfg)
 	if err != nil {
 		log.Fatalf("database connection failed: %v", err)
@@ -28,32 +33,33 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	router := gin.New()
-	router.Use(gin.Logger(), gin.Recovery(), cors.New(cors.Config{
-		AllowOrigins:     cfg.CORSAllowedOrigins,
-		AllowMethods:     []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"},
-		ExposeHeaders:    []string{"X-Request-ID"},
-		AllowCredentials: true,
-	}))
+	if err := router.SetTrustedProxies(nil); err != nil {
+		log.Fatalf("configure trusted proxies: %v", err)
+	}
+	router.Use(gin.Logger(), gin.Recovery(), cors.New(corsConfig(cfg)))
 
 	authService := service.NewAuthService(db, cfg)
 	authHandler := handler.NewAuthHandler(authService)
 	invitationHandler := handler.NewInvitationHandler(db, authService)
-	workspaceHandler := handler.NewWorkspaceHandler(db, publicCache, cfg.AppEnv)
+	workspaceHandler := handler.NewWorkspaceHandlerWithServerAdapterTimeout(db, publicCache, cfg.AppEnv, serveradapter.NewMock(), cfg.ServerAdapterTimeout)
+	portalConfigHandler := handler.NewPortalConfigHandler(db)
+	authRateLimiter := middleware.NewRateLimiter(cfg.AuthRateLimitPerMinute, time.Minute)
+	publicWriteRateLimiter := middleware.NewRateLimiter(cfg.PublicWriteLimitPerHour, time.Hour)
+	sensitiveRateLimiter := middleware.NewRateLimiter(cfg.SensitiveLimitPerMinute, time.Minute)
 	router.GET("/healthz", handler.Health)
 
 	v1 := router.Group("/api/v1")
 	auth := v1.Group("/auth")
-	auth.POST("/register", authHandler.Register)
-	auth.POST("/login", authHandler.Login)
-	auth.POST("/refresh", authHandler.Refresh)
+	auth.POST("/register", authRateLimiter.Middleware(), authHandler.Register)
+	auth.POST("/login", authRateLimiter.Middleware(), authHandler.Login)
+	auth.POST("/refresh", authRateLimiter.Middleware(), authHandler.Refresh)
 	auth.POST("/logout", authHandler.Logout)
 	auth.GET("/me", middleware.RequireAuth(authService), authHandler.Me)
 	auth.PATCH("/me", middleware.RequireAuth(authService), authHandler.UpdateMe)
 
 	invitations := v1.Group("/invitations")
-	invitations.GET("/:token", invitationHandler.Preview)
-	invitations.POST("/:token/accept", middleware.RequireAuth(authService), invitationHandler.Accept)
+	invitations.GET("/:token", authRateLimiter.Middleware(), invitationHandler.Preview)
+	invitations.POST("/:token/accept", authRateLimiter.Middleware(), middleware.RequireAuth(authService), invitationHandler.Accept)
 
 	membership := v1.Group("/membership", middleware.RequireAuth(authService))
 	membership.GET("/history", workspaceHandler.MembershipHistory)
@@ -63,6 +69,7 @@ func main() {
 	admin.GET("/session", middleware.RequirePermission(authService, "organization:read"), authHandler.Me)
 	admin.GET("/dashboard", middleware.RequirePermission(authService, "organization:read"), workspaceHandler.AdminDashboard)
 	admin.GET("/content", middleware.RequirePermission(authService, "content:read"), workspaceHandler.AdminContent)
+	admin.GET("/content/:id", middleware.RequirePermission(authService, "content:read"), workspaceHandler.AdminContentDetail)
 	admin.GET("/knowledge/directories", middleware.RequirePermission(authService, "knowledge:read"), workspaceHandler.AdminKnowledgeDirectories)
 	admin.POST("/knowledge/directories", middleware.RequirePermission(authService, "knowledge:manage"), workspaceHandler.AdminCreateKnowledgeDirectory)
 	admin.PATCH("/knowledge/directories/:id", middleware.RequirePermission(authService, "knowledge:manage"), workspaceHandler.AdminUpdateKnowledgeDirectory)
@@ -70,7 +77,7 @@ func main() {
 	admin.PATCH("/content/:id", middleware.RequirePermission(authService, "content:update"), workspaceHandler.AdminUpdateContent)
 	admin.POST("/content/:id/publish", middleware.RequirePermission(authService, "content:publish"), workspaceHandler.PublishContent)
 	admin.POST("/content/:id/archive", middleware.RequirePermission(authService, "content:archive"), workspaceHandler.ArchiveContent)
-	admin.POST("/assets", middleware.RequirePermission(authService, "asset:upload"), workspaceHandler.UploadAsset)
+	admin.POST("/assets", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "asset:upload"), workspaceHandler.UploadAsset)
 	admin.GET("/assets/:id/download", middleware.RequirePermission(authService, "asset:read"), workspaceHandler.DownloadAsset)
 	admin.GET("/users", middleware.RequirePermission(authService, "membership:read"), workspaceHandler.AdminUsers)
 	admin.PATCH("/users/:id", middleware.RequirePermission(authService, "membership:manage"), workspaceHandler.AdminUpdateUser)
@@ -89,11 +96,17 @@ func main() {
 	admin.GET("/applications", middleware.RequirePermission(authService, "application:read"), workspaceHandler.AdminApplications)
 	admin.POST("/applications/:id/approve", middleware.RequirePermission(authService, "application:approve"), workspaceHandler.AdminApplicationDecision)
 	admin.POST("/applications/:id/reject", middleware.RequirePermission(authService, "application:approve"), workspaceHandler.AdminApplicationDecision)
+	admin.POST("/applications/:id/server-sync/retry", middleware.RequirePermission(authService, "application:approve"), workspaceHandler.AdminRetryApplicationServerSync)
 	admin.GET("/server/status", middleware.RequirePermission(authService, "server:read_status"), workspaceHandler.AdminServerStatus)
-	admin.POST("/server/commands", middleware.RequirePermission(authService, "server:command"), workspaceHandler.AdminServerCommand)
+	admin.POST("/server/commands", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "server:command"), workspaceHandler.AdminServerCommand)
+	admin.GET("/portal/config", middleware.RequirePermission(authService, "organization:configure"), portalConfigHandler.Get)
+	admin.PATCH("/portal/config", middleware.RequirePermission(authService, "organization:configure"), portalConfigHandler.SaveDraft)
+	admin.POST("/portal/config/enable", middleware.RequirePermission(authService, "organization:configure"), portalConfigHandler.Enable)
+	admin.POST("/portal/config/restore-default", middleware.RequirePermission(authService, "organization:configure"), portalConfigHandler.RestoreDefault)
 
 	portal := v1.Group("/portal/organizations/:slug")
 	portal.GET("", workspaceHandler.Organization)
+	portal.GET("/configuration", portalConfigHandler.Public)
 	portal.GET("/content/:id", workspaceHandler.PortalContentDetail)
 	portal.GET("/posts", workspaceHandler.PortalPosts)
 	portal.GET("/projects", workspaceHandler.PortalProjects)
@@ -101,11 +114,21 @@ func main() {
 	portal.GET("/knowledge/articles", workspaceHandler.PortalKnowledge)
 	portal.GET("/knowledge/directories", workspaceHandler.PortalKnowledgeDirectories)
 	portal.GET("/server-status", workspaceHandler.PortalServer)
-	portal.POST("/apply", workspaceHandler.SubmitApplication)
+	portal.POST("/apply", publicWriteRateLimiter.Middleware(), workspaceHandler.SubmitApplication)
 	portal.GET("/assets/:id/download", workspaceHandler.DownloadAsset)
 
 	log.Printf("qutcraft api listening on %s", cfg.HTTPAddr)
 	if err := router.Run(cfg.HTTPAddr); err != nil {
 		log.Fatalf("http server stopped: %v", err)
+	}
+}
+
+func corsConfig(cfg config.Config) cors.Config {
+	return cors.Config{
+		AllowOrigins:     cfg.CORSAllowedOrigins,
+		AllowMethods:     []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"},
+		ExposeHeaders:    []string{"X-Request-ID"},
+		AllowCredentials: true,
 	}
 }

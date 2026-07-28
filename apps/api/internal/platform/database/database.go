@@ -43,7 +43,8 @@ func MigrateAndSeed(db *gorm.DB, cfg config.Config) error {
 		&model.RolePermission{}, &model.Membership{}, &model.MembershipEvent{}, &model.Invitation{}, &model.MembershipRole{},
 		&model.RefreshToken{}, &model.AuditEvent{}, &model.Content{}, &model.KnowledgeDirectory{}, &model.MediaAsset{},
 		&model.Project{}, &model.ProjectMember{}, &model.ProjectMilestone{},
-		&model.Application{},
+		&model.Application{}, &model.ApplicationServerSync{},
+		&model.PortalConfiguration{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -58,16 +59,31 @@ func MigrateAndSeed(db *gorm.DB, cfg config.Config) error {
 	if err := seedBootstrapOwner(db, cfg, organization); err != nil {
 		return err
 	}
-	if err := seedContent(db, cfg, organization); err != nil {
-		return err
+	if cfg.DemoSeedEnabled {
+		if err := SeedDemoData(db, cfg, organization); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SeedDemoData creates only stable, development-owned fixtures that are
+// missing. It never updates or deletes existing records and is disabled unless
+// DEMO_SEED_ENABLED is explicitly true.
+func SeedDemoData(db *gorm.DB, cfg config.Config, organization model.Organization) error {
+	if cfg.BootstrapAdminEmail == "" {
+		return fmt.Errorf("demo seed requires BOOTSTRAP_ADMIN_EMAIL")
 	}
 	if err := seedKnowledgeDirectories(db, organization); err != nil {
+		return err
+	}
+	if err := seedContent(db, cfg, organization); err != nil {
 		return err
 	}
 	if err := seedProjects(db, cfg, organization); err != nil {
 		return err
 	}
-	return seedApplications(db, organization)
+	return seedApplications(db, cfg, organization)
 }
 
 func findOrCreateOrganization(db *gorm.DB, slug string) (model.Organization, error) {
@@ -223,10 +239,10 @@ func seedContent(db *gorm.DB, cfg config.Config, organization model.Organization
 	}
 	publishedAt := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
 	items := []model.Content{
-		{ID: "content_cms", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "QUTCraft CMS 项目正式启动", Type: "news", Category: "社团动态", Status: "published", Excerpt: "从官网、资源分发到服务器适配，我们开始建设可持续的公共入口。", Body: "QUTCraft CMS 内容闭环演示内容。", PublishedAt: &publishedAt},
+		{ID: "content_cms", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "QUTCraft CMS 项目正式启动", Type: "news", Category: "社团动态", Status: "published", Excerpt: "从官网、资源分发到服务器适配，我们开始建设可持续的公共入口。", Body: "# QUTCraft CMS 项目正式启动\n\n我们正在建设一个连接公开门户、内容管理与组织协作的公共平台。\n\n- 门户只展示已发布内容\n- 后台负责内容与成员协作\n- 外部系统通过受控 Adapter 接入", PublishedAt: &publishedAt},
 		{ID: "content_build", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "暑期建筑活动报名", Type: "news", Category: "活动", Status: "draft", Excerpt: "面向成员开放的活动草稿。", Body: "该内容尚未发布，只能在后台看到。"},
 		{ID: "content_resource", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "QUTCraft CMS 产品说明", Type: "resource", Category: "document", Status: "published", Excerpt: "项目目标、门户范围与 MVP 路线。", Body: "QUTCraft CMS 的公开产品说明与接入资料。", PublishedAt: &publishedAt},
-		{ID: "content_knowledge", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "如何让社团项目可交接", Type: "knowledge", Category: "项目协作", Status: "published", Excerpt: "建立不依赖个人记忆的项目协作方式。", Body: "从目标、角色、决策记录到发布节奏，建立可持续的知识库。", PublishedAt: &publishedAt},
+		{ID: "content_knowledge", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "如何让社团项目可交接", Type: "knowledge", Category: "项目协作", KnowledgeDirectoryID: stringPointer("knowledge_directory_collaboration"), Status: "published", Excerpt: "建立不依赖个人记忆的项目协作方式。", Body: "从目标、角色、决策记录到发布节奏，建立可持续的知识库。", PublishedAt: &publishedAt},
 	}
 	for _, item := range items {
 		var existing model.Content
@@ -274,6 +290,29 @@ func seedProjects(db *gorm.DB, cfg config.Config, organization model.Organizatio
 			return fmt.Errorf("find project owner %s: %w", item.ID, memberErr)
 		}
 	}
+	return seedProjectMilestones(db)
+}
+
+func seedProjectMilestones(db *gorm.DB) error {
+	dueAPI := time.Date(2026, time.August, 15, 0, 0, 0, 0, time.UTC)
+	dueRelease := time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC)
+	items := []model.ProjectMilestone{
+		{ID: "milestone_demo_api", ProjectID: "project_cms", Title: "完成 API 契约与核心闭环", Status: "active", DueAt: &dueAPI},
+		{ID: "milestone_demo_release", ProjectID: "project_cms", Title: "发布比赛演示版本", Status: "planned", DueAt: &dueRelease},
+	}
+	for _, item := range items {
+		var existing model.ProjectMilestone
+		err := db.Where("id = ?", item.ID).First(&existing).Error
+		if err == nil {
+			continue
+		}
+		if err != gorm.ErrRecordNotFound {
+			return fmt.Errorf("find seed milestone %s: %w", item.ID, err)
+		}
+		if err := db.Create(&item).Error; err != nil {
+			return fmt.Errorf("seed milestone %s: %w", item.ID, err)
+		}
+	}
 	return nil
 }
 
@@ -299,29 +338,58 @@ func seedKnowledgeDirectories(db *gorm.DB, organization model.Organization) erro
 	return nil
 }
 
-func seedApplications(db *gorm.DB, organization model.Organization) error {
-	application := model.Application{
-		ID:             "application_demo",
+func seedApplications(db *gorm.DB, cfg config.Config, organization model.Organization) error {
+	var owner model.User
+	if err := db.Where("email = ?", cfg.BootstrapAdminEmail).First(&owner).Error; err != nil {
+		return fmt.Errorf("find application seed reviewer: %w", err)
+	}
+
+	decidedAt := time.Date(2026, time.July, 28, 10, 0, 0, 0, time.UTC)
+	applications := []model.Application{
+		{ID: "application_demo", OrganizationID: organization.ID, Type: "whitelist", ClassName: "计算机231", ApplicantName: "Yukino", GameID: "YukinoCraft", QQNumber: "123456789", Email: "yukino@example.com", Note: "希望参与周末建筑测试。", Status: "pending"},
+		{ID: "application_demo_approved", OrganizationID: organization.ID, Type: "whitelist", ClassName: "自动化231", ApplicantName: "Dawn", GameID: "DawnBuilder", QQNumber: "223456789", Email: "dawn@example.com", Note: "希望参与公共建筑项目。", Status: "approved", DecidedAt: &decidedAt, DecidedBy: owner.ID, DecisionReason: "资料完整，符合加入要求。"},
+		{ID: "application_demo_rejected", OrganizationID: organization.ID, Type: "membership", ClassName: "设计231", ApplicantName: "Nova", GameID: "NovaDesign", QQNumber: "323456789", Email: "nova@example.com", Note: "希望加入内容组。", Status: "rejected", DecidedAt: &decidedAt, DecidedBy: owner.ID, DecisionReason: "申请资料需要补充作品说明。"},
+	}
+	for _, application := range applications {
+		var existing model.Application
+		err := db.Where("id = ?", application.ID).First(&existing).Error
+		if err == nil {
+			continue
+		}
+		if err != gorm.ErrRecordNotFound {
+			return fmt.Errorf("find seed application %s: %w", application.ID, err)
+		}
+		if err := db.Create(&application).Error; err != nil {
+			return fmt.Errorf("seed application %s: %w", application.ID, err)
+		}
+	}
+
+	completedAt := decidedAt.Add(2 * time.Second)
+	syncRecord := model.ApplicationServerSync{
+		ID:             "application_sync_demo_approved",
 		OrganizationID: organization.ID,
-		Type:           "whitelist",
-		ClassName:      "计算机231",
-		ApplicantName:  "Yukino",
-		GameID:         "YukinoCraft",
-		QQNumber:       "123456789",
-		Email:          "yukino@example.com",
-		Note:           "希望参与周末建筑测试。",
-		Status:         "pending",
+		ApplicationID:  "application_demo_approved",
+		Operation:      "whitelist.add",
+		Adapter:        "minecraft-mock",
+		Mode:           "mock",
+		Status:         "succeeded",
+		Attempts:       1,
+		Message:        "演示 Mock 已记录白名单同步，未连接真实 RCON。",
+		RequestedAt:    decidedAt,
+		CompletedAt:    &completedAt,
 	}
-	var existing model.Application
-	err := db.Where("id = ?", application.ID).First(&existing).Error
-	if err == nil {
-		return nil
-	}
-	if err != gorm.ErrRecordNotFound {
-		return fmt.Errorf("find seed application: %w", err)
-	}
-	if err := db.Create(&application).Error; err != nil {
-		return fmt.Errorf("seed application: %w", err)
+	var existingSync model.ApplicationServerSync
+	err := db.Where("id = ?", syncRecord.ID).First(&existingSync).Error
+	if err == gorm.ErrRecordNotFound {
+		if err := db.Create(&syncRecord).Error; err != nil {
+			return fmt.Errorf("seed application sync: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("find seed application sync: %w", err)
 	}
 	return nil
+}
+
+func stringPointer(value string) *string {
+	return &value
 }

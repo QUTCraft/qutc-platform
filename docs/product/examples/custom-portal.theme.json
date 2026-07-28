@@ -1,15 +1,15 @@
 {
   "schema": "qutc.portal-theme/v1",
   "color": {
-    "primary": "#2d7d1a",
+    "primary": "#315da8",
     "on_primary": "#ffffff",
-    "surface": "#f3f7ee",
-    "on_surface": "#172011"
+    "surface": "#fbfcff",
+    "on_surface": "#191c20"
   },
   "shape": {
-    "small": 8,
-    "medium": 12,
-    "large": 20
+    "small": 10,
+    "medium": 18,
+    "large": 28
   },
   "typography": {
     "body_family": "Noto Sans SC, system-ui, sans-serif"

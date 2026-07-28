@@ -7,7 +7,8 @@ import type { AdminKnowledgeDirectory } from '@/api/types'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDate } from '@/utils/format'
 
-const { data, error, loading, refresh } = useAsyncData(adminApi.getKnowledgeDirectories)
+const page = ref(1)
+const { data, error, loading, refresh } = useAsyncData(() => adminApi.getKnowledgeDirectories({ page: page.value }))
 const dialogOpen = ref(false)
 const submitting = ref(false)
 const editingId = ref<string | null>(null)
@@ -16,6 +17,11 @@ const form = reactive<Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>>({ pare
 const rules: FormRules = {
   name: [{ required: true, message: '请填写目录名称', trigger: 'blur' }],
   slug: [{ required: true, message: '请填写目录标识', trigger: 'blur' }],
+}
+
+async function changePage(value: number) {
+  page.value = value
+  await refresh()
 }
 
 function resetForm() {
@@ -77,6 +83,16 @@ async function submit() {
           </el-table-column>
         </el-table>
         <el-empty v-if="!data.items.length" description="暂无知识库目录" />
+        <el-pagination
+          v-if="data.total > data.page_size"
+          class="application-pagination"
+          background
+          layout="total, prev, pager, next"
+          :current-page="data.page"
+          :page-size="data.page_size"
+          :total="data.total"
+          @current-change="changePage"
+        />
       </section>
 
       <el-dialog v-model="dialogOpen" :title="editingId ? '编辑知识库目录' : '新建知识库目录'" width="min(92vw, 560px)">

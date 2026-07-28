@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import AsyncState from '@/components/AsyncState.vue'
 import { adminApi } from '@/api/admin'
@@ -6,7 +7,13 @@ import type { AdminContent } from '@/api/types'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDate } from '@/utils/format'
 
-const { data, error, loading, refresh } = useAsyncData(adminApi.getContent)
+const page = ref(1)
+const { data, error, loading, refresh } = useAsyncData(() => adminApi.getContent({ page: page.value }))
+
+async function changePage(value: number) {
+  page.value = value
+  await refresh()
+}
 
 async function changeStatus(id: string, action: 'publish' | 'archive') {
   try {
@@ -70,6 +77,16 @@ function statusLabel(status: AdminContent['status']) {
             </template>
           </el-table-column>
         </el-table>
+        <el-pagination
+          v-if="data.total > data.page_size"
+          class="application-pagination"
+          background
+          layout="total, prev, pager, next"
+          :current-page="data.page"
+          :page-size="data.page_size"
+          :total="data.total"
+          @current-change="changePage"
+        />
       </section>
     </template>
   </AsyncState>

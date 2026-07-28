@@ -7,7 +7,8 @@ import type { AdminInvitation, AdminUser, InvitationRole } from '@/api/types'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDate } from '@/utils/format'
 
-const { data, error, loading, refresh } = useAsyncData(adminApi.getUsers)
+const page = ref(1)
+const { data, error, loading, refresh } = useAsyncData(() => adminApi.getUsers({ page: page.value }))
 const roleLabel = { owner: '所有者', administrator: '管理员', editor: '编辑者', member: '成员' }
 const stateLabel = { active: '正常', invited: '待加入', disabled: '已停用' }
 const dialogOpen = ref(false)
@@ -23,6 +24,11 @@ const inviteRules: FormRules = {
 }
 const inviteFormRef = ref<FormInstance>()
 const inviteLink = computed(() => inviteResult.value ? new URL(inviteResult.value.invite_url, window.location.origin).toString() : '')
+
+async function changePage(value: number) {
+  page.value = value
+  await refresh()
+}
 
 function openEditor(user: AdminUser) {
   editingUser.value = user
@@ -122,6 +128,16 @@ async function saveUser() {
             </template>
           </el-table-column>
         </el-table>
+        <el-pagination
+          v-if="data.total > data.page_size"
+          class="application-pagination"
+          background
+          layout="total, prev, pager, next"
+          :current-page="data.page"
+          :page-size="data.page_size"
+          :total="data.total"
+          @current-change="changePage"
+        />
       </section>
 
       <el-dialog v-model="dialogOpen" title="编辑成员" width="min(92vw, 440px)">

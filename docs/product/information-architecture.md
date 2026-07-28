@@ -43,10 +43,10 @@
 | --- | --- | --- | --- |
 | `/admin` | 聚合指标、待审申请、近期内容、适配器状态 | `GET /api/v1/admin/dashboard` | 已认证成员。 |
 | `/admin/content` | 内容列表、创建草稿、后续编辑/发布入口 | `GET/POST /api/v1/admin/content` | `content:read` / `content:create`。 |
-| `/admin/projects` | 项目、公开范围、成员与里程碑 | projects / members / milestones endpoints | `project:read`；写操作按项目权限。当前成员/里程碑 UI 待接入。 |
+| `/admin/projects` | 项目、公开范围、成员与里程碑 | projects / members / milestones endpoints | `project:read`；写操作需要 `project:manage`，成员/里程碑 UI 已接入。 |
 | `/admin/users` | 成员、角色与状态 | `GET /api/v1/admin/users` | `membership:read`。 |
 | `/admin/reviews` | 申请审核、服务器状态、受限命令 | applications / server endpoints | `application:read`、`server:read_status`。 |
-| `/admin/settings` | 组织、门户和适配器配置入口 | 当前为 Mock UI | `organization:configure` 或 `portal:configure`。 |
+| `/admin/settings` | 门户 Manifest 草稿、启用、默认 MD3 恢复与通知设置入口 | Admin Portal Configuration API；SMTP 仍未持久化 | `organization:configure`。 |
 
 管理页面在服务端返回 `401` 时进入认证流程，在 `403` 时展示权限拒绝状态并停止后续写操作；不能仅靠前端路由守卫隐藏页面。
 

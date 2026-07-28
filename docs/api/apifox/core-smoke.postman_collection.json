@@ -1,0 +1,411 @@
+{
+  "info": {
+    "_postman_id": "a70c80d2-66b1-4fe5-aef3-qutc-core-smoke",
+    "name": "QUTCraft CMS - Core Smoke",
+    "description": "可导入 Apifox 的 Postman Collection v2.1 核心冒烟集合。按顺序验证健康检查、认证、内容发布闭环和申请审批闭环；运行会创建带 runId 的临时内容与申请，并将其归档/拒绝。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (!pm.environment.get('runId')) {",
+          "  pm.environment.set('runId', String(Date.now()));",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/healthz",
+          "host": ["{{baseUrl}}"],
+          "path": ["healthz"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('API is healthy', () => pm.response.to.have.status(200));",
+              "pm.test('health payload is ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Login and capture token",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "login"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('login succeeds', () => pm.response.to.have.status(200));",
+              "const payload = pm.response.json();",
+              "pm.expect(payload.data.access_token).to.be.a('string').and.not.empty;",
+              "pm.environment.set('accessToken', payload.data.access_token);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Public organization",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/portal/organizations/{{organizationSlug}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "portal", "organizations", "{{organizationSlug}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('public organization is readable', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().data.slug).to.eql(pm.environment.get('organizationSlug'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Admin dashboard",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/dashboard",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "dashboard"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('admin dashboard is authorized', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().meta.request_id).to.be.a('string').and.not.empty;"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 - Create content draft",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Apifox smoke {{runId}}\",\n  \"type\": \"news\",\n  \"category\": \"quality-gate\",\n  \"excerpt\": \"Contract smoke draft\",\n  \"body\": \"# Apifox smoke\\n\\nRun: {{runId}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/content",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "content"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('draft is created', () => pm.response.to.have.status(201));",
+              "const payload = pm.response.json();",
+              "pm.expect(payload.data.status).to.eql('draft');",
+              "pm.environment.set('contentId', payload.data.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 - Draft is hidden from Portal",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/portal/organizations/{{organizationSlug}}/content/{{contentId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "portal", "organizations", "{{organizationSlug}}", "content", "{{contentId}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('draft is not public', () => pm.response.to.have.status(404));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 - Publish content",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/content/{{contentId}}/publish",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "content", "{{contentId}}", "publish"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('content is published', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().data.status).to.eql('published');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 - Published content is public",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/portal/organizations/{{organizationSlug}}/content/{{contentId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "portal", "organizations", "{{organizationSlug}}", "content", "{{contentId}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('published content is public', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().data.id).to.eql(pm.environment.get('contentId'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 - Archive content",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/content/{{contentId}}/archive",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "content", "{{contentId}}", "archive"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('content is archived', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().data.status).to.eql('archived');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 - Archived content is hidden",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/portal/organizations/{{organizationSlug}}/content/{{contentId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "portal", "organizations", "{{organizationSlug}}", "content", "{{contentId}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('archived content is no longer public', () => pm.response.to.have.status(404));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 - Submit application",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"type\": \"whitelist\",\n  \"class_name\": \"Apifox quality gate\",\n  \"name\": \"Contract Tester\",\n  \"game_id\": \"apifox_{{runId}}\",\n  \"qq_number\": \"10000001\",\n  \"email\": \"apifox+{{runId}}@example.com\",\n  \"note\": \"Automated contract smoke\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/portal/organizations/{{organizationSlug}}/apply",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "portal", "organizations", "{{organizationSlug}}", "apply"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('application is accepted', () => pm.response.to.have.status(201));",
+              "const payload = pm.response.json();",
+              "pm.expect(payload.data.status).to.eql('pending');",
+              "pm.environment.set('applicationId', payload.data.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12 - Application appears in Admin",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/applications?search=apifox_{{runId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "applications"],
+          "query": [
+            {
+              "key": "search",
+              "value": "apifox_{{runId}}"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('application list is readable', () => pm.response.to.have.status(200));",
+              "const rows = pm.response.json().data;",
+              "pm.expect(rows.some(row => row.id === pm.environment.get('applicationId'))).to.eql(true);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "13 - Reject application",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reason\": \"Apifox smoke cleanup\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/applications/{{applicationId}}/reject",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "applications", "{{applicationId}}", "reject"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('application is rejected', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().data.status).to.eql('rejected');"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": []
+}

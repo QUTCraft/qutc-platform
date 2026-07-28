@@ -1,20 +1,19 @@
 {
   "schema": "qutc.portal/v1",
-  "id": "qutcraft-minecraft",
+  "id": "campus-club",
   "version": "0.1.0",
-  "display_name": "QUTCraft Minecraft Portal",
-  "entry": "/portals/qutcraft-minecraft/index.html",
+  "display_name": "Campus Club Portal",
+  "entry": "/portals/campus-club/index.html",
   "theme": {
     "mode": "custom",
-    "tokens": "/portals/qutcraft-minecraft/theme.json"
+    "tokens": "/portals/campus-club/theme.json"
   },
   "capabilities": [
     "organization.read",
     "public_content.read",
     "projects.read",
     "assets.read",
-    "knowledge.read",
-    "server.status.read"
+    "knowledge.read"
   ],
   "fallback": "md3"
 }

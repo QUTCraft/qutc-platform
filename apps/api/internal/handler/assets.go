@@ -14,12 +14,20 @@ import (
 	"github.com/google/uuid"
 )
 
-const maxAssetSize = 10 << 20
+const (
+	maxAssetSize        = 10 << 20
+	maxAssetRequestSize = maxAssetSize + (1 << 20)
+)
 
 func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
 	principal, _ := middleware.PrincipalFromContext(c)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAssetRequestSize)
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "request body too large") {
+			fail(c, http.StatusRequestEntityTooLarge, "asset.request_too_large", "上传请求不能超过 11 MB。")
+			return
+		}
 		fail(c, http.StatusBadRequest, "asset.file_required", "请上传名为 file 的文件。")
 		return
 	}

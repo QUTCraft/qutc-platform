@@ -12,7 +12,7 @@ type ContentType = AdminContent['type']
 
 const route = useRoute()
 const router = useRouter()
-const { data: directoryData } = useAsyncData(adminApi.getKnowledgeDirectories)
+const { data: directoryData } = useAsyncData(() => adminApi.getKnowledgeDirectories({ page_size: 100 }))
 
 const loading = ref(true)
 const loadError = ref<Error | null>(null)
@@ -73,9 +73,7 @@ async function loadContent() {
       resetForm()
       return
     }
-    const page = await adminApi.getContent()
-    const item = page.items.find((content) => content.id === contentId.value)
-    if (!item) throw new Error('内容不存在或已被移除。')
+    const item = await adminApi.getContentById(contentId.value)
     loadItem(item)
   } catch (error) {
     loadError.value = error instanceof Error ? error : new Error('内容暂时无法加载。')
