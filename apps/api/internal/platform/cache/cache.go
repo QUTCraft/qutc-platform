@@ -22,6 +22,13 @@ func New(addr, password string, db int, ttl time.Duration) *Cache {
 	}
 }
 
+func (c *Cache) Ping() error {
+	if c == nil || c.client == nil {
+		return redis.ErrClosed
+	}
+	return c.client.Ping(context.Background()).Err()
+}
+
 func (c *Cache) Get(ctx context.Context, key string, destination any) bool {
 	if c == nil || c.client == nil {
 		return false

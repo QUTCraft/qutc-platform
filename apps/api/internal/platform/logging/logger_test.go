@@ -24,7 +24,7 @@ func TestSanitizingHandlerRedactsSensitiveKeys(t *testing.T) {
 		{"minio_secret", "minio-key", true},
 		{"jwt_secret", "jwt-key-789", true},
 		{"api_key", "sk-abcdef", true},
-		{"private_key", "-----BEGIN RSA PRIVATE KEY-----", true},
+		{"private_key", "fake-private-key-12345", true},
 		{"smtp_password", "mail-pass", true},
 		{"email", "user@example.com", false},
 		{"display_name", "Yukino", false},

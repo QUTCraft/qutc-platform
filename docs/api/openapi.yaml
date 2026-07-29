@@ -24,28 +24,39 @@ paths:
     get:
       tags: [Auth]
       operationId: getHealth
-      summary: 检查 API 服务存活状态
+      summary: 检查 API 与关键依赖的健康状态
       security: []
       responses:
         '200':
-          description: 服务正在运行
+          description: 服务及其依赖均正常运行
           content:
             application/json:
               schema:
                 type: object
-                required: [status]
+                required: [status, checks]
                 properties:
                   status: { type: string, enum: [ok] }
-        '500':
-          description: 服务健康检查失败
+                  checks:
+                    type: object
+                    required: [database, cache]
+                    properties:
+                      database: { type: string, enum: [ok] }
+                      cache: { type: string, enum: [ok] }
+        '503':
+          description: 服务可达但至少一个依赖不可用
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
-        '404':
-          description: 健康检查路径不存在
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              schema:
+                type: object
+                required: [status, checks]
+                properties:
+                  status: { type: string, enum: [degraded] }
+                  checks:
+                    type: object
+                    required: [database, cache]
+                    properties:
+                      database: { type: string }
+                      cache: { type: string }
   /api/v1/portal/organizations/{organization_slug}:
     get:
       tags: [Portal]
@@ -1199,6 +1210,45 @@ paths:
               schema: { $ref: '#/components/schemas/PortalConfigurationResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/audit:
+    get:
+      tags: [Admin]
+      operationId: listAdminAuditEvents
+      summary: 获取组织审计事件
+      description: 返回当前组织范围内已落库的审计事件，支持按操作、目标类型、结果、request_id 和操作者筛选。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: action
+          in: query
+          description: 按操作类型筛选，例如 content.publish、membership.invite。
+          schema: { type: string, maxLength: 96 }
+        - name: target_type
+          in: query
+          description: 按目标类型筛选，例如 content、application、invitation。
+          schema: { type: string, maxLength: 64 }
+        - name: result
+          in: query
+          description: 按执行结果筛选。
+          schema: { type: string, enum: [success, accepted, failed] }
+        - name: request_id
+          in: query
+          description: 按请求标识筛选，用于跨日志与审计串联定位问题。
+          schema: { type: string, maxLength: 64 }
+        - name: actor_user_id
+          in: query
+          description: 按操作者用户 ID 筛选。
+          schema: { type: string, maxLength: 64 }
+      responses:
+        '200':
+          description: 审计事件列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAuditEventListResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/server/status:
     get:
       tags: [Admin]
@@ -2159,3 +2209,23 @@ components:
       properties:
         data: { $ref: '#/components/schemas/ServerCommandResult' }
         meta: { $ref: '#/components/schemas/Meta' }
+    AdminAuditEvent:
+      type: object
+      description: 已落库的组织审计事件，仅限拥有 audit:read 权限的角色查看。
+      required: [id, action, target_type, target_id, result, request_id, actor_user_id, actor_name, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        action: { type: string, description: 操作类型，例如 content.publish、membership.invite、application.approve。, example: content.publish }
+        target_type: { type: string, description: 目标资源类型，例如 content、application、invitation、server。, example: content }
+        target_id: { type: string, description: 目标资源 ID；无具体目标的操作为空字符串。, example: content_cms }
+        result: { type: string, enum: [success, accepted, failed], description: 操作结果。, example: success }
+        request_id: { type: string, description: 关联的请求标识，用于跨日志与审计串联定位问题。, example: req_01J0QUTC9B7ABCD }
+        actor_user_id: { type: string, format: uuid, description: 执行操作的用户 ID。 }
+        actor_name: { type: string, description: 操作者显示名称，便于后台阅读；用户不存在时为空字符串。, example: Yukino }
+        created_at: { type: string, format: date-time, description: 事件发生时间。, example: '2026-07-28T10:00:00Z' }
+    AdminAuditEventListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AdminAuditEvent' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }

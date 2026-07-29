@@ -1,5 +1,5 @@
 import { del, get, getPage, patch, post, upload } from '@/api/client'
-import type { AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminKnowledgeDirectory, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, InvitationRole, MediaAsset, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
+import type { AdminApplication, AdminApplicationFilters, AdminAuditEvent, AdminAuditFilters, AdminContent, AdminDashboard, AdminInvitation, AdminKnowledgeDirectory, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, InvitationRole, MediaAsset, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
 
 const adminBase = '/api/v1/admin'
 
@@ -65,4 +65,5 @@ export const adminApi = {
   savePortalDraft: (manifest: PortalManifest) => patch<PortalConfiguration>(`${adminBase}/portal/config`, { manifest }),
   enablePortalConfiguration: () => post<PortalConfiguration>(`${adminBase}/portal/config/enable`),
   restoreDefaultPortal: () => post<PortalConfiguration>(`${adminBase}/portal/config/restore-default`),
+  getAuditEvents: (filters: AdminAuditFilters = {}) => getPage<AdminAuditEvent>(withQuery(`${adminBase}/audit`, filters)),
 }

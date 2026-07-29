@@ -246,6 +246,28 @@ export interface ApplicationServerSync {
   completed_at?: string | null
 }
 
+export interface AdminAuditEvent {
+  id: string
+  action: string
+  target_type: string
+  target_id: string
+  result: 'success' | 'accepted' | 'failed'
+  request_id: string
+  actor_user_id: string
+  actor_name: string
+  created_at: string
+}
+
+export interface AdminAuditFilters {
+  page?: number
+  page_size?: number
+  action?: string
+  target_type?: string
+  result?: '' | AdminAuditEvent['result']
+  request_id?: string
+  actor_user_id?: string
+}
+
 export interface AdminServerStatus {
   enabled: boolean
   adapter: string

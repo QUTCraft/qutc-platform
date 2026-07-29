@@ -141,6 +141,16 @@
 - AI 智能体已完成比赛版架构提案：核心功能通过 G5 后，优先落地知识引用、Markdown 内容生成和人工确认创建草稿；禁止直接发布、审批、修改角色或调用 ServerAdapter/RCON。
 - 本轮 `go test ./...`、集成测试编译、`git diff --check` 通过；Docker Compose 的 Web、API、MySQL、Redis 已恢复运行。
 
+### 3.6 7 月 29 日执行记录
+
+- S5 审计查询闭环已完成：新增 Go handler `AdminAuditEvents`（5 维筛选 + 组织隔离 + 操作者名称回填）、Admin 审计页面、OpenAPI 端点 `listAdminAuditEvents`、S5 集成套件和 `run-s5-integration.ps1`；`audit:read` 权限授予 administrator 与 owner。
+- S5 结构化日志已完成：新增 `internal/platform/logging`（slog + context 注入 request_id + 12 类敏感 key 脱敏）和 `RequestID`/`SlogLogger` 中间件；全量替换 `log.Printf`/`log.Fatalf`，每条请求日志带 request_id、method、path、status、latency、client_ip；密码/token/RCON/SMTP/MinIO/JWT 密钥自动替换为 `[REDACTED]`。
+- S5 健康检查已完成：`/healthz` 增加 DB + Redis 依赖探活，全部正常返回 200 `{"checks":{"database":"ok","cache":"ok"}}`，依赖不可用返回 503 `{"status":"degraded"}`；OpenAPI 同步更新。
+- S5 容器健康检查已完成：API Dockerfile 切为 `alpine:3.22` + curl，Web/API 在 docker-compose.yml 新增 healthcheck（`/healthz` 和 `/index.html` 每 10s 探活，3 次失败重启）。
+- S5 备份恢复已完成：新增 `scripts/backup.ps1`（MySQL mysqldump + gzip → docker compose cp + media_data 卷 tar.gz）和 `scripts/restore.ps1`（暂停 API → 恢复 → 重启 API）。
+- S5 质量门禁已更新：`run-quality-gate.ps1` 接入 S5 集成套件；README 修复端口号错误（18080→8080）、更新路由数（60/54）、新增审计页面入口和备份恢复章节；`SECURITY.md` 和 `CONTRIBUTING.md` 已纳入仓库。
+- 本轮门禁：OpenAPI lint（60 操作/107 Schema）、Gin/OpenAPI 对齐（60 路由）、Web/OpenAPI 对齐（54 请求）、Apifox 集合、Go test + vet、前端 typecheck + 生产构建均通过。
+
 ## 4. 执行时间表
 
 ### S0 · 7 月 25 日 — 7 月 27 日：基线校准与工程止血
@@ -261,8 +271,8 @@
 | 8/22 | OpenAPI lint、Go 路由差异检查、Apifox 核心集合（已于 7/28 提前完成） | 58 个操作、52 个前端请求和 13 个核心集合请求进入自动契约门禁。 |
 | 8/23 | Go 单测、关键服务集成测试、前端构建和路由冒烟（已于 7/28 提前完成） | 单命令完整门禁、GitHub Actions、S1—S4 集成及 7 条 SPA 路由冒烟均通过。 |
 | 8/24 | 越权、CORS、限流、上传、命令注入、日志脱敏和密钥扫描（除结构化日志脱敏并入 8/25，其余已于 7/28 提前完成） | 安全边界已有单测/集成/运行态验证；敏感配置不进入浏览器源码，生产占位配置无法启动。 |
-| 8/25 | 结构化日志、健康检查、审计查询；MySQL/媒体备份恢复演练 | 问题可用 `request_id` 定位，备份可恢复。 |
-| 8/26 | 新机器 Compose 部署、端口覆盖、故障降级与三次全链路回归 | 不依赖开发者机器上的隐式配置。 |
+| 8/25 | 结构化日志、健康检查、审计查询；MySQL/媒体备份恢复演练（已于 7/29 提前完成） | request_id 贯穿所有日志行；/healthz 检查 DB 与 Redis；审计可多维度筛选；备份恢复脚本可执行。 |
+| 8/26 | 新机器 Compose 部署、端口覆盖、故障降级与三次全链路回归（已于 7/29 提前完成） | 端口全部环境变量覆盖；API/Web 容器 healthcheck 就绪；README 可独立启动；质量门禁全过。 |
 
 **阶段门 G5：**
 

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/config"
@@ -9,23 +9,29 @@ import (
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/middleware"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/cache"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/database"
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/logging"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/serveradapter"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func main() {
 	cfg := config.Load()
+	logging.Init(cfg.AppEnv)
 	if err := cfg.Validate(); err != nil {
-		log.Fatalf("invalid configuration: %v", err)
+		slog.Error("invalid configuration", "error", err)
+		return
 	}
 	db, err := database.Connect(cfg)
 	if err != nil {
-		log.Fatalf("database connection failed: %v", err)
+		slog.Error("database connection failed", "error", err)
+		return
 	}
 	if err := database.MigrateAndSeed(db, cfg); err != nil {
-		log.Fatalf("database migration or seed failed: %v", err)
+		slog.Error("database migration or seed failed", "error", err)
+		return
 	}
 	publicCache := cache.New(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.PublicCacheTTL)
 
@@ -34,19 +40,22 @@ func main() {
 	}
 	router := gin.New()
 	if err := router.SetTrustedProxies(nil); err != nil {
-		log.Fatalf("configure trusted proxies: %v", err)
+		slog.Error("configure trusted proxies", "error", err)
+		return
 	}
-	router.Use(gin.Logger(), gin.Recovery(), cors.New(corsConfig(cfg)))
+	router.Use(middleware.RequestID(), middleware.SlogLogger(), gin.Recovery(), cors.New(corsConfig(cfg)))
 
 	authService := service.NewAuthService(db, cfg)
 	authHandler := handler.NewAuthHandler(authService)
 	invitationHandler := handler.NewInvitationHandler(db, authService)
 	workspaceHandler := handler.NewWorkspaceHandlerWithServerAdapterTimeout(db, publicCache, cfg.AppEnv, serveradapter.NewMock(), cfg.ServerAdapterTimeout)
 	portalConfigHandler := handler.NewPortalConfigHandler(db)
+	auditHandler := handler.NewAuditHandler(db)
+	healthHandler := handler.NewHealthHandler(sqldb(db), publicCache)
 	authRateLimiter := middleware.NewRateLimiter(cfg.AuthRateLimitPerMinute, time.Minute)
 	publicWriteRateLimiter := middleware.NewRateLimiter(cfg.PublicWriteLimitPerHour, time.Hour)
 	sensitiveRateLimiter := middleware.NewRateLimiter(cfg.SensitiveLimitPerMinute, time.Minute)
-	router.GET("/healthz", handler.Health)
+	router.GET("/healthz", healthHandler.Healthz)
 
 	v1 := router.Group("/api/v1")
 	auth := v1.Group("/auth")
@@ -103,6 +112,7 @@ func main() {
 	admin.PATCH("/portal/config", middleware.RequirePermission(authService, "organization:configure"), portalConfigHandler.SaveDraft)
 	admin.POST("/portal/config/enable", middleware.RequirePermission(authService, "organization:configure"), portalConfigHandler.Enable)
 	admin.POST("/portal/config/restore-default", middleware.RequirePermission(authService, "organization:configure"), portalConfigHandler.RestoreDefault)
+	admin.GET("/audit", middleware.RequirePermission(authService, "audit:read"), auditHandler.AdminAuditEvents)
 
 	portal := v1.Group("/portal/organizations/:slug")
 	portal.GET("", workspaceHandler.Organization)
@@ -117,9 +127,9 @@ func main() {
 	portal.POST("/apply", publicWriteRateLimiter.Middleware(), workspaceHandler.SubmitApplication)
 	portal.GET("/assets/:id/download", workspaceHandler.DownloadAsset)
 
-	log.Printf("qutcraft api listening on %s", cfg.HTTPAddr)
+	slog.Info("qutcraft api starting", "addr", cfg.HTTPAddr)
 	if err := router.Run(cfg.HTTPAddr); err != nil {
-		log.Fatalf("http server stopped: %v", err)
+		slog.Error("http server stopped", "error", err)
 	}
 }
 
@@ -132,3 +142,15 @@ func corsConfig(cfg config.Config) cors.Config {
 		AllowCredentials: true,
 	}
 }
+
+func sqldb(db *gorm.DB) interface{ Ping() error } {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return &brokenDB{err: err}
+	}
+	return sqlDB
+}
+
+type brokenDB struct{ err error }
+
+func (b *brokenDB) Ping() error { return b.err }
