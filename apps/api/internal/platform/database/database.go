@@ -40,11 +40,12 @@ func Connect(cfg config.Config) (*gorm.DB, error) {
 func MigrateAndSeed(db *gorm.DB, cfg config.Config) error {
 	if err := db.AutoMigrate(
 		&model.Organization{}, &model.User{}, &model.Role{}, &model.Permission{},
-		&model.RolePermission{}, &model.Membership{}, &model.MembershipEvent{}, &model.Invitation{}, &model.MembershipRole{},
+		&model.RolePermission{}, &model.Membership{}, &model.MembershipEvent{}, &model.Invitation{}, &model.InvitationDelivery{}, &model.MembershipRole{},
 		&model.RefreshToken{}, &model.AuditEvent{}, &model.Content{}, &model.KnowledgeDirectory{}, &model.MediaAsset{},
 		&model.Project{}, &model.ProjectMember{}, &model.ProjectMilestone{},
 		&model.Application{}, &model.ApplicationServerSync{},
 		&model.PortalConfiguration{},
+		&model.AgentDefinition{}, &model.AgentConfiguration{}, &model.AgentRun{}, &model.AgentCitation{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -54,6 +55,9 @@ func MigrateAndSeed(db *gorm.DB, cfg config.Config) error {
 		return err
 	}
 	if err := seedRBAC(db); err != nil {
+		return err
+	}
+	if err := seedAgentDefinitions(db, organization); err != nil {
 		return err
 	}
 	if err := seedBootstrapOwner(db, cfg, organization); err != nil {
@@ -111,6 +115,7 @@ func seedRBAC(db *gorm.DB) error {
 		"knowledge:read": "查看知识库目录", "knowledge:manage": "管理知识库目录",
 		"application:read": "查看申请", "application:approve": "处理申请", "server:read_status": "查看服务器后台状态",
 		"server:command": "执行受限服务器命令", "organization:configure": "配置组织与门户", "audit:read": "查看审计记录",
+		"ai:use": "使用组织运营智能体",
 	}
 	permissionIDs := map[string]string{}
 	for key, displayName := range permissions {
@@ -123,9 +128,9 @@ func seedRBAC(db *gorm.DB) error {
 
 	rolePermissions := map[string][]string{
 		"member":        {"organization:read"},
-		"editor":        {"organization:read", "content:read", "content:create", "content:update", "content:submit", "asset:read", "asset:upload", "project:read", "knowledge:read"},
-		"administrator": {"organization:read", "content:read", "content:create", "content:update", "content:submit", "content:publish", "content:archive", "asset:read", "asset:upload", "asset:manage", "membership:read", "membership:manage", "project:read", "project:manage", "knowledge:read", "knowledge:manage", "application:read", "application:approve", "server:read_status", "audit:read"},
-		"owner":         {"organization:read", "content:read", "content:create", "content:update", "content:submit", "content:publish", "content:archive", "asset:read", "asset:upload", "asset:manage", "membership:read", "membership:manage", "project:read", "project:manage", "knowledge:read", "knowledge:manage", "application:read", "application:approve", "server:read_status", "server:command", "organization:configure", "audit:read"},
+		"editor":        {"organization:read", "content:read", "content:create", "content:update", "content:submit", "asset:read", "asset:upload", "project:read", "knowledge:read", "ai:use"},
+		"administrator": {"organization:read", "content:read", "content:create", "content:update", "content:submit", "content:publish", "content:archive", "asset:read", "asset:upload", "asset:manage", "membership:read", "membership:manage", "project:read", "project:manage", "knowledge:read", "knowledge:manage", "application:read", "application:approve", "server:read_status", "audit:read", "ai:use"},
+		"owner":         {"organization:read", "content:read", "content:create", "content:update", "content:submit", "content:publish", "content:archive", "asset:read", "asset:upload", "asset:manage", "membership:read", "membership:manage", "project:read", "project:manage", "knowledge:read", "knowledge:manage", "application:read", "application:approve", "server:read_status", "server:command", "organization:configure", "audit:read", "ai:use"},
 	}
 	for key, keys := range rolePermissions {
 		role, err := findOrCreateRole(db, key, strings.ToUpper(key[:1])+key[1:])
@@ -143,6 +148,30 @@ func seedRBAC(db *gorm.DB) error {
 				return fmt.Errorf("seed role permission %s/%s: %w", key, permissionKey, err)
 			}
 		}
+	}
+	return nil
+}
+
+func seedAgentDefinitions(db *gorm.DB, organization model.Organization) error {
+	var existing model.AgentDefinition
+	err := db.Where("organization_id = ? AND `key` = ?", organization.ID, "content-copilot").First(&existing).Error
+	if err == nil {
+		return nil
+	}
+	if err != gorm.ErrRecordNotFound {
+		return fmt.Errorf("find content copilot definition: %w", err)
+	}
+	definition := model.AgentDefinition{
+		ID: uuid.NewString(), OrganizationID: organization.ID, Key: "content-copilot",
+		Name:                "内容协作智能体",
+		Purpose:             "根据当前组织内已授权的知识资料生成带引用的 Markdown 内容提案；结果必须由人工确认。",
+		SystemPolicyVersion: "content-copilot/v1",
+		AllowedToolKeys:     `["knowledge.search","knowledge.read"]`,
+		ModelProfile:        "content-generation",
+		Enabled:             true,
+	}
+	if err := db.Create(&definition).Error; err != nil {
+		return fmt.Errorf("seed content copilot definition: %w", err)
 	}
 	return nil
 }

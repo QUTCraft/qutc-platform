@@ -14,7 +14,9 @@ $routes = @(
     "/resources",
     "/knowledge",
     "/apply",
-    "/login"
+    "/login",
+    "/admin/audit",
+    "/admin/ai"
 )
 
 foreach ($route in $routes) {
@@ -46,4 +48,9 @@ if ($health.status -ne "ok") {
     throw "API health response is not ok."
 }
 
-Write-Host "ROUTE_SMOKE_OK: $($routes.Count) SPA routes, portal 404, API health"
+$readiness = Invoke-RestMethod -Uri "$apiBase/readyz" -Method Get
+if ($readiness.status -ne "ready" -or $readiness.checks.mysql -ne "ok" -or $readiness.checks.redis -ne "ok") {
+    throw "API readiness response is not ready."
+}
+
+Write-Host "ROUTE_SMOKE_OK: $($routes.Count) SPA routes, portal 404, API liveness/readiness"

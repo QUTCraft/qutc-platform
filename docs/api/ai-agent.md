@@ -1,0 +1,336 @@
+# 组织运营智能体 API 规范
+
+> 实施状态：AI-0 后端基础与 AI-1 人工确认内容闭环已实现
+> 更新日期：2026-07-31
+> 事实来源：[OpenAPI 3.1](openapi.yaml)
+> 架构与长期边界：[AI 智能体集成设计](../architecture/ai-agent-integration.md)
+
+## 1. 当前交付范围
+
+当前实现是一条受控的“知识资料 → Markdown 提案 → 人工确认 → CMS 草稿”闭环，不是聊天装饰，也不会绕过 CMS：
+
+1. 成员读取当前组织的运行策略与脱敏供应商状态；组织所有者可在 `/admin/ai` 保存策略。
+2. 管理员或编辑读取当前组织可用的 `content-copilot`。
+3. 使用 `knowledge:read` 在当前组织内检索知识内容。
+4. 显式选择策略允许数量的知识资料并创建异步运行。
+5. 服务端调用开发 Mock 或 OpenAI-compatible 真实模型。
+6. 查询运行，取得标准 Markdown、固定引用快照、模型模式和 Token 用量。
+7. Admin 内容编辑器展示安全 Markdown、当前正文对比和固定引用。
+8. 用户再次确认后选择“应用到编辑器但不保存”，或显式调用现有 CMS 创建接口生成 `draft`；发布仍走原有人工权限流程。
+
+本次同时实现：
+
+- `ModelProvider` 供应商中立接口；
+- `disabled`、明确标识的 deterministic `mock`、`openai_compatible` 三种驱动；
+- `agent_definitions`、`agent_configurations`、`agent_runs`、`agent_citations` 数据模型；
+- 组织级启停、超时、引用/上下文上限、每用户小时配额和配置审计；
+- 异步运行与取消；
+- `ai:use` RBAC、`knowledge:read` 权限交集和组织隔离；
+- 创建、终态和取消审计；
+- Admin 内容编辑器中的知识检索、跨检索选择、异步轮询/取消、Markdown 预览、正文对比和引用详情；
+- 两级人工确认：应用到当前编辑器不会保存，创建新草稿不会发布；
+- OpenAPI、Swagger、Apifox、TypeScript client 和 Compose 集成测试。
+
+当前未实现：
+
+- `AgentToolCall`、`AgentApproval` 及其批准/拒绝接口；
+- 公开 Portal 问答、自动周报、多智能体和 RCON/ServerAdapter 工具。
+
+## 2. 权限
+
+| 接口 | 必要权限 |
+| --- | --- |
+| `GET /api/v1/admin/ai/config` | `ai:use` |
+| `PATCH /api/v1/admin/ai/config` | `organization:configure` |
+| `GET /api/v1/admin/ai/agents` | `ai:use` |
+| `POST /api/v1/admin/ai/knowledge/search` | `ai:use` ∩ `knowledge:read` |
+| `POST /api/v1/admin/ai/runs` | `ai:use` ∩ `knowledge:read` |
+| `GET /api/v1/admin/ai/runs/{run_id}` | `ai:use`，并强制当前组织 |
+| `POST /api/v1/admin/ai/runs/{run_id}/cancel` | `ai:use`，并强制当前组织 |
+
+`editor`、`administrator`、`owner` 默认具有 `ai:use`；`member` 默认没有。服务端从 Bearer JWT 对应的活动成员关系取得 `organization_id`，请求体和查询参数不能覆盖组织范围。
+
+知识检索和运行引用只接受当前组织中 `type=knowledge` 的 `contents`。其他组织 ID、非知识内容 ID 和不存在的 ID 统一返回 `404 ai.source_not_found`，避免通过错误差异探测资源。
+
+## 3. API
+
+### 3.1 读取与更新组织配置
+
+```http
+GET /api/v1/admin/ai/config
+Authorization: Bearer <access-token>
+```
+
+组织尚未保存配置时，读取接口返回由服务端部署变量派生的默认配额，以及固定默认引用/上下文上限；保存后返回 `id`、`updated_by` 和 `updated_at`。响应示例：
+
+```json
+{
+  "data": {
+    "id": "configuration-id",
+    "enabled": true,
+    "run_limit_per_hour": 20,
+    "request_timeout_seconds": 30,
+    "max_sources": 10,
+    "max_context_characters": 30000,
+    "provider": {
+      "provider": "mock",
+      "mode": "mock",
+      "model": "mock-content-v1",
+      "enabled": true,
+      "configured": true
+    },
+    "updated_by": "owner-user-id",
+    "updated_at": "2026-07-30T08:00:00Z"
+  },
+  "meta": { "request_id": "..." }
+}
+```
+
+```http
+PATCH /api/v1/admin/ai/config
+Content-Type: application/json
+Authorization: Bearer <owner-access-token>
+
+{
+  "enabled": true,
+  "run_limit_per_hour": 20,
+  "request_timeout_seconds": 30,
+  "max_sources": 10,
+  "max_context_characters": 30000
+}
+```
+
+写入请求必须包含全部五个字段，范围分别为：
+
+| 字段 | 范围 | 生效方式 |
+| --- | --- | --- |
+| `enabled` | 布尔值 | `false` 时新建运行返回 `409 ai.feature_disabled`。 |
+| `run_limit_per_hour` | 1—200 | 按当前用户和当前组织统计最近一小时运行。 |
+| `request_timeout_seconds` | 5—120 | 创建运行时固定到该次模型调用。 |
+| `max_sources` | 1—10 | 创建运行时限制显式引用数量。 |
+| `max_context_characters` | 1,000—100,000 | 服务端按字符截取发送给模型的知识正文总量。 |
+
+供应商驱动、模型标识、上游地址和 API Key 不是组织配置字段，只能由部署人员在 API 服务环境变量中设置。页面只显示 `provider` 脱敏状态，不能读取或修改密钥。
+
+### 3.2 获取智能体目录
+
+```http
+GET /api/v1/admin/ai/agents
+Authorization: Bearer <access-token>
+```
+
+响应：
+
+```json
+{
+  "data": {
+    "agents": [
+      {
+        "id": "agent-definition-id",
+        "key": "content-copilot",
+        "name": "内容协作智能体",
+        "purpose": "根据当前组织内已授权的知识资料生成带引用的 Markdown 内容提案；结果必须由人工确认。",
+        "system_policy_version": "content-copilot/v1",
+        "allowed_tool_keys": ["knowledge.search", "knowledge.read"],
+        "model_profile": "content-generation",
+        "enabled": true
+      }
+    ],
+    "provider": {
+      "provider": "mock",
+      "mode": "mock",
+      "model": "mock-content-v1",
+      "enabled": true,
+      "configured": true
+    }
+  },
+  "meta": { "request_id": "..." }
+}
+```
+
+`mode=mock` 是开发结果，不能在比赛演示中冒充真实模型；真实兼容模型返回 `provider=openai_compatible`、`mode=real`。响应永远不返回模型 API Key 或上游地址。
+
+### 3.3 检索授权知识
+
+```http
+POST /api/v1/admin/ai/knowledge/search
+Content-Type: application/json
+Authorization: Bearer <access-token>
+
+{
+  "query": "暑期建筑活动",
+  "limit": 10
+}
+```
+
+`query` 为 1—80 字符，`limit` 为 1—20，默认 10。响应只包含引用选择需要的最少字段：
+
+```json
+{
+  "data": [
+    {
+      "source_type": "content",
+      "id": "content-id",
+      "title": "暑期建筑活动记录",
+      "excerpt": "活动目标与执行记录。",
+      "status": "draft",
+      "updated_at": "2026-07-30T08:00:00Z"
+    }
+  ],
+  "meta": { "request_id": "..." }
+}
+```
+
+内部知识助手允许有权限的用户读取同组织草稿、审核中和已发布知识；这不改变 Portal 只能读取已发布内容的边界。
+
+### 3.4 创建异步运行
+
+```http
+POST /api/v1/admin/ai/runs
+Content-Type: application/json
+Authorization: Bearer <access-token>
+
+{
+  "agent_key": "content-copilot",
+  "task": "根据活动记录生成一篇门户动态提案",
+  "context_refs": [
+    { "type": "content", "id": "content-id" }
+  ],
+  "output_mode": "proposal"
+}
+```
+
+约束：
+
+- `task` 为 1—1000 字符；
+- `context_refs` 为 1—10 条且不能重复，同时不能超过当前组织的 `max_sources`；
+- 当前只支持 `type=content`，对应内容必须是当前组织的知识内容；
+- 发送给模型的单条正文最多 12000 字符、单次上下文正文合计不能超过组织的 `max_context_characters`；标题、摘要和引用版本仍保留；
+- 当前只支持 `output_mode=proposal`；
+- 每个用户在每个组织内默认每小时最多创建 20 次运行，组织所有者可配置为 1—200；
+- 组织关闭智能体时返回 `409 ai.feature_disabled`；
+- 模型未启用时返回 `503`，不会降级成伪造的真实结果。
+
+成功返回 `202 Accepted`。运行可能已从 `queued` 进入 `running`，快速 Mock 也可能在响应前完成；客户端仍应按运行状态查询，而不是假定同步完成。
+
+### 3.5 查询运行
+
+```http
+GET /api/v1/admin/ai/runs/{run_id}
+Authorization: Bearer <access-token>
+```
+
+状态机：
+
+```text
+queued → running → succeeded
+                 └→ failed
+queued/running ───→ canceled
+```
+
+API 进程重启时，启动恢复会把上一个进程遗留的 `queued/running` 收口为 `failed`，并写入 `failure_code=ai.run_interrupted`，避免运行永久悬挂。
+
+终态响应包含：
+
+- `output_title`、`output_excerpt`、`output_markdown`；
+- `provider`、`mode`、`model`、`prompt_version`；
+- `input_tokens`、`output_tokens`；
+- `failure_code`、脱敏后的 `failure_message`；
+- 引用资料 ID、标题、摘要和引用时的 `source_updated_at`；
+- `request_id`、开始/结束/过期时间。
+
+不保存或返回模型隐藏推理过程。Markdown 属于不可信输出，前端必须使用现有安全 Markdown 渲染流程，不能直接执行其中的 HTML、脚本或链接。
+
+建议轮询间隔为 500—1000 ms，在 `succeeded`、`failed`、`canceled` 任一终态停止；首次保存组织配置前使用服务端 `AI_REQUEST_TIMEOUT` 默认值，之后使用组织的 `request_timeout_seconds`。
+
+### 3.6 取消运行
+
+```http
+POST /api/v1/admin/ai/runs/{run_id}/cancel
+Authorization: Bearer <access-token>
+```
+
+只有 `queued`、`running` 可取消。终态重复取消返回 `409 ai.run_not_cancelable`。取消会更新数据库状态、尝试终止当前进程内模型请求，并写入审计。
+
+### 3.7 Admin 人工确认编排
+
+内容编辑器的“从知识生成”工作台只编排已经定义的接口，不新增可绕过 CMS 的特殊写入口：
+
+1. `GET /api/v1/admin/ai/config` 与 `GET /api/v1/admin/ai/agents` 检查组织策略和供应商模式。
+2. `POST /api/v1/admin/ai/knowledge/search` 检索资料；用户逐条明确选择。
+3. `POST /api/v1/admin/ai/runs` 创建运行，并轮询 `GET /api/v1/admin/ai/runs/{run_id}`。
+4. 页面使用统一的安全 Markdown 渲染器展示结果，并排呈现当前正文与生成正文，同时展示引用 ID 和引用版本。
+5. “应用到当前编辑器”只修改浏览器内表单，不发起写请求。
+6. “确认并创建新草稿”经过确认框后调用现有 `POST /api/v1/admin/content`，响应状态必须为 `draft`。
+7. 草稿只能由既有 `content:publish` 流程人工发布；AI API 没有发布能力。
+
+生成正文缺失某条固定引用 ID 时，前端会补充“引用资料”章节，保证创建的草稿保留来源标识。模型输出、标题和摘要仍可在保存或发布前由人工编辑。
+
+## 4. 部署配置与组织策略
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AI_PROVIDER` | API 直接运行：`disabled`；Compose：`mock` | `disabled`、`mock`、`openai_compatible`。生产环境禁止 `mock`。 |
+| `AI_BASE_URL` | 空 | 兼容服务的 API 根，例如 `https://models.example.com/v1`；服务端追加 `/chat/completions`。 |
+| `AI_API_KEY` | 空 | 只注入 API 服务，不进入前端、OpenAPI 示例、日志或响应。 |
+| `AI_MODEL` | `mock-content-v1` | 模型标识。 |
+| `AI_REQUEST_TIMEOUT` | `30s` | 组织尚未保存策略时的单次上游调用默认超时。 |
+| `AI_RUN_LIMIT_PER_HOUR` | `20` | 组织尚未保存策略时的每用户小时默认配额。 |
+
+生产启动规则：
+
+- `AI_PROVIDER=mock` 被拒绝；
+- `openai_compatible` 必须配置 HTTPS `AI_BASE_URL`、`AI_API_KEY` 和非空模型；
+- `disabled` 可以安全启动，但创建运行返回 `503 ai.provider_unavailable`；
+- API Key 只存在于服务端内存和上游 `Authorization` 请求头中。
+
+兼容驱动使用 `POST {AI_BASE_URL}/chat/completions`，发送 `model`、`messages`、`temperature`，读取 `choices[0].message.content` 与标准 `usage` 字段。
+
+组织策略保存在 `agent_configurations`，只保存启停和资源限制，不保存供应商地址、模型 API Key 或其他部署凭据。每次创建运行都会重新读取组织策略，因此保存后无需重启 API。
+
+## 5. 错误码
+
+| HTTP | 错误码 | 语义 |
+| --- | --- | --- |
+| `400` | `ai.config_validation_failed` | 组织配置缺字段、字段类型错误或超出允许范围。 |
+| `400` | `ai.validation_failed` | 查询、任务、引用数量、类型或输出模式不合法。 |
+| `401` | `auth.token_missing` / `auth.token_invalid` | 未认证或会话失效。 |
+| `403` | `admin.permission_denied` | 缺少 `ai:use` 或 `knowledge:read`。 |
+| `404` | `ai.agent_not_found` | 当前组织没有指定的启用智能体。 |
+| `404` | `ai.source_not_found` | 引用不存在、类型不符、无权访问或属于其他组织。 |
+| `404` | `ai.run_not_found` | 运行不存在或不属于当前组织。 |
+| `409` | `ai.feature_disabled` | 当前组织已关闭智能体功能。 |
+| `409` | `ai.run_not_cancelable` | 运行已进入终态。 |
+| `429` | `ai.run_quota_exceeded` | 数据库小时配额已用完；接口层限流也可能返回通用 `rate_limit.exceeded`。 |
+| `503` | `ai.provider_unavailable` | 模型驱动关闭或配置不完整。 |
+
+异步模型失败不会把上游响应、API Key 或内部错误原文返回给客户端。查询运行时通过 `failure_code` 区分 `ai.provider_timeout`、`ai.provider_disabled`、`ai.provider_invalid_response`、`ai.provider_unavailable`。
+
+## 6. 审计
+
+| action | result | 时机 |
+| --- | --- | --- |
+| `ai.config_update` | `success` | 组织所有者保存运行策略。 |
+| `ai.run_create` | `accepted` | 运行和引用快照已在事务内创建。 |
+| `ai.run_create` | `failed` / `quota_exceeded` | 模型关闭或小时配额拒绝。 |
+| `ai.run_result` | `succeeded` / `failed` | 异步运行进入终态。 |
+| `ai.run_cancel` | `success` | 用户取消 queued/running 运行。 |
+
+运行审计目标为 `target_type=agent_run`；配置审计目标为 `target_type=agent_configuration`。两者记录当前组织、操作者和原始 HTTP `request_id`，但不保存完整 Prompt、知识正文、模型凭据或隐藏推理。
+
+## 7. 验证
+
+无外部服务检查：
+
+```powershell
+.\scripts\run-quality-gate.ps1
+```
+
+Compose 重建后运行 AI 真实链路：
+
+```powershell
+docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.yml up -d --build api web
+.\scripts\run-s6-agent-integration.ps1
+```
+
+S6 集成测试验证登录与 RBAC、配置读取与持久化、停用后拒绝运行、重新启用、智能体目录、知识检索、跨组织引用拒绝、Prompt Injection 隔离、异步 Mock 终态、引用快照和审计。测试还连续三轮验证“生成本身不创建内容 → 人工确认创建 draft → Portal 仍不可见 → 人工发布后可见且保留来源 ID → 下线后不可见”。

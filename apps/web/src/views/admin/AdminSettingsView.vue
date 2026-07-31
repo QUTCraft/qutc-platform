@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/admin'
-import type { PortalConfiguration, PortalManifest, SmtpSettings } from '@/api/types'
+import type { EmailAdapterStatus, PortalConfiguration, PortalManifest } from '@/api/types'
 import { clearPortalFallback } from '@/portal/runtime'
 
 const allowedCapabilities: Array<{ value: PortalManifest['capabilities'][number]; label: string }> = [
@@ -140,27 +140,31 @@ async function importManifest(file: File) {
   return false
 }
 
-const smtp = reactive<SmtpSettings>({
-  host: 'smtp.qutcraft.com',
-  port: 465,
-  sender_email: 'whitelist-bot@qutcraft.com',
-  recipient_email: 'admin-whitelist@qutcraft.local',
-  auth_code: '',
-  enable_notification: true,
-})
+const emailStatus = ref<EmailAdapterStatus | null>(null)
+const emailStatusLoading = ref(false)
 
-function saveSmtpSettings() {
-  ElMessage.info('SMTP 持久化尚未接入；授权码不会在浏览器中保存。')
+async function loadEmailStatus() {
+  emailStatusLoading.value = true
+  try {
+    emailStatus.value = await adminApi.getEmailAdapterStatus()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '邮件适配器状态加载失败。')
+  } finally {
+    emailStatusLoading.value = false
+  }
 }
 
-onMounted(loadPortalConfiguration)
+onMounted(() => {
+  void loadPortalConfiguration()
+  void loadEmailStatus()
+})
 </script>
 
 <template>
   <section class="admin-page-heading">
     <div>
       <h2>系统设置</h2>
-      <p>管理公开门户的基础属性以及新申请的邮件通知设置。</p>
+      <p>管理公开门户配置，并检查服务端邀请邮件适配器的运行状态。</p>
     </div>
   </section>
 
@@ -238,41 +242,35 @@ onMounted(loadPortalConfiguration)
         </el-form>
       </article>
 
-      <article class="admin-panel" style="margin-top: 20px;">
+      <article v-loading="emailStatusLoading" class="admin-panel" style="margin-top: 20px;">
         <div class="panel-heading">
           <div>
-            <h2>新申请邮件通知设置</h2>
+            <h2>邀请邮件投递</h2>
+            <p>SMTP 凭据仅通过 API 服务环境变量配置，不会传输到浏览器或写入前端存储。</p>
           </div>
+          <el-tag :type="emailStatus?.enabled ? 'success' : 'info'" round>
+            {{ emailStatus?.enabled ? '已启用' : '未启用' }}
+          </el-tag>
         </div>
-        <el-form :model="smtp" label-position="top">
-          <div class="form-grid">
-            <el-form-item label="SMTP 服务器地址">
-              <el-input v-model="smtp.host" placeholder="smtp.exmail.qq.com" />
-            </el-form-item>
-            <el-form-item label="端口">
-              <el-input v-model.number="smtp.port" placeholder="465" />
-            </el-form-item>
-          </div>
-
-          <div class="form-grid">
-            <el-form-item label="发件人邮箱">
-              <el-input v-model="smtp.sender_email" placeholder="noreply@qutcraft.com" />
-            </el-form-item>
-            <el-form-item label="管理员接收邮箱">
-              <el-input v-model="smtp.recipient_email" placeholder="admin@qutcraft.com" />
-            </el-form-item>
-          </div>
-
-          <el-form-item label="SMTP 授权码 / 密码">
-            <el-input v-model="smtp.auth_code" type="password" show-password placeholder="输入授权码" />
-          </el-form-item>
-
-          <el-form-item>
-            <el-switch v-model="smtp.enable_notification" active-text="当有新玩家申请加入时向管理员发送邮件通知" />
-          </el-form-item>
-
-          <el-button type="primary" round @click="saveSmtpSettings">保存邮件通知配置</el-button>
-        </el-form>
+        <el-alert
+          v-if="emailStatus && !emailStatus.enabled"
+          title="邮件未启用，成员邀请仍可通过复制链接完成"
+          type="info"
+          :closable="false"
+          show-icon
+        />
+        <el-descriptions v-if="emailStatus" class="email-status-details" :column="1" border>
+          <el-descriptions-item label="驱动">{{ emailStatus.driver }}</el-descriptions-item>
+          <el-descriptions-item label="配置完整性">{{ emailStatus.configured ? '已通过启动校验' : '未配置' }}</el-descriptions-item>
+          <el-descriptions-item v-if="emailStatus.from_address" label="发件人">
+            {{ emailStatus.from_name ? `${emailStatus.from_name} · ` : '' }}{{ emailStatus.from_address }}
+          </el-descriptions-item>
+          <el-descriptions-item v-if="emailStatus.security" label="传输安全">{{ emailStatus.security }}</el-descriptions-item>
+        </el-descriptions>
+        <div class="email-status-actions">
+          <el-button round :loading="emailStatusLoading" @click="loadEmailStatus">刷新状态</el-button>
+          <span>修改部署环境变量并重启 API 后生效。</span>
+        </div>
       </article>
     </div>
 
@@ -318,6 +316,19 @@ onMounted(loadPortalConfiguration)
 
 .portal-config-actions :deep(.el-button + .el-button) {
   margin-left: 0;
+}
+
+.email-status-details {
+  margin-top: 16px;
+}
+
+.email-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 16px;
+  color: var(--el-text-color-secondary);
 }
 
 @media (max-width: 720px) {

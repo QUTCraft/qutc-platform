@@ -1,12 +1,12 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 const principalKey = "qutc.principal"
@@ -19,8 +19,12 @@ func RequireAuth(auth *service.AuthService) gin.HandlerFunc {
 			abort(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
 			return
 		}
-		principal, err := auth.ParseAccessToken(parts[1])
+		principal, err := auth.AuthenticateAccessToken(parts[1])
 		if err != nil {
+			if errors.Is(err, service.ErrSessionInactive) {
+				abort(c, http.StatusUnauthorized, "auth.session_inactive", "账户或当前组织成员关系已停用。")
+				return
+			}
 			abort(c, http.StatusUnauthorized, "auth.token_invalid", "访问令牌无效或已过期。")
 			return
 		}
@@ -55,10 +59,6 @@ func PrincipalFromContext(c *gin.Context) (service.Principal, bool) {
 }
 
 func abort(c *gin.Context, status int, code, message string) {
-	requestID := c.GetHeader("X-Request-ID")
-	if requestID == "" {
-		requestID = uuid.NewString()
-	}
-	c.Header("X-Request-ID", requestID)
+	requestID := EnsureRequestID(c)
 	c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"code": code, "message": message, "request_id": requestID}})
 }

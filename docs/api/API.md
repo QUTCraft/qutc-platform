@@ -4,9 +4,9 @@
 > 契约源：[openapi.yaml](openapi.yaml)（OpenAPI 3.1.1）  
 > 适用对象：Go 后端、Vue 前端、Apifox 测试、Swagger UI、自定义门户开发者
 
-本文说明当前已开发的认证（Auth）、公开门户（Portal）与后台工作台（Admin）接口。它是对 OpenAPI 契约的可读补充：**路径、字段类型、必填性和状态码以 `openapi.yaml` 为最终事实来源**。本文会明确区分已落地的 CMS、资源、知识目录、成员邀请和门户配置能力与仍在排期中的运行时能力。
+本文说明当前已开发的认证（Auth）、公开门户（Portal）与后台工作台（Admin）接口。它是对 OpenAPI 契约的可读补充：**路径、字段类型、必填性和状态码以 `openapi.yaml` 为最终事实来源**。本文会明确区分已落地的 CMS、资源、知识目录、成员邀请、门户配置与审计能力和仍在排期中的运行时能力。
 
-> 实现状态：`/api/v1/auth/*`、邀请注册/接受、Portal 公开内容读取、Admin 内容生命周期、媒体资产、用户资料、项目/成员/里程碑、知识库目录、申请审批/Mock ServerAdapter 和门户配置接口已在 Go API 底座中实现。
+> 实现状态：`/api/v1/auth/*`、邀请注册/接受、Portal 公开内容读取、Admin 内容生命周期、媒体资产、用户资料、项目/成员/里程碑、知识库目录、申请审批/Mock ServerAdapter、门户配置、审计查询和存活/就绪探针已在 Go API 底座中实现。
 
 ## 1. 设计边界
 
@@ -133,7 +133,7 @@ curl "http://localhost:8080/api/v1/admin/dashboard" \
 | 状态码 | 含义 | 客户端处理 |
 | --- | --- | --- |
 | `400` | 请求字段、长度、枚举值或命令格式不合法 | 就地展示校验信息，不重试。 |
-| `401` | 未带 token、token 失效或签名无法验证 | 清理会话并进入登录或刷新流程。 |
+| `401` | 未带 token、token 失效、签名无法验证，或账户/当前成员关系已停用 | 尝试一次刷新；刷新失败后清理会话并进入登录。 |
 | `403` | 已登录但 RBAC 角色无权操作 | 保留页面上下文，提示权限不足。 |
 | `404` | 公开组织或资源不存在 | Portal 显示未找到页；不要暴露内部存在性信息。 |
 | `409` | 审批对象已被其他操作处理，状态冲突 | 刷新列表后重新决定，不自动重试。 |
@@ -164,6 +164,16 @@ curl "http://localhost:8080/api/v1/admin/dashboard" \
 
 受限接口的正常响应也携带 `X-RateLimit-Limit`、`X-RateLimit-Remaining` 和 `X-RateLimit-Reset`。超过限额时返回 `429 request.rate_limited` 与 `Retry-After`。当前实现针对比赛版的单 API 实例；扩展到多实例时应把计数器迁移到 Redis，不能依赖各进程独立内存。
 
+### 3.6 Request ID、日志与探针
+
+所有 API 请求先经过 Request ID 中间件。客户端可发送 `X-Request-ID`，但值必须是 1–64 个安全字符（字母、数字、`.`、`_`、`:`、`-`），否则服务端生成新的 UUID。最终值通过同名响应头返回，并用于响应封装、JSON 访问日志和业务审计关联。
+
+- `GET /healthz` 只检查 API 进程存活，成功返回 `{"status":"ok"}`。
+- `GET /readyz` 检查 MySQL 与 Redis；全部可用返回 `200/status=ready`，任一不可用返回 `503/status=unavailable`。
+- 结构化日志不记录查询串、请求体、Authorization、邮箱、密码或外部服务凭据。
+
+字段、排错流程和审计边界见 [API 可观测性与审计规范](observability.md)。
+
 ## 4. 认证、组织与 RBAC
 
 ### 4.1 JWT
@@ -174,7 +184,7 @@ Portal API 一律不得携带、要求或解析管理员 token。Admin API 的�
 Authorization: Bearer <JWT>
 ```
 
-后端至少验证 token 的签名、过期时间、主体身份及组织成员关系。认证成功不等于有权限：每个管理端操作还必须按角色授权，并限制在当前组织的资源范围内。
+后端对每次受保护请求同时验证 token 的签名、过期时间、全局账户状态和 token 所属组织的成员关系；账户或成员关系不是 `active` 时返回 `401 auth.session_inactive`。认证成功不等于有权限：每个管理端操作还必须按数据库中的实时角色授权，并限制在当前组织的资源范围内，因此角色调整无需等待旧 JWT 过期即可生效。
 
 ### 4.2 当前角色枚举
 
@@ -498,7 +508,7 @@ Operation ID：`createAdminContent`
 - `GET /api/v1/admin/assets/{asset_id}/download`：管理端受权限保护的下载，需要 `asset:read`。
 - `GET /api/v1/portal/organizations/{organization_slug}/assets/{asset_id}/download`：仅当资产关联的内容已发布时允许下载，不返回草稿或管理字段。
 
-上传响应只返回资产元数据和服务端生成的下载地址。客户端不得根据原始文件名、对象存储 bucket 或资产 ID 自行拼接下载 URL。
+上传响应只返回资产元数据和服务端生成的下载地址。客户端不得根据原始文件名、对象存储 bucket 或资产 ID 自行拼接下载 URL。API 可通过 `STORAGE_DRIVER=local|s3` 使用本地目录或 MinIO/S3；存储凭据、驱动和对象键不进入公开响应。存储暂不可用时上传/下载返回 `503`，详细配置、迁移与补偿边界见 [媒体存储适配规范](storage-adapter.md)。
 
 ### 7.3 成员与角色
 
@@ -516,7 +526,11 @@ Operation ID：`listAdminUsers`
 | `state` | enum | `active`、`invited`、`disabled`。 |
 | `joined_at` | date-time | 加入/被邀请的记录时间。 |
 
-`PATCH /api/v1/admin/users/{user_id}` 更新成员角色和状态，需要 `membership:manage`，并写入审计事件。首期状态为 `active`、`invited`、`disabled`；角色为 `owner`、`administrator`、`editor`、`member`。
+`PATCH /api/v1/admin/users/{user_id}` 更新当前组织内的成员角色和状态，需要 `membership:manage`，并写入审计事件。响应可见状态为 `active`、`invited`、`disabled`，但该接口只允许写 `active` 或 `disabled`；`invited` 只能由邀请流程产生。角色为 `owner`、`administrator`、`editor`、`member`。
+
+成员停用与全局账户停用是两个领域：该接口只更新 `memberships.state`，不能修改 `users.state`。停用事务会撤销该用户已有 Refresh Token；旧 Access Token 在下一次受保护请求时通过实时成员校验返回 `401 auth.session_inactive`。重新启用后需要重新登录。角色修改也实时作用于 RBAC 查询，旧 Access Token 不携带角色快照，因此降级后下一次无权操作立即返回 `403`。
+
+Owner 不能被降级或停用，管理员不能授予 `owner`，操作者也不能通过成员管理接口解除自己的管理权限。保护冲突返回稳定的 `membership.owner_protected`、`membership.owner_only` 或 `membership.self_change_forbidden`。
 
 ### 7.4 项目管理
 
@@ -682,13 +696,17 @@ Operation ID：`executeRestrictedServerCommand`
 3. 已有账户登录后调用 `POST /api/v1/invitations/{token}/accept`；新用户可在 `POST /api/v1/auth/register` 传入 `invitation_token`，注册、成员关系、角色和 token 消费在同一事务内完成。
 4. 默认有效期为 7 天，最大 30 天；同一组织同一邮箱只能存在一个待处理邀请，邀请不能授予 `owner`。
 5. 邮箱不匹配返回 `403`；重复、已使用、过期或撤销的链接分别使用统一冲突/失效错误，不返回 token 哈希。
+6. 创建响应包含真实 `delivery` 状态。邮件未启用或发送失败时邀请仍有效，Admin 必须保留复制链接入口。
+7. `POST /api/v1/admin/invitations/{invitation_id}/email/retry` 会先轮换 token，使旧链接失效，再在事务外投递；邮件失败不回滚新邀请链接。
 
 ### 7.8 外部适配器与通知规范
 
 #### 1. SMTP 邮件提醒适配器
-- **当前状态**：尚未实现，不能在 UI 或演示中宣称邮件已发送。
-- **规划边界**：后续可由事务外通知任务触发 SMTP；通知失败不得回滚审批决定。
-- **安全约束**：SMTP 授权码与服务器私钥严格保存在后端受控环境变量中，绝不可暴露或持久化到前端静态代码或 UI 中。
+- **当前状态**：邀请邮件已实现 `disabled`/`smtp` 可替换适配器；默认关闭，关闭时明确返回 `delivery.status=disabled`。
+- **投递边界**：邀请先提交，邮件在事务外同步尝试；失败单独记录为 `failed`，不会回滚邀请。
+- **失败恢复**：Admin 可轮换邀请链接并重试；服务端不保存明文 token，旧链接在重试时立即失效。
+- **配置状态**：`GET /api/v1/admin/notifications/email/status` 只返回驱动、发件人和安全模式，不返回连接与认证凭据。
+- **安全约束**：SMTP 授权码严格保存在后端受控环境变量中，绝不可暴露或持久化到前端静态代码或 UI 中。完整配置、模型和错误语义见 [邀请邮件适配器规范](email-adapter.md)。
 
 #### 2. Minecraft RCON 隔离与审计规范
 - **当前状态**：真实 RCON 暂时搁置，默认使用明确标记的 Mock Adapter。
@@ -733,6 +751,33 @@ Manifest 必须符合 `qutc.portal/v1`，入口与自定义主题 Token 必须�
 
 `source=active` 表示返回经服务端再次校验的启用配置；`source=default` 表示无配置或配置损坏，调用方必须使用内置 MD3。该公开端点使用 `Cache-Control: no-store`，不返回 `updated_by`、`activated_by`、草稿或违规详情。
 
+### 7.10 审计查询
+
+`GET /api/v1/admin/audit-events`
+Operation ID：`listAdminAuditEvents`
+
+需要 `audit:read` 权限。服务端始终把查询绑定到当前会话的 `organization_id`，接口不接受组织参数。支持通用分页和 `action`、`target_type`、`result`、`actor_user_id`、`request_id` 精确筛选；`date_from`、`date_to` 使用 `YYYY-MM-DD` UTC 自然日并包含边界日期。
+
+每条记录返回 `id`、`actor_user_id`、`actor_name`、`action`、`target_type`、`target_id`、`result`、`request_id` 与 `created_at`，按时间倒序。响应不包含操作者邮箱、请求正文、命令原文或服务端凭据。完整约束见 [API 可观测性与审计规范](observability.md)。
+
+### 7.11 组织运营智能体
+
+当前 AI-0 后端基础与组织配置页提供 7 条管理接口：
+
+| 方法 | 路径 | 权限 | 作用 |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/admin/ai/config` | `ai:use` | 读取当前组织策略与脱敏供应商状态。 |
+| `PATCH` | `/api/v1/admin/ai/config` | `organization:configure` | 保存组织启停、配额、超时、引用与上下文限制。 |
+| `GET` | `/api/v1/admin/ai/agents` | `ai:use` | 获取当前组织的智能体与供应商模式。 |
+| `POST` | `/api/v1/admin/ai/knowledge/search` | `ai:use` ∩ `knowledge:read` | 在当前组织的知识内容中检索引用资料。 |
+| `POST` | `/api/v1/admin/ai/runs` | `ai:use` ∩ `knowledge:read` | 创建异步 Markdown 提案运行。 |
+| `GET` | `/api/v1/admin/ai/runs/{run_id}` | `ai:use` | 查询状态、输出、引用、模型版本与用量。 |
+| `POST` | `/api/v1/admin/ai/runs/{run_id}/cancel` | `ai:use` | 取消 queued/running 运行。 |
+
+创建运行只读取用户显式选择、属于当前组织的 `knowledge` 内容，输出不会自动保存或发布。开发 Mock 始终返回 `provider=mock`、`mode=mock`；真实兼容模型返回 `mode=real`。模型 Key、上游地址和错误原文不会进入 API 响应。
+
+完整请求、响应、状态机、配置、错误码、审计和测试方式见 [组织运营智能体 API 规范](ai-agent.md)。
+
 ## 8. 前端路由与接口映射
 
 | 页面路由 | 页面用途 | 当前调用接口 |
@@ -750,10 +795,12 @@ Manifest 必须符合 `qutc.portal/v1`，入口与自定义主题 Token 必须�
 | `/admin` | 后台概览 | `GET /admin/dashboard`。 |
 | `/admin/content` | 内容工作区 | 内容创建、编辑、发布/下线与资源上传。 |
 | `/admin/knowledge` | 知识目录 | 知识目录创建与编辑。 |
-| `/admin/users` | 成员与权限 | `GET/PATCH /admin/users`、`POST /admin/invitations`。 |
+| `/admin/users` | 成员与权限 | `GET/PATCH /admin/users`、邀请创建及邮件失败重试。 |
 | `/admin/projects` | 项目管理 | 项目、项目成员和里程碑管理接口。 |
 | `/admin/reviews` | 审批与 RCON | 申请列表、批准/拒绝、服务器状态、受限命令。 |
-| `/admin/settings` | 门户与通知设置 | 门户 Manifest 读取、草稿保存、预览和启用；SMTP 仍为未持久化说明界面。 |
+| `/admin/audit` | 审计记录 | `GET /admin/audit-events`，按组织、权限和筛选条件查询。 |
+| `/admin/ai` | 智能体配置 | 读取脱敏供应商状态；组织所有者保存启停、配额、超时和上下文策略。 |
+| `/admin/settings` | 门户与通知设置 | 门户 Manifest 管理；只读检查服务端邮件适配器状态，不接收 SMTP 密码。 |
 
 ## 9. 自定义门户接入规范
 
@@ -787,5 +834,6 @@ Manifest 必须符合 `qutc.portal/v1`，入口与自定义主题 Token 必须�
 - 申请创建、撤回、拒绝原因、申请人通知。
 - RCON 命令白名单配置、命令历史查询、服务器监控明细。
 - 门户版本回滚、资源包上传/审核、运行时健康查询和组织基础资料设置。
+- AI 工具调用批准/拒绝、公开知识问答与多智能体工作流。
 
 开发上述任一能力时，必须先将端点、权限、幂等性、审计字段、错误码和敏感信息处理加入 OpenAPI，而不是仅在前端页面中临时约定。

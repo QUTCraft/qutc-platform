@@ -20,6 +20,30 @@ type Config struct {
 	RedisDB                 int
 	PublicCacheTTL          time.Duration
 	ServerAdapterTimeout    time.Duration
+	StorageDriver           string
+	StorageLocalRoot        string
+	S3Endpoint              string
+	S3AccessKey             string
+	S3SecretKey             string
+	S3Bucket                string
+	S3Region                string
+	S3UseSSL                bool
+	PublicWebBaseURL        string
+	EmailDriver             string
+	SMTPHost                string
+	SMTPPort                int
+	SMTPUsername            string
+	SMTPPassword            string
+	SMTPFromAddress         string
+	SMTPFromName            string
+	SMTPSecurity            string
+	SMTPTimeout             time.Duration
+	AIProvider              string
+	AIBaseURL               string
+	AIAPIKey                string
+	AIModel                 string
+	AIRequestTimeout        time.Duration
+	AIRunLimitPerHour       int
 	CORSAllowedOrigins      []string
 	AuthRateLimitPerMinute  int
 	PublicWriteLimitPerHour int
@@ -45,6 +69,30 @@ func Load() Config {
 		RedisDB:                 integer("REDIS_DB", 0),
 		PublicCacheTTL:          duration("PUBLIC_CACHE_TTL", 30*time.Second),
 		ServerAdapterTimeout:    duration("SERVER_ADAPTER_TIMEOUT", 5*time.Second),
+		StorageDriver:           strings.ToLower(value("STORAGE_DRIVER", "local")),
+		StorageLocalRoot:        value("STORAGE_LOCAL_ROOT", "/tmp/qutcraft-uploads"),
+		S3Endpoint:              value("S3_ENDPOINT", "minio:9000"),
+		S3AccessKey:             strings.TrimSpace(os.Getenv("S3_ACCESS_KEY")),
+		S3SecretKey:             os.Getenv("S3_SECRET_KEY"),
+		S3Bucket:                value("S3_BUCKET", "qutcraft-media"),
+		S3Region:                value("S3_REGION", "us-east-1"),
+		S3UseSSL:                boolean("S3_USE_SSL", false),
+		PublicWebBaseURL:        strings.TrimRight(value("PUBLIC_WEB_BASE_URL", "http://localhost:8082"), "/"),
+		EmailDriver:             strings.ToLower(value("EMAIL_DRIVER", "disabled")),
+		SMTPHost:                strings.TrimSpace(os.Getenv("SMTP_HOST")),
+		SMTPPort:                integer("SMTP_PORT", 587),
+		SMTPUsername:            strings.TrimSpace(os.Getenv("SMTP_USERNAME")),
+		SMTPPassword:            os.Getenv("SMTP_PASSWORD"),
+		SMTPFromAddress:         strings.ToLower(strings.TrimSpace(os.Getenv("SMTP_FROM_ADDRESS"))),
+		SMTPFromName:            value("SMTP_FROM_NAME", "QUTCraft Commons"),
+		SMTPSecurity:            strings.ToLower(value("SMTP_SECURITY", "starttls")),
+		SMTPTimeout:             duration("SMTP_TIMEOUT", 8*time.Second),
+		AIProvider:              strings.ToLower(value("AI_PROVIDER", "disabled")),
+		AIBaseURL:               strings.TrimRight(strings.TrimSpace(os.Getenv("AI_BASE_URL")), "/"),
+		AIAPIKey:                os.Getenv("AI_API_KEY"),
+		AIModel:                 value("AI_MODEL", "mock-content-v1"),
+		AIRequestTimeout:        duration("AI_REQUEST_TIMEOUT", 30*time.Second),
+		AIRunLimitPerHour:       positiveInteger("AI_RUN_LIMIT_PER_HOUR", 20),
 		CORSAllowedOrigins:      csv(value("CORS_ALLOWED_ORIGINS", "http://localhost:8082,http://127.0.0.1:8082,http://localhost,http://127.0.0.1")),
 		AuthRateLimitPerMinute:  positiveInteger("AUTH_RATE_LIMIT_PER_MINUTE", 20),
 		PublicWriteLimitPerHour: positiveInteger("PUBLIC_WRITE_LIMIT_PER_HOUR", 10),
@@ -58,6 +106,63 @@ func Load() Config {
 }
 
 func (c Config) Validate() error {
+	switch c.StorageDriver {
+	case "local":
+		if strings.TrimSpace(c.StorageLocalRoot) == "" {
+			return fmt.Errorf("STORAGE_LOCAL_ROOT is required when STORAGE_DRIVER=local")
+		}
+	case "s3":
+		if strings.TrimSpace(c.S3Endpoint) == "" || strings.Contains(c.S3Endpoint, "://") {
+			return fmt.Errorf("S3_ENDPOINT must be a non-empty host:port without URL scheme")
+		}
+		if strings.TrimSpace(c.S3AccessKey) == "" || strings.TrimSpace(c.S3SecretKey) == "" {
+			return fmt.Errorf("S3_ACCESS_KEY and S3_SECRET_KEY are required when STORAGE_DRIVER=s3")
+		}
+		if strings.TrimSpace(c.S3Bucket) == "" {
+			return fmt.Errorf("S3_BUCKET is required when STORAGE_DRIVER=s3")
+		}
+	default:
+		return fmt.Errorf("STORAGE_DRIVER must be local or s3")
+	}
+	if !strings.HasPrefix(c.PublicWebBaseURL, "http://") && !strings.HasPrefix(c.PublicWebBaseURL, "https://") {
+		return fmt.Errorf("PUBLIC_WEB_BASE_URL must be an absolute http or https URL")
+	}
+	switch c.EmailDriver {
+	case "disabled":
+	case "smtp":
+		if strings.TrimSpace(c.SMTPHost) == "" {
+			return fmt.Errorf("SMTP_HOST is required when EMAIL_DRIVER=smtp")
+		}
+		if c.SMTPPort < 1 || c.SMTPPort > 65535 {
+			return fmt.Errorf("SMTP_PORT must be between 1 and 65535")
+		}
+		if strings.TrimSpace(c.SMTPFromAddress) == "" {
+			return fmt.Errorf("SMTP_FROM_ADDRESS is required when EMAIL_DRIVER=smtp")
+		}
+		if c.SMTPUsername != "" && c.SMTPPassword == "" {
+			return fmt.Errorf("SMTP_PASSWORD is required when SMTP_USERNAME is set")
+		}
+		if c.SMTPSecurity != "starttls" && c.SMTPSecurity != "tls" && c.SMTPSecurity != "none" {
+			return fmt.Errorf("SMTP_SECURITY must be starttls, tls or none")
+		}
+	default:
+		return fmt.Errorf("EMAIL_DRIVER must be disabled or smtp")
+	}
+	switch c.AIProvider {
+	case "", "disabled", "mock":
+	case "openai_compatible":
+		if !strings.HasPrefix(c.AIBaseURL, "http://") && !strings.HasPrefix(c.AIBaseURL, "https://") {
+			return fmt.Errorf("AI_BASE_URL must be an absolute http or https URL when AI_PROVIDER=openai_compatible")
+		}
+		if strings.TrimSpace(c.AIAPIKey) == "" {
+			return fmt.Errorf("AI_API_KEY is required when AI_PROVIDER=openai_compatible")
+		}
+		if strings.TrimSpace(c.AIModel) == "" {
+			return fmt.Errorf("AI_MODEL is required when AI_PROVIDER=openai_compatible")
+		}
+	default:
+		return fmt.Errorf("AI_PROVIDER must be disabled, mock or openai_compatible")
+	}
 	if len(c.CORSAllowedOrigins) == 0 {
 		return fmt.Errorf("CORS_ALLOWED_ORIGINS must contain at least one origin")
 	}
@@ -78,6 +183,18 @@ func (c Config) Validate() error {
 		}
 		if c.DemoSeedEnabled {
 			return fmt.Errorf("DEMO_SEED_ENABLED must be false in production")
+		}
+		if c.StorageDriver == "s3" && (strings.EqualFold(c.S3AccessKey, "minioadmin") || strings.Contains(strings.ToLower(c.S3SecretKey), "change-me")) {
+			return fmt.Errorf("S3 credentials must not use development placeholders in production")
+		}
+		if c.EmailDriver == "smtp" && c.SMTPSecurity == "none" {
+			return fmt.Errorf("SMTP_SECURITY=none is not allowed in production")
+		}
+		if c.AIProvider == "mock" {
+			return fmt.Errorf("AI_PROVIDER=mock is not allowed in production")
+		}
+		if c.AIProvider == "openai_compatible" && !strings.HasPrefix(c.AIBaseURL, "https://") {
+			return fmt.Errorf("AI_BASE_URL must use https in production")
 		}
 	}
 	return nil

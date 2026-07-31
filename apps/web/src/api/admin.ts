@@ -1,5 +1,5 @@
 import { del, get, getPage, patch, post, upload } from '@/api/client'
-import type { AdminApplication, AdminApplicationFilters, AdminAuditEvent, AdminAuditFilters, AdminContent, AdminDashboard, AdminInvitation, AdminKnowledgeDirectory, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, InvitationRole, MediaAsset, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
+import type { AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, EmailAdapterStatus, InvitationRole, MediaAsset, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
 
 const adminBase = '/api/v1/admin'
 
@@ -36,7 +36,17 @@ export const adminApi = {
   updateKnowledgeDirectory: (id: string, payload: Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>) => patch<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories/${id}`, payload),
   getUsers: (params: PageQuery = {}) => getPage<AdminUser>(withQuery(`${adminBase}/users`, params)),
   createInvitation: (payload: { email: string; role: InvitationRole; expires_in_hours?: number }) => post<AdminInvitation>(`${adminBase}/invitations`, payload),
-  updateUser: (id: string, payload: Pick<AdminUser, 'state' | 'role'>) => patch<AdminUser>(`${adminBase}/users/${id}`, payload),
+  retryInvitationEmail: (id: string) => post<AdminInvitation>(`${adminBase}/invitations/${id}/email/retry`),
+  getEmailAdapterStatus: () => get<EmailAdapterStatus>(`${adminBase}/notifications/email/status`),
+  updateUser: (id: string, payload: { state: AdminMembershipWriteState; role: AdminUser['role'] }) => patch<AdminUser>(`${adminBase}/users/${id}`, payload),
+  getAuditEvents: (params: AuditEventFilters = {}) => getPage<AuditEvent>(withQuery(`${adminBase}/audit`, params)),
+  getAIConfiguration: () => get<AIConfiguration>(`${adminBase}/ai/config`),
+  updateAIConfiguration: (payload: Pick<AIConfiguration, 'enabled' | 'run_limit_per_hour' | 'request_timeout_seconds' | 'max_sources' | 'max_context_characters'>) => patch<AIConfiguration>(`${adminBase}/ai/config`, payload),
+  getAIAgents: () => get<AIAgentCatalog>(`${adminBase}/ai/agents`),
+  searchAIKnowledge: (payload: { query: string; limit?: number }) => post<AIKnowledgeResult[]>(`${adminBase}/ai/knowledge/search`, payload),
+  createAIRun: (payload: { agent_key: 'content-copilot'; task: string; context_refs: AISourceReference[]; output_mode: 'proposal' }) => post<AIAgentRun>(`${adminBase}/ai/runs`, payload),
+  getAIRun: (id: string) => get<AIAgentRun>(`${adminBase}/ai/runs/${id}`),
+  cancelAIRun: (id: string) => post<AIAgentRun>(`${adminBase}/ai/runs/${id}/cancel`),
   getProjects: (params: PageQuery = {}) => getPage<AdminProject>(withQuery(`${adminBase}/projects`, params)),
   createProject: (payload: Pick<AdminProject, 'title' | 'summary' | 'status' | 'tags' | 'is_public'>) => post<AdminProject>(`${adminBase}/projects`, payload),
   updateProject: (id: string, payload: Pick<AdminProject, 'title' | 'summary' | 'status' | 'tags' | 'is_public'>) => patch<AdminProject>(`${adminBase}/projects/${id}`, payload),
@@ -65,5 +75,4 @@ export const adminApi = {
   savePortalDraft: (manifest: PortalManifest) => patch<PortalConfiguration>(`${adminBase}/portal/config`, { manifest }),
   enablePortalConfiguration: () => post<PortalConfiguration>(`${adminBase}/portal/config/enable`),
   restoreDefaultPortal: () => post<PortalConfiguration>(`${adminBase}/portal/config/restore-default`),
-  getAuditEvents: (filters: AdminAuditFilters = {}) => getPage<AdminAuditEvent>(withQuery(`${adminBase}/audit`, filters)),
 }

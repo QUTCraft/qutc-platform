@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS invitation_deliveries (
+  id CHAR(36) PRIMARY KEY,
+  invitation_id CHAR(36) NOT NULL,
+  organization_id CHAR(36) NOT NULL,
+  channel VARCHAR(24) NOT NULL DEFAULT 'email',
+  adapter VARCHAR(32) NOT NULL,
+  status VARCHAR(24) NOT NULL,
+  attempts INT NOT NULL DEFAULT 0,
+  last_error VARCHAR(500) NOT NULL DEFAULT '',
+  last_attempt_at DATETIME(3) NULL,
+  sent_at DATETIME(3) NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  UNIQUE KEY invitation_deliveries_invitation_id (invitation_id),
+  KEY invitation_deliveries_organization_id (organization_id),
+  KEY invitation_deliveries_status (status),
+  KEY invitation_deliveries_last_attempt_at (last_attempt_at),
+  KEY invitation_deliveries_sent_at (sent_at),
+  CONSTRAINT fk_invitation_deliveries_invitation FOREIGN KEY (invitation_id) REFERENCES invitations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_invitation_deliveries_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -185,8 +185,137 @@ export interface AdminUser {
   joined_at: string
 }
 
+export interface AuditEvent {
+  id: string
+  actor_user_id: string
+  actor_name: string
+  action: string
+  target_type: string
+  target_id: string
+  result: string
+  request_id: string
+  created_at: string
+}
+
+export interface AuditEventFilters {
+  page?: number
+  page_size?: number
+  action?: string
+  target_type?: string
+  result?: string
+  actor_user_id?: string
+  request_id?: string
+  date_from?: string
+  date_to?: string
+}
+
+export interface AIProviderStatus {
+  provider: 'disabled' | 'mock' | 'openai_compatible'
+  mode: 'disabled' | 'mock' | 'real'
+  model: string
+  enabled: boolean
+  configured: boolean
+}
+
+export interface AIAgentDefinition {
+  id: string
+  key: 'content-copilot'
+  name: string
+  purpose: string
+  system_policy_version: string
+  allowed_tool_keys: string[]
+  model_profile: string
+  enabled: boolean
+}
+
+export interface AIAgentCatalog {
+  agents: AIAgentDefinition[]
+  provider: AIProviderStatus
+}
+
+export interface AIConfiguration {
+  id?: string
+  enabled: boolean
+  run_limit_per_hour: number
+  request_timeout_seconds: number
+  max_sources: number
+  max_context_characters: number
+  provider: AIProviderStatus
+  updated_by?: string
+  updated_at?: string
+}
+
+export interface AIKnowledgeResult {
+  source_type: 'content'
+  id: string
+  title: string
+  excerpt: string
+  status: AdminContent['status']
+  updated_at: string
+}
+
+export interface AISourceReference {
+  type: 'content'
+  id: string
+}
+
+export interface AICitation {
+  id: string
+  source_type: 'content'
+  source_id: string
+  title: string
+  excerpt: string
+  source_updated_at: string
+}
+
+export interface AIAgentRun {
+  id: string
+  agent_key: string
+  agent_name: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
+  task: string
+  output_title: string
+  output_excerpt: string
+  output_markdown: string
+  provider: 'mock' | 'openai_compatible'
+  mode: 'mock' | 'real'
+  model: string
+  prompt_version: string
+  input_tokens: number
+  output_tokens: number
+  failure_code: string
+  failure_message: string
+  request_id: string
+  citations: AICitation[]
+  started_at?: string | null
+  completed_at?: string | null
+  expires_at: string
+  created_at: string
+  updated_at: string
+}
+
+export type AdminMembershipWriteState = 'active' | 'disabled'
 export type InvitationRole = 'member' | 'editor' | 'administrator'
 export type InvitationStatus = 'pending' | 'accepted' | 'expired' | 'revoked'
+export type EmailDeliveryStatus = 'disabled' | 'pending' | 'sent' | 'failed'
+
+export interface EmailDelivery {
+  status: EmailDeliveryStatus
+  adapter: 'disabled' | 'smtp'
+  attempts: number
+  last_error?: string
+  last_attempt_at?: string
+  sent_at?: string
+}
+
+export interface EmailAdapterStatus {
+  driver: 'disabled' | 'smtp'
+  enabled: boolean
+  configured: boolean
+  from_address?: string
+  from_name?: string
+  security?: 'starttls' | 'tls' | 'none'
+}
 
 export interface Invitation {
   id: string
@@ -201,6 +330,7 @@ export interface Invitation {
 
 export interface AdminInvitation extends Invitation {
   invite_url: string
+  delivery: EmailDelivery
 }
 
 export interface InvitationAcceptance extends Invitation {
@@ -244,28 +374,6 @@ export interface ApplicationServerSync {
   last_error: string
   requested_at: string
   completed_at?: string | null
-}
-
-export interface AdminAuditEvent {
-  id: string
-  action: string
-  target_type: string
-  target_id: string
-  result: 'success' | 'accepted' | 'failed'
-  request_id: string
-  actor_user_id: string
-  actor_name: string
-  created_at: string
-}
-
-export interface AdminAuditFilters {
-  page?: number
-  page_size?: number
-  action?: string
-  target_type?: string
-  result?: '' | AdminAuditEvent['result']
-  request_id?: string
-  actor_user_id?: string
 }
 
 export interface AdminServerStatus {
@@ -347,13 +455,4 @@ export interface ApplicationPayload {
   qq_number: string
   email: string
   note?: string
-}
-
-export interface SmtpSettings {
-  host: string
-  port: number
-  sender_email: string
-  recipient_email: string
-  auth_code: string
-  enable_notification: boolean
 }

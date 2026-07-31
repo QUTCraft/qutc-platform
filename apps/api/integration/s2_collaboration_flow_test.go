@@ -20,11 +20,17 @@ type invitationDTO struct {
 	Role           string `json:"role"`
 	Status         string `json:"status"`
 	InviteURL      string `json:"invite_url"`
+	Delivery       struct {
+		Status   string `json:"status"`
+		Adapter  string `json:"adapter"`
+		Attempts int    `json:"attempts"`
+	} `json:"delivery"`
 }
 
 type tokenPairDTO struct {
-	AccessToken string `json:"access_token"`
-	User        struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	User         struct {
 		ID    string   `json:"id"`
 		Email string   `json:"email"`
 		Roles []string `json:"roles"`
@@ -83,6 +89,9 @@ func TestS2InvitationAndProjectCollaboration(t *testing.T) {
 	if invitation.Status != "pending" || invitation.Role != "editor" || invitation.InviteURL == "" {
 		t.Fatalf("created invitation = %+v, want pending editor invitation with URL", invitation)
 	}
+	if invitation.Delivery.Status != "disabled" || invitation.Delivery.Adapter != "disabled" || invitation.Delivery.Attempts != 0 {
+		t.Fatalf("disabled email delivery = %+v, want explicit disabled status without attempts", invitation.Delivery)
+	}
 	rawToken := strings.TrimPrefix(invitation.InviteURL, "/invite/")
 	if rawToken == "" || rawToken == invitation.InviteURL {
 		t.Fatalf("invite_url = %q, want /invite/<token>", invitation.InviteURL)
@@ -94,6 +103,13 @@ func TestS2InvitationAndProjectCollaboration(t *testing.T) {
 	}
 	if storedInvitation.TokenHash == "" || storedInvitation.TokenHash == rawToken || strings.Contains(string(createBody), storedInvitation.TokenHash) {
 		t.Fatal("invitation token was not safely separated from its stored hash")
+	}
+	var storedDelivery model.InvitationDelivery
+	if err := db.Where("invitation_id = ?", invitationID).First(&storedDelivery).Error; err != nil {
+		t.Fatalf("load invitation delivery: %v", err)
+	}
+	if storedDelivery.Status != "disabled" || storedDelivery.Attempts != 0 {
+		t.Fatalf("stored invitation delivery = %+v, want disabled without attempts", storedDelivery)
 	}
 
 	previewBody := request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/invitations/"+rawToken, "", nil, http.StatusOK)
@@ -146,11 +162,83 @@ func TestS2InvitationAndProjectCollaboration(t *testing.T) {
 		"password":         password,
 		"invitation_token": rawToken,
 	}, http.StatusConflict)
+	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/content", editor.AccessToken, nil, http.StatusOK)
 	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/users", editor.AccessToken, nil, http.StatusForbidden)
 	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/projects/"+project.ID+"/members", editor.AccessToken, map[string]any{
 		"user_id": userID,
 		"role":    "contributor",
 	}, http.StatusForbidden)
+
+	var owner model.User
+	if err := db.Where("email = ?", cfg.adminEmail).First(&owner).Error; err != nil {
+		t.Fatalf("load owner user: %v", err)
+	}
+	requireStatus(t, client, http.MethodPatch, cfg.apiURL+"/api/v1/admin/users/"+owner.ID, ownerToken, map[string]any{
+		"role":  "owner",
+		"state": "disabled",
+	}, http.StatusConflict)
+
+	userAdminURL := cfg.apiURL + "/api/v1/admin/users/" + userID
+	requireStatus(t, client, http.MethodPatch, userAdminURL, ownerToken, map[string]any{
+		"role":  "member",
+		"state": "active",
+	}, http.StatusOK)
+	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/content", editor.AccessToken, nil, http.StatusForbidden)
+	requireStatus(t, client, http.MethodPatch, userAdminURL, ownerToken, map[string]any{
+		"role":  "editor",
+		"state": "disabled",
+	}, http.StatusOK)
+	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/membership/history", editor.AccessToken, nil, http.StatusUnauthorized)
+	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/auth/refresh", "", map[string]any{
+		"refresh_token": editor.RefreshToken,
+	}, http.StatusUnauthorized)
+	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/auth/login", "", map[string]any{
+		"email": email, "password": password,
+	}, http.StatusUnauthorized)
+
+	var disabledUser model.User
+	if err := db.First(&disabledUser, "id = ?", userID).Error; err != nil {
+		t.Fatalf("load disabled member account: %v", err)
+	}
+	if disabledUser.State != "active" {
+		t.Fatalf("organization disable changed global user state to %q", disabledUser.State)
+	}
+	if err := db.First(&membership, "id = ?", membershipID).Error; err != nil {
+		t.Fatalf("reload disabled membership: %v", err)
+	}
+	if membership.State != "disabled" {
+		t.Fatalf("membership state = %q, want disabled", membership.State)
+	}
+	var activeRefreshCount int64
+	if err := db.Model(&model.RefreshToken{}).Where("user_id = ? AND revoked_at IS NULL", userID).Count(&activeRefreshCount).Error; err != nil {
+		t.Fatalf("count active refresh tokens: %v", err)
+	}
+	if activeRefreshCount != 0 {
+		t.Fatalf("active refresh tokens after disable = %d, want 0", activeRefreshCount)
+	}
+
+	requireStatus(t, client, http.MethodPatch, userAdminURL, ownerToken, map[string]any{
+		"role":  "editor",
+		"state": "active",
+	}, http.StatusOK)
+	reloginBody := request(t, client, http.MethodPost, cfg.apiURL+"/api/v1/auth/login", "", map[string]any{
+		"email": email, "password": password,
+	}, http.StatusOK)
+	decodeJSON(t, reloginBody, &registerEnvelope)
+	editor = registerEnvelope.Data
+	if editor.AccessToken == "" || !containsString(editor.User.Roles, "editor") {
+		t.Fatalf("reactivated login = %+v, want editor access", editor.User)
+	}
+	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/content", editor.AccessToken, nil, http.StatusOK)
+	for _, reason := range []string{"admin_role_changed", "admin_disabled", "admin_reactivated"} {
+		var count int64
+		if err := db.Model(&model.MembershipEvent{}).Where("membership_id = ? AND reason = ?", membershipID, reason).Count(&count).Error; err != nil {
+			t.Fatalf("count membership event %s: %v", reason, err)
+		}
+		if count != 1 {
+			t.Fatalf("membership event %s count = %d, want 1", reason, count)
+		}
+	}
 
 	memberURL := cfg.apiURL + "/api/v1/admin/projects/" + project.ID + "/members"
 	memberBody := request(t, client, http.MethodPost, memberURL, ownerToken, map[string]any{
@@ -276,12 +364,14 @@ func cleanupS2Fixture(t *testing.T, db *gorm.DB, invitationID, userID, membershi
 		cleanup("user audit events", db.Where("actor_user_id = ?", userID).Delete(&model.AuditEvent{}))
 	}
 	if membershipID != "" {
+		cleanup("membership audit events", db.Where("target_type = ? AND target_id = ?", "membership", membershipID).Delete(&model.AuditEvent{}))
 		cleanup("membership roles", db.Where("membership_id = ?", membershipID).Delete(&model.MembershipRole{}))
 		cleanup("membership events", db.Where("membership_id = ?", membershipID).Delete(&model.MembershipEvent{}))
 		cleanup("membership", db.Where("id = ?", membershipID).Delete(&model.Membership{}))
 	}
 	if invitationID != "" {
 		cleanup("invitation audit events", db.Where("target_type = ? AND target_id = ?", "invitation", invitationID).Delete(&model.AuditEvent{}))
+		cleanup("invitation delivery", db.Where("invitation_id = ?", invitationID).Delete(&model.InvitationDelivery{}))
 		cleanup("invitation", db.Where("id = ?", invitationID).Delete(&model.Invitation{}))
 	}
 	if userID != "" {
@@ -294,6 +384,7 @@ func requireS2FixtureAbsent(t *testing.T, db *gorm.DB, email string) {
 	for description, query := range map[string]*gorm.DB{
 		"user":       db.Model(&model.User{}).Where("email = ?", email),
 		"invitation": db.Model(&model.Invitation{}).Where("email = ?", email),
+		"delivery":   db.Model(&model.InvitationDelivery{}).Where("invitation_id IN (?)", db.Model(&model.Invitation{}).Select("id").Where("email = ?", email)),
 		"milestone":  db.Model(&model.ProjectMilestone{}).Where("title LIKE ?", "S2 collaboration gate %"),
 	} {
 		var count int64

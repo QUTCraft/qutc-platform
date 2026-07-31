@@ -15,7 +15,7 @@
 
 组织成员
   └─ Admin Layout（认证、RBAC）
-       └─ /admin, /admin/content, /admin/projects, /admin/users, /admin/reviews, /admin/settings
+       └─ /admin, /admin/content, /admin/projects, /admin/users, /admin/reviews, /admin/audit, /admin/ai, /admin/settings
 ```
 
 门户不出现成员邮箱、角色、审核队列、草稿、RCON 面板或“后台管理”入口。后台可提供“查看门户”链接，但不得把它作为权限绕过手段。
@@ -42,11 +42,13 @@
 | 路由 | 页面职责 | 当前 API | 最低权限建议 |
 | --- | --- | --- | --- |
 | `/admin` | 聚合指标、待审申请、近期内容、适配器状态 | `GET /api/v1/admin/dashboard` | 已认证成员。 |
-| `/admin/content` | 内容列表、创建草稿、后续编辑/发布入口 | `GET/POST /api/v1/admin/content` | `content:read` / `content:create`。 |
+| `/admin/content` | 内容列表、完整 Markdown 编辑器及“从知识生成”人工确认工作台 | Content API 与 7 条 AI API；AI 结果只应用到表单或创建 draft | `content:read` / `content:create`；AI 读取同时需要 `ai:use` 与 `knowledge:read`。 |
 | `/admin/projects` | 项目、公开范围、成员与里程碑 | projects / members / milestones endpoints | `project:read`；写操作需要 `project:manage`，成员/里程碑 UI 已接入。 |
 | `/admin/users` | 成员、角色与状态 | `GET /api/v1/admin/users` | `membership:read`。 |
 | `/admin/reviews` | 申请审核、服务器状态、受限命令 | applications / server endpoints | `application:read`、`server:read_status`。 |
-| `/admin/settings` | 门户 Manifest 草稿、启用、默认 MD3 恢复与通知设置入口 | Admin Portal Configuration API；SMTP 仍未持久化 | `organization:configure`。 |
+| `/admin/audit` | 管理操作审计与 Request ID 排错 | `GET /api/v1/admin/audit-events` | `audit:read`，服务端强制当前组织范围。 |
+| `/admin/ai` | 智能体供应商状态与组织运行策略 | `GET/PATCH /api/v1/admin/ai/config`、`GET /api/v1/admin/ai/agents` | 查看需要 `ai:use`；保存需要 `organization:configure`。 |
+| `/admin/settings` | 门户 Manifest 草稿、启用、默认 MD3 恢复与邮件适配器状态 | Admin Portal Configuration API；服务端 SMTP 状态只读 API，不暴露凭据 | `organization:configure`。 |
 
 管理页面在服务端返回 `401` 时进入认证流程，在 `403` 时展示权限拒绝状态并停止后续写操作；不能仅靠前端路由守卫隐藏页面。
 

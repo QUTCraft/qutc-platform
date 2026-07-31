@@ -74,6 +74,21 @@ type Invitation struct {
 	UpdatedAt      time.Time
 }
 
+type InvitationDelivery struct {
+	ID             string     `gorm:"primaryKey;type:char(36)"`
+	InvitationID   string     `gorm:"uniqueIndex;type:char(36);not null"`
+	OrganizationID string     `gorm:"index;type:char(36);not null"`
+	Channel        string     `gorm:"size:24;not null;default:email"`
+	Adapter        string     `gorm:"size:32;not null"`
+	Status         string     `gorm:"index;size:24;not null"`
+	Attempts       int        `gorm:"not null;default:0"`
+	LastError      string     `gorm:"size:500;not null;default:''"`
+	LastAttemptAt  *time.Time `gorm:"index"`
+	SentAt         *time.Time `gorm:"index"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type MembershipRole struct {
 	MembershipID string `gorm:"primaryKey;type:char(36)"`
 	RoleID       string `gorm:"primaryKey;type:char(36)"`
@@ -169,6 +184,7 @@ type MediaAsset struct {
 	StoredName     string `gorm:"size:255;not null"`
 	MimeType       string `gorm:"size:120;not null"`
 	SizeBytes      int64  `gorm:"not null"`
+	StorageDriver  string `gorm:"size:16;not null;default:local"`
 	StoragePath    string `gorm:"size:500;not null"`
 	CreatedAt      time.Time
 }
@@ -218,4 +234,69 @@ type PortalConfiguration struct {
 	ActivatedAt        *time.Time `gorm:"index"`
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+}
+
+type AgentDefinition struct {
+	ID                  string `gorm:"primaryKey;type:char(36)"`
+	OrganizationID      string `gorm:"uniqueIndex:idx_agent_definition_org_key;type:char(36);not null"`
+	Key                 string `gorm:"uniqueIndex:idx_agent_definition_org_key;size:64;not null"`
+	Name                string `gorm:"size:120;not null"`
+	Purpose             string `gorm:"size:500;not null"`
+	SystemPolicyVersion string `gorm:"size:64;not null"`
+	AllowedToolKeys     string `gorm:"type:text;not null"`
+	ModelProfile        string `gorm:"size:64;not null"`
+	Enabled             bool   `gorm:"index;not null;default:true"`
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type AgentConfiguration struct {
+	ID                    string `gorm:"primaryKey;type:char(36)"`
+	OrganizationID        string `gorm:"uniqueIndex;type:char(36);not null"`
+	Enabled               bool   `gorm:"index;not null"`
+	RunLimitPerHour       int    `gorm:"not null;default:20"`
+	RequestTimeoutSeconds int    `gorm:"not null;default:30"`
+	MaxSources            int    `gorm:"not null;default:10"`
+	MaxContextCharacters  int    `gorm:"not null;default:30000"`
+	UpdatedBy             string `gorm:"index;type:char(36);not null"`
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+type AgentRun struct {
+	ID                string     `gorm:"primaryKey;type:char(36)"`
+	OrganizationID    string     `gorm:"index;type:char(36);not null"`
+	ActorUserID       string     `gorm:"index;type:char(36);not null"`
+	AgentDefinitionID string     `gorm:"index;type:char(36);not null"`
+	Status            string     `gorm:"index;size:24;not null"`
+	Task              string     `gorm:"type:text;not null"`
+	OutputTitle       string     `gorm:"size:160;not null;default:''"`
+	OutputExcerpt     string     `gorm:"size:500;not null;default:''"`
+	OutputMarkdown    string     `gorm:"type:longtext;not null"`
+	Provider          string     `gorm:"size:32;not null"`
+	Mode              string     `gorm:"size:24;not null"`
+	Model             string     `gorm:"size:120;not null"`
+	PromptVersion     string     `gorm:"size:64;not null"`
+	InputTokens       int        `gorm:"not null;default:0"`
+	OutputTokens      int        `gorm:"not null;default:0"`
+	FailureCode       string     `gorm:"size:64;not null;default:''"`
+	FailureMessage    string     `gorm:"size:500;not null;default:''"`
+	RequestID         string     `gorm:"index;size:64;not null"`
+	StartedAt         *time.Time `gorm:"index"`
+	CompletedAt       *time.Time `gorm:"index"`
+	ExpiresAt         time.Time  `gorm:"index;not null"`
+	CreatedAt         time.Time  `gorm:"index"`
+	UpdatedAt         time.Time
+}
+
+type AgentCitation struct {
+	ID              string    `gorm:"primaryKey;type:char(36)"`
+	RunID           string    `gorm:"uniqueIndex:idx_agent_citation_run_source;type:char(36);not null"`
+	OrganizationID  string    `gorm:"index;type:char(36);not null"`
+	SourceType      string    `gorm:"uniqueIndex:idx_agent_citation_run_source;size:32;not null"`
+	SourceID        string    `gorm:"uniqueIndex:idx_agent_citation_run_source;size:64;not null"`
+	Title           string    `gorm:"size:160;not null"`
+	Excerpt         string    `gorm:"size:500;not null"`
+	SourceUpdatedAt time.Time `gorm:"not null"`
+	CreatedAt       time.Time
 }

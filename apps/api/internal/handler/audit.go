@@ -3,37 +3,35 @@ package handler
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/middleware"
-	"github.com/QUTCraft/qutc-platform/apps/api/internal/model"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
-// AuditHandler 暴露组织范围内的审计事件查询能力，仅支持读取。
 type AuditHandler struct {
 	db *gorm.DB
+}
+
+type auditEventRow struct {
+	ID             string    `json:"id"`
+	ActorUserID    string    `json:"actor_user_id"`
+	ActorName      string    `json:"actor_name"`
+	Action         string    `json:"action"`
+	TargetType     string    `json:"target_type"`
+	TargetID       string    `json:"target_id"`
+	Result         string    `json:"result"`
+	RequestID      string    `json:"request_id"`
+	CreatedAt      time.Time `json:"created_at"`
+	OrganizationID string    `json:"-"`
 }
 
 func NewAuditHandler(db *gorm.DB) *AuditHandler {
 	return &AuditHandler{db: db}
 }
 
-type auditEventItem struct {
-	ID          string `json:"id"`
-	Action      string `json:"action"`
-	TargetType  string `json:"target_type"`
-	TargetID    string `json:"target_id"`
-	Result      string `json:"result"`
-	RequestID   string `json:"request_id"`
-	ActorUserID string `json:"actor_user_id"`
-	ActorName   string `json:"actor_name"`
-	CreatedAt   string `json:"created_at"`
-}
-
-// AdminAuditEvents 返回当前组织范围内的审计事件，支持按操作、目标、结果、
-// request_id 和操作者筛选。它只读取已落库的审计事件，不暴露其他组织的记录。
-func (h *AuditHandler) AdminAuditEvents(c *gin.Context) {
+func (h *AuditHandler) List(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
 		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
@@ -52,35 +50,57 @@ func (h *AuditHandler) AdminAuditEvents(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result := strings.TrimSpace(c.Query("result"))
+	result, ok := queryMax(c, "result", 24)
+	if !ok {
+		return
+	}
 	if result != "" && result != "success" && result != "accepted" && result != "failed" {
 		fail(c, http.StatusBadRequest, "audit.invalid_result_filter", "result 仅支持 success、accepted 或 failed。")
+		return
+	}
+	actorUserID, ok := queryMax(c, "actor_user_id", 36)
+	if !ok {
 		return
 	}
 	requestID, ok := queryMax(c, "request_id", 64)
 	if !ok {
 		return
 	}
-	actorUserID, ok := queryMax(c, "actor_user_id", 64)
+	dateFrom, hasDateFrom, ok := auditDate(c, "date_from")
 	if !ok {
 		return
 	}
+	dateTo, hasDateTo, ok := auditDate(c, "date_to")
+	if !ok {
+		return
+	}
+	if hasDateFrom && hasDateTo && dateTo.Before(dateFrom) {
+		fail(c, http.StatusBadRequest, "audit.invalid_date_range", "date_to 不能早于 date_from。")
+		return
+	}
 
-	query := h.db.Model(&model.AuditEvent{}).Where("organization_id = ?", principal.OrganizationID)
+	query := h.db.Table("audit_events AS audit").
+		Where("audit.organization_id = ?", principal.OrganizationID)
 	if action != "" {
-		query = query.Where("action = ?", action)
+		query = query.Where("audit.action = ?", action)
 	}
 	if targetType != "" {
-		query = query.Where("target_type = ?", targetType)
+		query = query.Where("audit.target_type = ?", targetType)
 	}
 	if result != "" {
-		query = query.Where("result = ?", result)
-	}
-	if requestID != "" {
-		query = query.Where("request_id = ?", requestID)
+		query = query.Where("audit.result = ?", result)
 	}
 	if actorUserID != "" {
-		query = query.Where("actor_user_id = ?", actorUserID)
+		query = query.Where("audit.actor_user_id = ?", actorUserID)
+	}
+	if requestID != "" {
+		query = query.Where("audit.request_id = ?", requestID)
+	}
+	if hasDateFrom {
+		query = query.Where("audit.created_at >= ?", dateFrom)
+	}
+	if hasDateTo {
+		query = query.Where("audit.created_at < ?", dateTo.AddDate(0, 0, 1))
 	}
 
 	var total int64
@@ -88,48 +108,31 @@ func (h *AuditHandler) AdminAuditEvents(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "audit.list_failed", "审计记录暂时无法加载。")
 		return
 	}
-	var events []model.AuditEvent
-	if err := query.Order("created_at DESC").
+
+	var events []auditEventRow
+	err := query.
+		Select("audit.id, audit.organization_id, audit.actor_user_id, users.display_name AS actor_name, audit.action, audit.target_type, audit.target_id, audit.result, audit.request_id, audit.created_at").
+		Joins("LEFT JOIN users ON users.id = audit.actor_user_id").
+		Order("audit.created_at DESC, audit.id DESC").
 		Offset((page - 1) * pageSize).
 		Limit(pageSize).
-		Find(&events).Error; err != nil {
+		Scan(&events).Error
+	if err != nil {
 		fail(c, http.StatusInternalServerError, "audit.list_failed", "审计记录暂时无法加载。")
 		return
 	}
+	respondWithMeta(c, http.StatusOK, events, gin.H{"page": page, "page_size": pageSize, "total": total})
+}
 
-	actorIDs := make(map[string]struct{}, len(events))
-	for _, event := range events {
-		if event.ActorUserID != "" {
-			actorIDs[event.ActorUserID] = struct{}{}
-		}
+func auditDate(c *gin.Context, key string) (time.Time, bool, bool) {
+	raw := strings.TrimSpace(c.Query(key))
+	if raw == "" {
+		return time.Time{}, false, true
 	}
-	names := make(map[string]string, len(actorIDs))
-	if len(actorIDs) > 0 {
-		ids := make([]string, 0, len(actorIDs))
-		for id := range actorIDs {
-			ids = append(ids, id)
-		}
-		var users []model.User
-		if err := h.db.Select("id, display_name").Where("id IN ?", ids).Find(&users).Error; err == nil {
-			for _, user := range users {
-				names[user.ID] = user.DisplayName
-			}
-		}
+	value, err := time.Parse("2006-01-02", raw)
+	if err != nil {
+		fail(c, http.StatusBadRequest, "audit.invalid_date", key+" 必须使用 YYYY-MM-DD 格式。")
+		return time.Time{}, false, false
 	}
-
-	items := make([]auditEventItem, 0, len(events))
-	for _, event := range events {
-		items = append(items, auditEventItem{
-			ID:          event.ID,
-			Action:      event.Action,
-			TargetType:  event.TargetType,
-			TargetID:    event.TargetID,
-			Result:      event.Result,
-			RequestID:   event.RequestID,
-			ActorUserID: event.ActorUserID,
-			ActorName:   names[event.ActorUserID],
-			CreatedAt:   event.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
-		})
-	}
-	respondWithMeta(c, http.StatusOK, items, gin.H{"page": page, "page_size": pageSize, "total": total})
+	return value.UTC(), true, true
 }

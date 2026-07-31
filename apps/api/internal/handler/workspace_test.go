@@ -175,3 +175,29 @@ func TestMembershipRoleProtection(t *testing.T) {
 		})
 	}
 }
+
+func TestMembershipWriteStateAndEventReason(t *testing.T) {
+	if !validMemberWriteState("active") || !validMemberWriteState("disabled") {
+		t.Fatal("active and disabled must be writable membership states")
+	}
+	if validMemberWriteState("invited") || validMemberWriteState("left") {
+		t.Fatal("invited and left must only be produced by their dedicated workflows")
+	}
+	tests := []struct {
+		currentState string
+		currentRole  string
+		nextState    string
+		nextRole     string
+		want         string
+	}{
+		{currentState: "active", currentRole: "editor", nextState: "disabled", nextRole: "editor", want: "admin_disabled"},
+		{currentState: "disabled", currentRole: "editor", nextState: "active", nextRole: "editor", want: "admin_reactivated"},
+		{currentState: "active", currentRole: "member", nextState: "active", nextRole: "editor", want: "admin_role_changed"},
+		{currentState: "active", currentRole: "editor", nextState: "active", nextRole: "editor", want: "admin_update"},
+	}
+	for _, test := range tests {
+		if got := membershipUpdateReason(test.currentState, test.currentRole, test.nextState, test.nextRole); got != test.want {
+			t.Fatalf("membershipUpdateReason(%q, %q, %q, %q) = %q, want %q", test.currentState, test.currentRole, test.nextState, test.nextRole, got, test.want)
+		}
+	}
+}

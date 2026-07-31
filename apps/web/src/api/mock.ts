@@ -9,7 +9,13 @@ import type {
   AdminProjectMilestone,
   AdminServerStatus,
   AdminUser,
+  AIAgentCatalog,
+  AIAgentRun,
+  AIConfiguration,
+  AIKnowledgeResult,
+  AuditEvent,
   AuthUser,
+  EmailAdapterStatus,
   KnowledgeArticle,
   KnowledgeDirectory,
   Organization,
@@ -107,6 +113,41 @@ const adminUsers: AdminUser[] = [
   { id: 'user_nova', name: 'Nova', email: 'nova@qutcraft.example', role: 'member', state: 'invited', joined_at: '2026-07-16T01:00:00Z' },
 ]
 
+const auditEvents: AuditEvent[] = [
+  { id: 'audit_001', actor_user_id: 'user_bk', actor_name: 'BBKarasu', action: 'content.published', target_type: 'content', target_id: 'content_001', result: 'success', request_id: 'mock-request-content-001', created_at: '2026-07-30T07:30:00Z' },
+  { id: 'audit_002', actor_user_id: 'user_mori', actor_name: 'Mori', action: 'membership.invite', target_type: 'invitation', target_id: 'invite_001', result: 'success', request_id: 'mock-request-invite-001', created_at: '2026-07-30T06:10:00Z' },
+  { id: 'audit_003', actor_user_id: 'user_bk', actor_name: 'BBKarasu', action: 'server.command', target_type: 'server', target_id: '', result: 'accepted', request_id: 'mock-request-server-001', created_at: '2026-07-29T13:20:00Z' },
+]
+
+const aiAgentCatalog: AIAgentCatalog = {
+  agents: [{
+    id: 'agent_content_copilot',
+    key: 'content-copilot',
+    name: '内容协作智能体',
+    purpose: '根据当前组织内已授权的知识资料生成带引用的 Markdown 内容提案；结果必须由人工确认。',
+    system_policy_version: 'content-copilot/v1',
+    allowed_tool_keys: ['knowledge.search', 'knowledge.read'],
+    model_profile: 'content-generation',
+    enabled: true,
+  }],
+  provider: {
+    provider: 'mock',
+    mode: 'mock',
+    model: 'mock-content-v1',
+    enabled: true,
+    configured: true,
+  },
+}
+let aiConfiguration: AIConfiguration = {
+  enabled: true,
+  run_limit_per_hour: 20,
+  request_timeout_seconds: 30,
+  max_sources: 10,
+  max_context_characters: 30000,
+  provider: structuredClone(aiAgentCatalog.provider),
+}
+const aiRuns: Record<string, AIAgentRun> = {}
+
 let adminInvitations: AdminInvitation[] = []
 
 let adminProjects: AdminProject[] = projects.map((project) => ({ ...project, is_public: true, owner: 'BBKarasu', member_count: 1, milestone_count: project.id === 'project_cms' ? 2 : 0 }))
@@ -164,6 +205,7 @@ const wait = () => new Promise((resolve) => window.setTimeout(resolve, 160))
 
 export async function mockGet<T>(path: string): Promise<T> {
   await wait()
+  const requestUrl = new URL(path, 'http://mock.local')
   if (path.endsWith('/auth/me')) { if (!mockUser) throw new Error('当前会话已失效。'); return mockUser as T }
   if (path.includes('/admin/')) requireMockAdmin()
   if (path.endsWith('/admin/dashboard')) {
@@ -185,6 +227,37 @@ export async function mockGet<T>(path: string): Promise<T> {
   if (path.endsWith('/admin/content')) return page(adminContent) as T
   if (path.endsWith('/admin/knowledge/directories')) return page(adminKnowledgeDirectories) as T
   if (path.endsWith('/admin/users')) return page(adminUsers) as T
+  if (requestUrl.pathname.endsWith('/admin/audit-events')) {
+    const action = requestUrl.searchParams.get('action')
+    const targetType = requestUrl.searchParams.get('target_type')
+    const result = requestUrl.searchParams.get('result')
+    const actorUserID = requestUrl.searchParams.get('actor_user_id')
+    const requestID = requestUrl.searchParams.get('request_id')
+    const dateFrom = requestUrl.searchParams.get('date_from')
+    const dateTo = requestUrl.searchParams.get('date_to')
+    const pageNumber = Math.max(1, Number(requestUrl.searchParams.get('page') ?? 1))
+    const pageSize = Math.min(100, Math.max(1, Number(requestUrl.searchParams.get('page_size') ?? 20)))
+    const filtered = auditEvents.filter((item) => {
+      const date = item.created_at.slice(0, 10)
+      return (!action || item.action === action)
+        && (!targetType || item.target_type === targetType)
+        && (!result || item.result === result)
+        && (!actorUserID || item.actor_user_id === actorUserID)
+        && (!requestID || item.request_id === requestID)
+        && (!dateFrom || date >= dateFrom)
+        && (!dateTo || date <= dateTo)
+    })
+    const start = (pageNumber - 1) * pageSize
+    return { items: filtered.slice(start, start + pageSize), page: pageNumber, page_size: pageSize, total: filtered.length } as T
+  }
+  if (path.endsWith('/admin/ai/config')) return structuredClone(aiConfiguration) as T
+  if (path.endsWith('/admin/ai/agents')) return structuredClone(aiAgentCatalog) as T
+  const aiRunMatch = path.match(/\/admin\/ai\/runs\/([^/]+)$/)
+  if (aiRunMatch) {
+    const run = aiRuns[aiRunMatch[1]]
+    if (!run) throw new Error('智能体运行不存在。')
+    return structuredClone(run) as T
+  }
   const invitationMatch = path.match(/\/api\/v1\/invitations\/([^/]+)$/)
   if (invitationMatch) {
     const invitation = adminInvitations.find((item) => item.invite_url.endsWith(invitationMatch[1]))
@@ -198,7 +271,6 @@ export async function mockGet<T>(path: string): Promise<T> {
   if (projectMilestonesMatch) return page(adminProjectMilestones[projectMilestonesMatch[1]] ?? []) as T
   if (path.endsWith('/admin/projects')) return page(adminProjects) as T
   if (new URL(path, 'http://mock.local').pathname.endsWith('/admin/applications')) {
-    const requestUrl = new URL(path, 'http://mock.local')
     const status = requestUrl.searchParams.get('status')
     const applicationType = requestUrl.searchParams.get('type')
     const syncStatus = requestUrl.searchParams.get('server_sync_status')
@@ -217,6 +289,9 @@ export async function mockGet<T>(path: string): Promise<T> {
     return { items: filtered.slice(start, start + pageSize), page: pageNumber, page_size: pageSize, total: filtered.length } as T
   }
   if (path.endsWith('/admin/server/status')) return adminServer as T
+  if (path.endsWith('/admin/notifications/email/status')) {
+    return { driver: 'disabled', enabled: false, configured: false } as EmailAdapterStatus as T
+  }
   if (path.endsWith('/admin/portal/config')) return structuredClone(portalConfiguration) as T
   if (path.endsWith('/configuration')) {
     const runtime: PortalRuntimeConfiguration = {
@@ -264,6 +339,77 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
   if (path.endsWith('/auth/logout')) { saveMockUser(null); return { revoked: true } as T }
   if (path.endsWith('/apply')) return { id: `application_${Date.now()}`, status: 'pending', submitted_at: new Date().toISOString() } as T
 	if (path.includes('/admin/')) requireMockAdmin()
+  if (path.endsWith('/admin/ai/knowledge/search')) {
+    const payload = body as { query: string; limit?: number }
+    const query = payload.query.trim().toLowerCase()
+    const limit = Math.min(20, Math.max(1, payload.limit ?? 10))
+    const results: AIKnowledgeResult[] = adminContent
+      .filter((item) => item.type === 'knowledge')
+      .filter((item) => [item.title, item.category, item.excerpt, item.body].some((value) => value?.toLowerCase().includes(query)))
+      .slice(0, limit)
+      .map((item) => ({
+        source_type: 'content',
+        id: item.id,
+        title: item.title,
+        excerpt: item.excerpt ?? item.body?.slice(0, 180) ?? '',
+        status: item.status,
+        updated_at: item.updated_at,
+      }))
+    return results as T
+  }
+  if (path.endsWith('/admin/ai/runs')) {
+    const payload = body as { agent_key: string; task: string; context_refs: Array<{ type: 'content'; id: string }> }
+    const sourceItems = payload.context_refs.map((reference) => adminContent.find((item) => item.id === reference.id && item.type === 'knowledge'))
+    if (sourceItems.some((item) => !item)) throw new Error('引用资料不存在或不在当前组织的可访问知识范围内。')
+    const now = new Date().toISOString()
+    const id = `ai_run_${Date.now()}`
+    const title = payload.task.trim().slice(0, 80) || 'AI 内容提案'
+    const citations = sourceItems.map((item, index) => ({
+      id: `ai_citation_${Date.now()}_${index}`,
+      source_type: 'content' as const,
+      source_id: item!.id,
+      title: item!.title,
+      excerpt: item!.excerpt ?? '',
+      source_updated_at: item!.updated_at,
+    }))
+    const run: AIAgentRun = {
+      id,
+      agent_key: payload.agent_key,
+      agent_name: '内容协作智能体',
+      status: 'succeeded',
+      task: payload.task,
+      output_title: title,
+      output_excerpt: `开发 Mock 提案：${payload.task}`.slice(0, 180),
+      output_markdown: `# ${title}\n\n> 此内容由开发 Mock 生成，仅用于验证智能体 API 与权限闭环，不代表真实模型输出。\n\n${sourceItems.map((item) => `- **${item!.title}**：${item!.excerpt ?? ''}`).join('\n')}\n\n## 引用\n${sourceItems.map((item) => `- [${item!.title}](qutc://knowledge/${item!.id})`).join('\n')}`,
+      provider: 'mock',
+      mode: 'mock',
+      model: 'mock-content-v1',
+      prompt_version: 'content-copilot/v1',
+      input_tokens: Math.ceil(payload.task.length / 4),
+      output_tokens: 64,
+      failure_code: '',
+      failure_message: '',
+      request_id: `mock-request-${id}`,
+      citations,
+      started_at: now,
+      completed_at: now,
+      expires_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+      created_at: now,
+      updated_at: now,
+    }
+    aiRuns[id] = run
+    return structuredClone(run) as T
+  }
+  const aiRunCancelMatch = path.match(/\/admin\/ai\/runs\/([^/]+)\/cancel$/)
+  if (aiRunCancelMatch) {
+    const run = aiRuns[aiRunCancelMatch[1]]
+    if (!run) throw new Error('智能体运行不存在。')
+    if (!['queued', 'running'].includes(run.status)) throw new Error('智能体运行已经结束，不能取消。')
+    run.status = 'canceled'
+    run.completed_at = new Date().toISOString()
+    run.updated_at = run.completed_at
+    return structuredClone(run) as T
+  }
   if (path.endsWith('/admin/portal/config/enable')) {
     if (!portalConfiguration.draft_manifest) throw new Error('请先保存有效的门户草稿。')
     portalConfiguration = {
@@ -311,9 +457,24 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
       expires_at: new Date(Date.now() + (payload.expires_in_hours ?? 168) * 3600 * 1000).toISOString(),
       created_at: new Date().toISOString(),
       invite_url: `/invite/${token}`,
+      delivery: { status: 'disabled', adapter: 'disabled', attempts: 0 },
     }
     adminInvitations = [invitation, ...adminInvitations]
     return invitation as T
+  }
+  const invitationRetryMatch = path.match(/\/admin\/invitations\/([^/]+)\/email\/retry$/)
+  if (invitationRetryMatch) {
+    const invitation = adminInvitations.find((item) => item.id === invitationRetryMatch[1])
+    if (!invitation) throw new Error('邀请不存在或已失效。')
+    invitation.invite_url = `/invite/mock-invite-retry-${Date.now()}`
+    invitation.delivery = {
+      status: 'failed',
+      adapter: 'smtp',
+      attempts: invitation.delivery.attempts + 1,
+      last_error: 'Mock 邮件适配器未连接真实 SMTP。',
+      last_attempt_at: new Date().toISOString(),
+    }
+    return structuredClone(invitation) as T
   }
   const invitationAcceptMatch = path.match(/\/api\/v1\/invitations\/([^/]+)\/accept$/)
   if (invitationAcceptMatch) {
@@ -413,6 +574,17 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
 export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
   await wait()
   requireMockAdmin()
+  if (path.endsWith('/admin/ai/config')) {
+    const payload = body as Pick<AIConfiguration, 'enabled' | 'run_limit_per_hour' | 'request_timeout_seconds' | 'max_sources' | 'max_context_characters'>
+    aiConfiguration = {
+      ...aiConfiguration,
+      ...payload,
+      id: aiConfiguration.id ?? 'ai_config_mock',
+      updated_by: mockUser?.id,
+      updated_at: new Date().toISOString(),
+    }
+    return structuredClone(aiConfiguration) as T
+  }
   if (path.endsWith('/admin/portal/config')) {
     const payload = body as { manifest: PortalManifest }
     portalConfiguration = {
@@ -428,7 +600,8 @@ export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
   if (userMatch) {
     const user = adminUsers.find((item) => item.id === userMatch[1])
     if (!user) throw new Error('成员不存在。')
-    Object.assign(user, body)
+    const payload = body as { role: AdminUser['role']; state: 'active' | 'disabled' }
+    Object.assign(user, payload)
     return user as T
   }
   const projectMemberMatch = path.match(/\/admin\/projects\/([^/]+)\/members\/([^/]+)$/)

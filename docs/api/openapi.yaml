@@ -19,44 +19,53 @@ tags:
     description: 公开门户内容与状态
   - name: Admin
     description: 受认证的后台管理能力
+  - name: AI
+    description: 受 RBAC、组织隔离、运行配额和人工确认约束的组织运营智能体
 paths:
   /healthz:
     get:
       tags: [Auth]
       operationId: getHealth
-      summary: 检查 API 与关键依赖的健康状态
+      summary: 检查 API 服务存活状态
       security: []
       responses:
         '200':
-          description: 服务及其依赖均正常运行
+          description: 服务正在运行
           content:
             application/json:
               schema:
                 type: object
-                required: [status, checks]
+                required: [status]
                 properties:
                   status: { type: string, enum: [ok] }
-                  checks:
-                    type: object
-                    required: [database, cache]
-                    properties:
-                      database: { type: string, enum: [ok] }
-                      cache: { type: string, enum: [ok] }
-        '503':
-          description: 服务可达但至少一个依赖不可用
+        '500':
+          description: 服务健康检查失败
           content:
             application/json:
-              schema:
-                type: object
-                required: [status, checks]
-                properties:
-                  status: { type: string, enum: [degraded] }
-                  checks:
-                    type: object
-                    required: [database, cache]
-                    properties:
-                      database: { type: string }
-                      cache: { type: string }
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: 健康检查路径不存在
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+  /readyz:
+    get:
+      tags: [Auth]
+      operationId: getReadiness
+      summary: 检查 API 及必要依赖是否可以接收流量
+      description: 同时检查 MySQL 与 Redis；仅返回组件可用性，不返回连接地址、凭据或底层错误。
+      security: []
+      responses:
+        '200':
+          description: API 与必要依赖均可用
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReadinessStatus' }
+        '503':
+          description: 至少一个必要依赖不可用
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReadinessStatus' }
   /api/v1/portal/organizations/{organization_slug}:
     get:
       tags: [Portal]
@@ -688,6 +697,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/admin/assets/{asset_id}/download:
     get:
       tags: [Admin]
@@ -704,6 +714,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/portal/organizations/{organization_slug}/assets/{asset_id}/download:
     get:
       tags: [Portal]
@@ -718,6 +729,7 @@ paths:
       responses:
         '200': { description: 文件流；图片媒体以内联方式返回，其余类型作为附件下载 }
         '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/admin/users:
     get:
       tags: [Admin]
@@ -739,7 +751,10 @@ paths:
     patch:
       tags: [Admin]
       operationId: updateAdminUser
-      summary: 更新成员状态与角色
+      summary: 更新组织成员状态与角色
+      description: |
+        只修改当前组织的成员关系，不修改用户的全局账户状态。可写状态仅为 active 或 disabled；
+        invited 只由邀请流程产生。停用会撤销该用户现有 Refresh Token，旧 Access Token 在下一次请求时因成员关系校验返回 401。
       security: [{ BearerAuth: [] }]
       parameters:
         - name: user_id
@@ -784,6 +799,243 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/invitations/{invitation_id}/email/retry:
+    post:
+      tags: [Admin]
+      operationId: retryAdminInvitationEmail
+      summary: 轮换邀请链接并重试邮件
+      description: |
+        仅可对当前组织仍为 pending 的邀请执行。服务端先生成新 token 并替换 token 哈希，使旧链接立即失效，
+        再在业务事务外尝试 SMTP 投递。邮件失败不会撤销邀请，响应仍返回本次唯一可见的新 invite_url 与真实投递状态。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: invitation_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: 邀请链接已轮换，邮件投递已尝试
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateInvitationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/audit:
+    get:
+      tags: [Admin]
+      operationId: listAdminAuditEvents
+      summary: 查询当前组织的审计记录
+      description: 需要 `audit:read`；服务端始终以当前会话 organization_id 过滤，客户端不能指定或覆盖组织范围。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: action
+          in: query
+          schema: { type: string, maxLength: 96 }
+        - name: target_type
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - name: result
+          in: query
+          schema: { type: string, maxLength: 24 }
+        - name: actor_user_id
+          in: query
+          schema: { type: string, maxLength: 36 }
+        - name: request_id
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - name: date_from
+          in: query
+          description: 按 UTC 自然日筛选，包含该日。
+          schema: { type: string, format: date }
+        - name: date_to
+          in: query
+          description: 按 UTC 自然日筛选，包含该日，且不能早于 date_from。
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 当前组织内按时间倒序排列的审计记录
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditEventListResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 邮件适配器未启用
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '410':
+          description: 邀请已过期、撤销或接受
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /api/v1/admin/ai/config:
+    get:
+      tags: [AI]
+      operationId: getAdminAIConfiguration
+      summary: 获取当前组织的智能体运行策略与模型供应商状态
+      description: 需要 `ai:use`。组织尚未保存配置时返回服务端默认策略；模型凭据、上游地址和环境变量值永远不会进入响应。
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 当前组织策略与脱敏后的模型供应商状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIConfigurationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      tags: [AI]
+      operationId: updateAdminAIConfiguration
+      summary: 更新当前组织的智能体运行策略
+      description: 需要 `organization:configure`。配置按组织持久化并立即应用于后续新建运行；关闭功能不会删除历史运行、引用或审计。模型供应商和凭据仍只能通过服务端部署变量配置。
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AIConfigurationWriteRequest' }
+      responses:
+        '200':
+          description: 已保存并重新读取的当前组织策略
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIConfigurationResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /api/v1/admin/ai/agents:
+    get:
+      tags: [AI]
+      operationId: listAdminAIAgents
+      summary: 获取当前组织可用的智能体与模型供应商状态
+      description: 需要 `ai:use`。响应只暴露驱动模式与模型标识，不返回模型 API Key、上游地址或其他服务端凭据。
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 可用智能体与当前模型供应商状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIAgentCatalogResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/ai/knowledge/search:
+    post:
+      tags: [AI]
+      operationId: searchAdminAIKnowledge
+      summary: 在当前组织的授权知识范围内检索引用资料
+      description: 需要 `ai:use` 与 `knowledge:read`。服务端先按当前 organization_id 和 knowledge 类型过滤，再返回最少必要的标题、摘要、状态与版本时间。
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AIKnowledgeSearchRequest' }
+      responses:
+        '200':
+          description: 当前组织内匹配的知识资料
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIKnowledgeSearchResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/ai/runs:
+    post:
+      tags: [AI]
+      operationId: createAdminAIRun
+      summary: 创建一次异步智能体内容生成运行
+      description: |
+        需要 `ai:use` 与 `knowledge:read`。当前阶段只允许 content-copilot 读取显式选择、属于当前组织的 knowledge 内容，
+        并生成带引用的 Markdown 提案。接口不会创建或发布 CMS 内容；创建成功后通过查询接口获取终态。
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AIRunCreateRequest' }
+      responses:
+        '202':
+          description: 运行已排队；开发 Mock 与真实模型会通过 mode 字段明确区分
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIRunResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 当前组织已停用智能体功能
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/admin/ai/runs/{run_id}:
+    get:
+      tags: [AI]
+      operationId: getAdminAIRun
+      summary: 查询当前组织内的智能体运行
+      description: 返回运行状态、生成结果、模型标识、Token 用量与固定引用快照；不返回隐藏推理过程。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 36 }
+      responses:
+        '200':
+          description: 智能体运行及其引用
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIRunResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/ai/runs/{run_id}/cancel:
+    post:
+      tags: [AI]
+      operationId: cancelAdminAIRun
+      summary: 取消尚未结束的智能体运行
+      description: 只允许取消 queued 或 running 状态；已成功、失败或取消的运行返回 409。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 36 }
+      responses:
+        '200':
+          description: 运行已取消
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIRunResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/notifications/email/status:
+    get:
+      tags: [Admin]
+      operationId: getAdminEmailAdapterStatus
+      summary: 获取邀请邮件适配器状态
+      description: 返回驱动、启用状态、发件人和传输安全模式；SMTP 主机、用户名、密码等服务端凭据不会返回。
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 当前 API 实例的邮件适配器状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmailAdapterStatusResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/projects:
     get:
       tags: [Admin]
@@ -1210,45 +1462,6 @@ paths:
               schema: { $ref: '#/components/schemas/PortalConfigurationResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
-  /api/v1/admin/audit:
-    get:
-      tags: [Admin]
-      operationId: listAdminAuditEvents
-      summary: 获取组织审计事件
-      description: 返回当前组织范围内已落库的审计事件，支持按操作、目标类型、结果、request_id 和操作者筛选。
-      security: [{ BearerAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
-        - name: action
-          in: query
-          description: 按操作类型筛选，例如 content.publish、membership.invite。
-          schema: { type: string, maxLength: 96 }
-        - name: target_type
-          in: query
-          description: 按目标类型筛选，例如 content、application、invitation。
-          schema: { type: string, maxLength: 64 }
-        - name: result
-          in: query
-          description: 按执行结果筛选。
-          schema: { type: string, enum: [success, accepted, failed] }
-        - name: request_id
-          in: query
-          description: 按请求标识筛选，用于跨日志与审计串联定位问题。
-          schema: { type: string, maxLength: 64 }
-        - name: actor_user_id
-          in: query
-          description: 按操作者用户 ID 筛选。
-          schema: { type: string, maxLength: 64 }
-      responses:
-        '200':
-          description: 审计事件列表
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AdminAuditEventListResponse' }
-        '400': { $ref: '#/components/responses/ValidationError' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/server/status:
     get:
       tags: [Admin]
@@ -1327,7 +1540,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
     Unauthorized:
-      description: 缺少、失效或无法验证的访问令牌
+      description: 缺少、失效、无法验证的访问令牌，或当前账户/组织成员关系已停用
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -1369,6 +1582,11 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ServiceUnavailable:
+      description: 当前配置的外部依赖或存储后端暂时不可用
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
   schemas:
     Meta:
       type: object
@@ -1399,6 +1617,17 @@ components:
                 - { type: object, additionalProperties: true }
                 - { type: array, items: { type: object, additionalProperties: true } }
             request_id: { type: string, example: req_01J0QUTC9B7ABCD }
+    ReadinessStatus:
+      type: object
+      required: [status, checks]
+      properties:
+        status: { type: string, enum: [ready, unavailable] }
+        checks:
+          type: object
+          required: [mysql, redis]
+          properties:
+            mysql: { type: string, enum: [ok, unavailable] }
+            redis: { type: string, enum: [ok, unavailable] }
     Organization:
       type: object
       required: [id, slug, name, short_name, tagline, introduction, contact_email, social_links]
@@ -1644,6 +1873,9 @@ components:
     AdminUserState:
       type: string
       enum: [active, invited, disabled]
+    AdminMembershipWriteState:
+      type: string
+      enum: [active, disabled]
     AdminUser:
       type: object
       required: [id, name, email, role, state, joined_at]
@@ -1654,6 +1886,194 @@ components:
         role: { $ref: '#/components/schemas/AdminRole' }
         state: { $ref: '#/components/schemas/AdminUserState' }
         joined_at: { type: string, format: date-time }
+    AuditEvent:
+      type: object
+      required: [id, actor_user_id, actor_name, action, target_type, target_id, result, request_id, created_at]
+      properties:
+        id: { type: string }
+        actor_user_id: { type: string }
+        actor_name: { type: string, maxLength: 80 }
+        action: { type: string, maxLength: 96 }
+        target_type: { type: string, maxLength: 64 }
+        target_id: { type: string, maxLength: 36 }
+        result: { type: string, maxLength: 24 }
+        request_id: { type: string, maxLength: 64 }
+        created_at: { type: string, format: date-time }
+    AIProviderStatus:
+      type: object
+      required: [provider, mode, model, enabled, configured]
+      properties:
+        provider: { type: string, enum: [disabled, mock, openai_compatible] }
+        mode: { type: string, enum: [disabled, mock, real] }
+        model: { type: string, maxLength: 120 }
+        enabled: { type: boolean }
+        configured: { type: boolean }
+    AIConfigurationWriteRequest:
+      type: object
+      required: [enabled, run_limit_per_hour, request_timeout_seconds, max_sources, max_context_characters]
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+          description: 是否允许当前组织创建新的智能体运行。
+        run_limit_per_hour:
+          type: integer
+          minimum: 1
+          maximum: 200
+          description: 每个用户在当前组织内每小时可创建的运行数。
+        request_timeout_seconds:
+          type: integer
+          minimum: 5
+          maximum: 120
+          description: 单次模型调用硬超时，单位为秒。
+        max_sources:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: 每次运行可显式引用的知识资料上限。
+        max_context_characters:
+          type: integer
+          minimum: 1000
+          maximum: 100000
+          description: 每次运行发送给模型的知识正文字符总上限。
+    AIConfiguration:
+      type: object
+      required: [enabled, run_limit_per_hour, request_timeout_seconds, max_sources, max_context_characters, provider]
+      properties:
+        id: { type: string, maxLength: 36, description: 组织首次保存配置后才返回。 }
+        enabled: { type: boolean }
+        run_limit_per_hour: { type: integer, minimum: 1, maximum: 200 }
+        request_timeout_seconds: { type: integer, minimum: 5, maximum: 120 }
+        max_sources: { type: integer, minimum: 1, maximum: 10 }
+        max_context_characters: { type: integer, minimum: 1000, maximum: 100000 }
+        provider: { $ref: '#/components/schemas/AIProviderStatus' }
+        updated_by: { type: string, maxLength: 36 }
+        updated_at: { type: string, format: date-time }
+    AIAgentDefinition:
+      type: object
+      required: [id, key, name, purpose, system_policy_version, allowed_tool_keys, model_profile, enabled]
+      properties:
+        id: { type: string, maxLength: 36 }
+        key: { type: string, maxLength: 64, example: content-copilot }
+        name: { type: string, maxLength: 120 }
+        purpose: { type: string, maxLength: 500 }
+        system_policy_version: { type: string, maxLength: 64 }
+        allowed_tool_keys:
+          type: array
+          maxItems: 16
+          items: { type: string, maxLength: 96 }
+        model_profile: { type: string, maxLength: 64 }
+        enabled: { type: boolean }
+    AIAgentCatalog:
+      type: object
+      required: [agents, provider]
+      properties:
+        agents:
+          type: array
+          items: { $ref: '#/components/schemas/AIAgentDefinition' }
+        provider: { $ref: '#/components/schemas/AIProviderStatus' }
+    AIKnowledgeSearchRequest:
+      type: object
+      required: [query]
+      additionalProperties: false
+      properties:
+        query: { type: string, minLength: 1, maxLength: 80 }
+        limit: { type: integer, minimum: 1, maximum: 20, default: 10 }
+    AIKnowledgeResult:
+      type: object
+      required: [source_type, id, title, excerpt, status, updated_at]
+      properties:
+        source_type: { type: string, enum: [content] }
+        id: { type: string, maxLength: 64 }
+        title: { type: string, maxLength: 160 }
+        excerpt: { type: string, maxLength: 500 }
+        status: { $ref: '#/components/schemas/AdminContentStatus' }
+        updated_at: { type: string, format: date-time }
+    AISourceReference:
+      type: object
+      required: [type, id]
+      additionalProperties: false
+      properties:
+        type: { type: string, enum: [content] }
+        id: { type: string, minLength: 1, maxLength: 64 }
+    AIRunCreateRequest:
+      type: object
+      required: [agent_key, task, context_refs, output_mode]
+      additionalProperties: false
+      properties:
+        agent_key: { type: string, minLength: 1, maxLength: 64, enum: [content-copilot] }
+        task: { type: string, minLength: 1, maxLength: 1000 }
+        context_refs:
+          type: array
+          minItems: 1
+          maxItems: 10
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/AISourceReference' }
+        output_mode: { type: string, enum: [proposal] }
+    AICitation:
+      type: object
+      required: [id, source_type, source_id, title, excerpt, source_updated_at]
+      properties:
+        id: { type: string, maxLength: 36 }
+        source_type: { type: string, enum: [content] }
+        source_id: { type: string, maxLength: 64 }
+        title: { type: string, maxLength: 160 }
+        excerpt: { type: string, maxLength: 500 }
+        source_updated_at: { type: string, format: date-time }
+    AIRunStatus:
+      type: string
+      enum: [queued, running, succeeded, failed, canceled]
+    AIRun:
+      type: object
+      required:
+        - id
+        - agent_key
+        - agent_name
+        - status
+        - task
+        - output_title
+        - output_excerpt
+        - output_markdown
+        - provider
+        - mode
+        - model
+        - prompt_version
+        - input_tokens
+        - output_tokens
+        - failure_code
+        - failure_message
+        - request_id
+        - citations
+        - expires_at
+        - created_at
+        - updated_at
+      properties:
+        id: { type: string, maxLength: 36 }
+        agent_key: { type: string, maxLength: 64 }
+        agent_name: { type: string, maxLength: 120 }
+        status: { $ref: '#/components/schemas/AIRunStatus' }
+        task: { type: string, maxLength: 1000 }
+        output_title: { type: string, maxLength: 160 }
+        output_excerpt: { type: string, maxLength: 500 }
+        output_markdown: { type: string, description: 标准 Markdown；客户端必须按不可信内容清洗后渲染。 }
+        provider: { type: string, enum: [mock, openai_compatible] }
+        mode: { type: string, enum: [mock, real] }
+        model: { type: string, maxLength: 120 }
+        prompt_version: { type: string, maxLength: 64 }
+        input_tokens: { type: integer, minimum: 0 }
+        output_tokens: { type: integer, minimum: 0 }
+        failure_code: { type: string, maxLength: 64 }
+        failure_message: { type: string, maxLength: 500 }
+        request_id: { type: string, maxLength: 64 }
+        citations:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/AICitation' }
+        started_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
     InvitationRole:
       type: string
       enum: [member, editor, administrator]
@@ -1687,9 +2107,39 @@ components:
           allOf:
             - $ref: '#/components/schemas/Invitation'
             - type: object
-              required: [invite_url]
+              required: [invite_url, delivery]
               properties:
                 invite_url: { type: string, format: uri-reference }
+                delivery: { $ref: '#/components/schemas/EmailDelivery' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    EmailDeliveryStatus:
+      type: string
+      enum: [disabled, pending, sent, failed]
+    EmailDelivery:
+      type: object
+      required: [status, adapter, attempts]
+      properties:
+        status: { $ref: '#/components/schemas/EmailDeliveryStatus' }
+        adapter: { type: string, enum: [disabled, smtp] }
+        attempts: { type: integer, minimum: 0 }
+        last_error: { type: string, maxLength: 500 }
+        last_attempt_at: { type: string, format: date-time }
+        sent_at: { type: string, format: date-time }
+    EmailAdapterStatus:
+      type: object
+      required: [driver, enabled, configured]
+      properties:
+        driver: { type: string, enum: [disabled, smtp] }
+        enabled: { type: boolean }
+        configured: { type: boolean }
+        from_address: { type: string, format: email }
+        from_name: { type: string, maxLength: 160 }
+        security: { type: string, enum: [starttls, tls, none] }
+    EmailAdapterStatusResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/EmailAdapterStatus' }
         meta: { $ref: '#/components/schemas/Meta' }
     InvitationResponse:
       type: object
@@ -1714,7 +2164,7 @@ components:
       required: [role, state]
       properties:
         role: { $ref: '#/components/schemas/AdminRole' }
-        state: { $ref: '#/components/schemas/AdminUserState' }
+        state: { $ref: '#/components/schemas/AdminMembershipWriteState' }
     AdminProject:
       type: object
       required: [id, title, summary, status, tags, is_public, owner, updated_at]
@@ -2119,6 +2569,38 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/AdminUser' } }
         meta: { $ref: '#/components/schemas/ListMeta' }
+    AuditEventListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AuditEvent' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    AIAgentCatalogResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AIAgentCatalog' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    AIConfigurationResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AIConfiguration' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    AIKnowledgeSearchResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/AIKnowledgeResult' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    AIRunResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AIRun' }
+        meta: { $ref: '#/components/schemas/Meta' }
     AdminUserResponse:
       type: object
       required: [data, meta]
@@ -2209,23 +2691,3 @@ components:
       properties:
         data: { $ref: '#/components/schemas/ServerCommandResult' }
         meta: { $ref: '#/components/schemas/Meta' }
-    AdminAuditEvent:
-      type: object
-      description: 已落库的组织审计事件，仅限拥有 audit:read 权限的角色查看。
-      required: [id, action, target_type, target_id, result, request_id, actor_user_id, actor_name, created_at]
-      properties:
-        id: { type: string, format: uuid }
-        action: { type: string, description: 操作类型，例如 content.publish、membership.invite、application.approve。, example: content.publish }
-        target_type: { type: string, description: 目标资源类型，例如 content、application、invitation、server。, example: content }
-        target_id: { type: string, description: 目标资源 ID；无具体目标的操作为空字符串。, example: content_cms }
-        result: { type: string, enum: [success, accepted, failed], description: 操作结果。, example: success }
-        request_id: { type: string, description: 关联的请求标识，用于跨日志与审计串联定位问题。, example: req_01J0QUTC9B7ABCD }
-        actor_user_id: { type: string, format: uuid, description: 执行操作的用户 ID。 }
-        actor_name: { type: string, description: 操作者显示名称，便于后台阅读；用户不存在时为空字符串。, example: Yukino }
-        created_at: { type: string, format: date-time, description: 事件发生时间。, example: '2026-07-28T10:00:00Z' }
-    AdminAuditEventListResponse:
-      type: object
-      required: [data, meta]
-      properties:
-        data: { type: array, items: { $ref: '#/components/schemas/AdminAuditEvent' } }
-        meta: { $ref: '#/components/schemas/ListMeta' }

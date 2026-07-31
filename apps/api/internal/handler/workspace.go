@@ -14,6 +14,7 @@ import (
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/model"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/cache"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/serveradapter"
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/storage"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -27,6 +28,7 @@ type WorkspaceHandler struct {
 	cache          *cache.Cache
 	cacheNamespace string
 	serverAdapter  serveradapter.Adapter
+	mediaStorage   storage.Store
 	applications   *service.ApplicationDecisionService
 }
 
@@ -49,11 +51,26 @@ func NewWorkspaceHandlerWithServerAdapter(db *gorm.DB, publicCache *cache.Cache,
 }
 
 func NewWorkspaceHandlerWithServerAdapterTimeout(db *gorm.DB, publicCache *cache.Cache, environment string, adapter serveradapter.Adapter, timeout time.Duration) *WorkspaceHandler {
+	mediaStorage, err := storage.NewLocal("/tmp/qutcraft-uploads")
+	if err != nil {
+		panic(err)
+	}
+	return NewWorkspaceHandlerWithDependencies(db, publicCache, environment, adapter, timeout, mediaStorage)
+}
+
+func NewWorkspaceHandlerWithDependencies(db *gorm.DB, publicCache *cache.Cache, environment string, adapter serveradapter.Adapter, timeout time.Duration, mediaStorage storage.Store) *WorkspaceHandler {
 	if strings.TrimSpace(environment) == "" {
 		environment = "development"
 	}
 	if adapter == nil {
 		adapter = serveradapter.NewMock()
+	}
+	if mediaStorage == nil {
+		var err error
+		mediaStorage, err = storage.NewLocal("/tmp/qutcraft-uploads")
+		if err != nil {
+			panic(err)
+		}
 	}
 	adapter = serveradapter.WithTimeout(adapter, timeout)
 	return &WorkspaceHandler{
@@ -61,6 +78,7 @@ func NewWorkspaceHandlerWithServerAdapterTimeout(db *gorm.DB, publicCache *cache
 		cache:          publicCache,
 		cacheNamespace: environment,
 		serverAdapter:  adapter,
+		mediaStorage:   mediaStorage,
 		applications:   service.NewApplicationDecisionService(db, adapter),
 	}
 }
@@ -947,7 +965,7 @@ func (h *WorkspaceHandler) AdminUpdateUser(c *gin.Context) {
 		State string `json:"state"`
 		Role  string `json:"role"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil || !validMemberState(body.State) || !validRole(body.Role) {
+	if err := c.ShouldBindJSON(&body); err != nil || !validMemberWriteState(body.State) || !validRole(body.Role) {
 		fail(c, http.StatusBadRequest, "membership.validation_failed", "成员状态或角色不符合规范。")
 		return
 	}
@@ -961,7 +979,12 @@ func (h *WorkspaceHandler) AdminUpdateUser(c *gin.Context) {
 		fail(c, http.StatusNotFound, "user.not_found", "用户不存在。")
 		return
 	}
+	if user.State != "active" {
+		fail(c, http.StatusConflict, "user.account_inactive", "该账户已被系统级停用，组织管理员不能在此恢复。")
+		return
+	}
 	targetRole := membershipRole(h.db, membership.ID)
+	currentState := membership.State
 	actorRole := membershipRoleByUser(h.db, principal.OrganizationID, principal.UserID)
 	if code := membershipChangeError(actorRole, c.Param("id") == principal.UserID, targetRole, body.Role, body.State); code != "" {
 		status := http.StatusConflict
@@ -986,16 +1009,26 @@ func (h *WorkspaceHandler) AdminUpdateUser(c *gin.Context) {
 		if err := tx.Model(&membership).Update("state", body.State).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&user).Update("state", body.State).Error; err != nil {
-			return err
-		}
 		if err := tx.Where("membership_id = ?", membership.ID).Delete(&model.MembershipRole{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Create(&model.MembershipRole{MembershipID: membership.ID, RoleID: role.ID}).Error; err != nil {
 			return err
 		}
-		return tx.Create(&model.MembershipEvent{ID: uuid.NewString(), MembershipID: membership.ID, State: body.State, Reason: "admin_update"}).Error
+		if body.State != "active" {
+			now := time.Now().UTC()
+			if err := tx.Model(&model.RefreshToken{}).
+				Where("user_id = ? AND revoked_at IS NULL", user.ID).
+				Update("revoked_at", now).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Create(&model.MembershipEvent{
+			ID:           uuid.NewString(),
+			MembershipID: membership.ID,
+			State:        body.State,
+			Reason:       membershipUpdateReason(currentState, targetRole, body.State, body.Role),
+		}).Error
 	})
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "membership.update_failed", "成员信息保存失败。")
@@ -1005,8 +1038,8 @@ func (h *WorkspaceHandler) AdminUpdateUser(c *gin.Context) {
 	respond(c, http.StatusOK, gin.H{"id": user.ID, "name": user.DisplayName, "email": user.Email, "role": body.Role, "state": body.State, "joined_at": membership.CreatedAt})
 }
 
-func validMemberState(value string) bool {
-	return value == "active" || value == "invited" || value == "disabled"
+func validMemberWriteState(value string) bool {
+	return value == "active" || value == "disabled"
 }
 
 func validRole(value string) bool {
@@ -1036,6 +1069,19 @@ func membershipChangeError(actorRole string, actorIsSelf bool, currentRole, next
 		return "membership.self_change_forbidden"
 	}
 	return ""
+}
+
+func membershipUpdateReason(currentState, currentRole, nextState, nextRole string) string {
+	switch {
+	case currentState == "active" && nextState == "disabled":
+		return "admin_disabled"
+	case currentState != "active" && nextState == "active":
+		return "admin_reactivated"
+	case currentRole != nextRole:
+		return "admin_role_changed"
+	default:
+		return "admin_update"
+	}
 }
 
 func (h *WorkspaceHandler) AdminProjects(c *gin.Context) {

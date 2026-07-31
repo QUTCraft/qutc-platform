@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Check, EditPen, Link, Paperclip, Picture, Upload, View } from '@element-plus/icons-vue'
+import { ArrowLeft, Check, EditPen, Link, MagicStick, Paperclip, Picture, Upload, View } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { adminApi } from '@/api/admin'
 import type { AdminContent } from '@/api/types'
+import AIContentAssistant from '@/components/admin/AIContentAssistant.vue'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { renderMarkdown } from '@/utils/markdown'
 
@@ -25,6 +26,7 @@ const markdownFileInput = ref<HTMLInputElement>()
 const imageFileInput = ref<HTMLInputElement>()
 const attachmentFileInput = ref<HTMLInputElement>()
 const assetPreviewUrls = ref<Record<string, string>>({})
+const aiAssistantOpen = ref(false)
 
 const form = reactive({
   title: '',
@@ -258,6 +260,15 @@ function goBack() {
   void router.push('/admin/content')
 }
 
+function applyAIProposal(proposal: { title: string; excerpt: string; body: string }) {
+  Object.assign(form, proposal)
+}
+
+function openCreatedDraft(content: AdminContent) {
+  loadItem(content)
+  void router.replace({ name: 'admin-content-edit', params: { id: content.id } })
+}
+
 onBeforeUnmount(() => {
   for (const url of Object.values(assetPreviewUrls.value)) URL.revokeObjectURL(url)
 })
@@ -287,6 +298,7 @@ onBeforeUnmount(() => {
         <p>使用标准 Markdown 编写正文，右侧预览会随输入即时更新。</p>
       </div>
       <div class="content-editor-actions">
+        <el-button class="editor-ai-button" :icon="MagicStick" @click="aiAssistantOpen = true">从知识生成</el-button>
         <label class="editor-import-button">
           <el-icon><Upload /></el-icon>
           导入 Markdown
@@ -374,6 +386,19 @@ onBeforeUnmount(() => {
         <el-empty v-else description="开始输入 Markdown，预览会显示在这里。" :image-size="96" />
       </article>
     </section>
+
+    <AIContentAssistant
+      v-model="aiAssistantOpen"
+      :current-title="form.title"
+      :current-excerpt="form.excerpt"
+      :current-body="form.body"
+      :content-type="form.type"
+      :category="form.category"
+      :knowledge-directory-id="form.knowledge_directory_id"
+      :published="isPublished"
+      @apply="applyAIProposal"
+      @created="openCreatedDraft"
+    />
   </section>
 </template>
 
@@ -460,6 +485,16 @@ onBeforeUnmount(() => {
   color: var(--md-sys-color-on-primary-container);
   background: var(--md-sys-color-primary-container);
   border-color: var(--md-sys-color-primary);
+}
+
+.editor-ai-button {
+  color: var(--md-sys-color-on-tertiary-container) !important;
+  background: var(--md-sys-color-tertiary-container) !important;
+  border-color: color-mix(in srgb, var(--md-sys-color-tertiary) 42%, transparent) !important;
+}
+
+.editor-ai-button:hover {
+  border-color: var(--md-sys-color-tertiary) !important;
 }
 
 .editor-import-button input {

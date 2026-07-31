@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "a70c80d2-66b1-4fe5-aef3-qutc-core-smoke",
     "name": "QUTCraft CMS - Core Smoke",
-    "description": "可导入 Apifox 的 Postman Collection v2.1 核心冒烟集合。按顺序验证健康检查、认证、内容发布闭环和申请审批闭环；运行会创建带 runId 的临时内容与申请，并将其归档/拒绝。",
+    "description": "可导入 Apifox 的 Postman Collection v2.1 核心冒烟集合。按顺序验证健康检查、认证、内容发布、申请审批和智能体闭环；运行会创建带 runId 的临时内容、申请与智能体运行，并将内容归档、申请拒绝。",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "event": [
@@ -401,6 +401,216 @@
             "exec": [
               "pm.test('application is rejected', () => pm.response.to.have.status(200));",
               "pm.expect(pm.response.json().data.status).to.eql('rejected');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "14 - Read AI configuration",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/ai/config",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "ai", "config"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('AI configuration is readable', () => pm.response.to.have.status(200));",
+              "const config = pm.response.json().data;",
+              "pm.expect(config.run_limit_per_hour).to.be.within(1, 200);",
+              "pm.expect(['disabled', 'mock', 'real']).to.include(config.provider.mode);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "15 - Update AI configuration",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"enabled\": true,\n  \"run_limit_per_hour\": 20,\n  \"request_timeout_seconds\": 30,\n  \"max_sources\": 10,\n  \"max_context_characters\": 30000\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/ai/config",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "ai", "config"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('AI configuration is persisted', () => pm.response.to.have.status(200));",
+              "const config = pm.response.json().data;",
+              "pm.expect(config.enabled).to.eql(true);",
+              "pm.expect(config.max_context_characters).to.eql(30000);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "16 - List AI agents",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/ai/agents",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "ai", "agents"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('AI catalog is readable', () => pm.response.to.have.status(200));",
+              "const payload = pm.response.json().data;",
+              "pm.expect(payload.agents.some(agent => agent.key === 'content-copilot')).to.eql(true);",
+              "pm.expect(['disabled', 'mock', 'real']).to.include(payload.provider.mode);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "17 - Search authorized AI knowledge",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"社团\",\n  \"limit\": 5\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/ai/knowledge/search",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "ai", "knowledge", "search"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('knowledge search succeeds', () => pm.response.to.have.status(200));",
+              "const rows = pm.response.json().data;",
+              "pm.expect(rows.length).to.be.above(0);",
+              "pm.environment.set('knowledgeSourceId', rows[0].id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "18 - Create AI content proposal run",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"agent_key\": \"content-copilot\",\n  \"task\": \"根据选定知识资料生成一篇门户动态提案\",\n  \"context_refs\": [\n    {\n      \"type\": \"content\",\n      \"id\": \"{{knowledgeSourceId}}\"\n    }\n  ],\n  \"output_mode\": \"proposal\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/ai/runs",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "ai", "runs"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('AI run is accepted', () => pm.response.to.have.status(202));",
+              "const run = pm.response.json().data;",
+              "pm.expect(['queued', 'running', 'succeeded']).to.include(run.status);",
+              "pm.environment.set('agentRunId', run.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "19 - Read AI run",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/ai/runs/{{agentRunId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "ai", "runs", "{{agentRunId}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('AI run is readable', () => pm.response.to.have.status(200));",
+              "const run = pm.response.json().data;",
+              "pm.expect(['queued', 'running', 'succeeded', 'failed', 'canceled']).to.include(run.status);",
+              "pm.expect(run.citations.length).to.eql(1);"
             ]
           }
         }

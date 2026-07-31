@@ -40,11 +40,19 @@ func TestS5AuditEventQuery(t *testing.T) {
 
 	now := time.Now().UTC()
 	sharedRequestID := "req_s5_" + uuid.NewString()
+	otherOrganization := model.Organization{
+		ID:   uuid.NewString(),
+		Slug: "s5-audit-other-" + uuid.NewString(),
+		Name: "S5 Audit Isolation Fixture",
+	}
+	if err := db.Create(&otherOrganization).Error; err != nil {
+		t.Fatalf("create other organization: %v", err)
+	}
 	events := []model.AuditEvent{
 		{ID: uuid.NewString(), OrganizationID: organization.ID, ActorUserID: owner.ID, Action: "content.publish", TargetType: "content", TargetID: "content_s5_a", Result: "success", RequestID: sharedRequestID, CreatedAt: now},
 		{ID: uuid.NewString(), OrganizationID: organization.ID, ActorUserID: owner.ID, Action: "application.approve", TargetType: "application", TargetID: "application_s5", Result: "success", RequestID: sharedRequestID, CreatedAt: now.Add(time.Second)},
 		{ID: uuid.NewString(), OrganizationID: organization.ID, ActorUserID: owner.ID, Action: "server.command", TargetType: "server", TargetID: "", Result: "failed", RequestID: "req_s5_isolated_" + uuid.NewString(), CreatedAt: now.Add(2 * time.Second)},
-		{ID: uuid.NewString(), OrganizationID: uuid.NewString(), ActorUserID: owner.ID, Action: "content.publish", TargetType: "content", TargetID: "content_other_org", Result: "success", RequestID: "req_s5_other_org", CreatedAt: now.Add(3 * time.Second)},
+		{ID: uuid.NewString(), OrganizationID: otherOrganization.ID, ActorUserID: owner.ID, Action: "content.publish", TargetType: "content", TargetID: "content_other_org", Result: "success", RequestID: "req_s5_other_org", CreatedAt: now.Add(3 * time.Second)},
 	}
 	for _, event := range events {
 		if err := db.Create(&event).Error; err != nil {
@@ -53,6 +61,7 @@ func TestS5AuditEventQuery(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		db.Where("id IN ?", []string{events[0].ID, events[1].ID, events[2].ID, events[3].ID}).Delete(&model.AuditEvent{})
+		db.Delete(&otherOrganization)
 	})
 
 	currentOrgIDs := []string{events[0].ID, events[1].ID, events[2].ID}

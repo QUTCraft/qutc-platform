@@ -1,7 +1,13 @@
 package main
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"log"
 	"log/slog"
+	"net/http"
+	"os"
 	"time"
 
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/config"
@@ -10,52 +16,100 @@ import (
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/cache"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/database"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/logging"
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/mailadapter"
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/modelprovider"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/serveradapter"
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/storage"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		if err := checkReadiness("http://127.0.0.1:8080/readyz"); err != nil {
+			log.Printf("readiness check failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
 	cfg := config.Load()
 	logging.Init(cfg.AppEnv)
+	appLogger := slog.Default()
 	if err := cfg.Validate(); err != nil {
-		slog.Error("invalid configuration", "error", err)
-		return
+		log.Fatalf("invalid configuration: %v", err)
 	}
 	db, err := database.Connect(cfg)
 	if err != nil {
-		slog.Error("database connection failed", "error", err)
-		return
+		log.Fatalf("database connection failed: %v", err)
 	}
 	if err := database.MigrateAndSeed(db, cfg); err != nil {
-		slog.Error("database migration or seed failed", "error", err)
-		return
+		log.Fatalf("database migration or seed failed: %v", err)
 	}
 	publicCache := cache.New(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.PublicCacheTTL)
+	storageContext, cancelStorageInitialization := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelStorageInitialization()
+	mediaStorage, err := storage.New(storageContext, storage.Config{
+		Driver:    cfg.StorageDriver,
+		LocalRoot: cfg.StorageLocalRoot,
+		Endpoint:  cfg.S3Endpoint,
+		AccessKey: cfg.S3AccessKey,
+		SecretKey: cfg.S3SecretKey,
+		Bucket:    cfg.S3Bucket,
+		Region:    cfg.S3Region,
+		UseSSL:    cfg.S3UseSSL,
+	})
+	if err != nil {
+		log.Fatalf("media storage initialization failed: %v", err)
+	}
+	emailSender, err := mailadapter.New(mailadapter.Config{
+		Driver:      cfg.EmailDriver,
+		Host:        cfg.SMTPHost,
+		Port:        cfg.SMTPPort,
+		Username:    cfg.SMTPUsername,
+		Password:    cfg.SMTPPassword,
+		FromAddress: cfg.SMTPFromAddress,
+		FromName:    cfg.SMTPFromName,
+		Security:    cfg.SMTPSecurity,
+		Timeout:     cfg.SMTPTimeout,
+	})
+	if err != nil {
+		log.Fatalf("email adapter initialization failed: %v", err)
+	}
+	modelProvider, err := modelprovider.New(modelprovider.Config{
+		Driver: cfg.AIProvider, BaseURL: cfg.AIBaseURL, APIKey: cfg.AIAPIKey,
+		Model: cfg.AIModel, Timeout: cfg.AIRequestTimeout,
+	})
+	if err != nil {
+		log.Fatalf("model provider initialization failed: %v", err)
+	}
 
 	if cfg.AppEnv == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	router := gin.New()
 	if err := router.SetTrustedProxies(nil); err != nil {
-		slog.Error("configure trusted proxies", "error", err)
-		return
+		log.Fatalf("configure trusted proxies: %v", err)
 	}
-	router.Use(middleware.RequestID(), middleware.SlogLogger(), gin.Recovery(), cors.New(corsConfig(cfg)))
+	router.Use(middleware.RequestID(), middleware.StructuredLogger(appLogger), gin.Recovery(), cors.New(corsConfig(cfg)))
 
 	authService := service.NewAuthService(db, cfg)
 	authHandler := handler.NewAuthHandler(authService)
-	invitationHandler := handler.NewInvitationHandler(db, authService)
-	workspaceHandler := handler.NewWorkspaceHandlerWithServerAdapterTimeout(db, publicCache, cfg.AppEnv, serveradapter.NewMock(), cfg.ServerAdapterTimeout)
+	invitationHandler := handler.NewInvitationHandler(db, authService, emailSender, cfg.PublicWebBaseURL)
+	workspaceHandler := handler.NewWorkspaceHandlerWithDependencies(db, publicCache, cfg.AppEnv, serveradapter.NewMock(), cfg.ServerAdapterTimeout, mediaStorage)
 	portalConfigHandler := handler.NewPortalConfigHandler(db)
 	auditHandler := handler.NewAuditHandler(db)
-	healthHandler := handler.NewHealthHandler(sqldb(db), publicCache)
+	agentService := service.NewAgentService(db, modelProvider, cfg.AIRunLimitPerHour, cfg.AIRequestTimeout)
+	if err := agentService.RecoverInterruptedRuns(); err != nil {
+		log.Fatalf("recover interrupted agent runs: %v", err)
+	}
+	aiHandler := handler.NewAIHandler(agentService)
 	authRateLimiter := middleware.NewRateLimiter(cfg.AuthRateLimitPerMinute, time.Minute)
 	publicWriteRateLimiter := middleware.NewRateLimiter(cfg.PublicWriteLimitPerHour, time.Hour)
 	sensitiveRateLimiter := middleware.NewRateLimiter(cfg.SensitiveLimitPerMinute, time.Minute)
-	router.GET("/healthz", healthHandler.Healthz)
+	healthHandler := handler.NewHealthHandler(db, publicCache)
+	router.GET("/healthz", healthHandler.Liveness)
+	router.GET("/readyz", healthHandler.Readiness)
 
 	v1 := router.Group("/api/v1")
 	auth := v1.Group("/auth")
@@ -91,6 +145,8 @@ func main() {
 	admin.GET("/users", middleware.RequirePermission(authService, "membership:read"), workspaceHandler.AdminUsers)
 	admin.PATCH("/users/:id", middleware.RequirePermission(authService, "membership:manage"), workspaceHandler.AdminUpdateUser)
 	admin.POST("/invitations", middleware.RequirePermission(authService, "membership:manage"), invitationHandler.Create)
+	admin.POST("/invitations/:id/email/retry", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "membership:manage"), invitationHandler.RetryEmail)
+	admin.GET("/notifications/email/status", middleware.RequirePermission(authService, "organization:configure"), invitationHandler.EmailStatus)
 	admin.GET("/projects", middleware.RequirePermission(authService, "project:read"), workspaceHandler.AdminProjects)
 	admin.POST("/projects", middleware.RequirePermission(authService, "project:manage"), workspaceHandler.AdminCreateProject)
 	admin.PATCH("/projects/:id", middleware.RequirePermission(authService, "project:manage"), workspaceHandler.AdminUpdateProject)
@@ -112,7 +168,14 @@ func main() {
 	admin.PATCH("/portal/config", middleware.RequirePermission(authService, "organization:configure"), portalConfigHandler.SaveDraft)
 	admin.POST("/portal/config/enable", middleware.RequirePermission(authService, "organization:configure"), portalConfigHandler.Enable)
 	admin.POST("/portal/config/restore-default", middleware.RequirePermission(authService, "organization:configure"), portalConfigHandler.RestoreDefault)
-	admin.GET("/audit", middleware.RequirePermission(authService, "audit:read"), auditHandler.AdminAuditEvents)
+	admin.GET("/audit", middleware.RequirePermission(authService, "audit:read"), auditHandler.List)
+	admin.GET("/ai/config", middleware.RequirePermission(authService, "ai:use"), aiHandler.GetConfiguration)
+	admin.PATCH("/ai/config", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "organization:configure"), aiHandler.UpdateConfiguration)
+	admin.GET("/ai/agents", middleware.RequirePermission(authService, "ai:use"), aiHandler.ListAgents)
+	admin.POST("/ai/knowledge/search", middleware.RequirePermission(authService, "ai:use"), middleware.RequirePermission(authService, "knowledge:read"), aiHandler.SearchKnowledge)
+	admin.POST("/ai/runs", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "ai:use"), middleware.RequirePermission(authService, "knowledge:read"), aiHandler.CreateRun)
+	admin.GET("/ai/runs/:run_id", middleware.RequirePermission(authService, "ai:use"), aiHandler.GetRun)
+	admin.POST("/ai/runs/:run_id/cancel", middleware.RequirePermission(authService, "ai:use"), aiHandler.CancelRun)
 
 	portal := v1.Group("/portal/organizations/:slug")
 	portal.GET("", workspaceHandler.Organization)
@@ -127,10 +190,24 @@ func main() {
 	portal.POST("/apply", publicWriteRateLimiter.Middleware(), workspaceHandler.SubmitApplication)
 	portal.GET("/assets/:id/download", workspaceHandler.DownloadAsset)
 
-	slog.Info("qutcraft api starting", "addr", cfg.HTTPAddr)
+	appLogger.Info("qutcraft api listening", "address", cfg.HTTPAddr)
 	if err := router.Run(cfg.HTTPAddr); err != nil {
-		slog.Error("http server stopped", "error", err)
+		log.Fatalf("http server stopped: %v", err)
 	}
+}
+
+func checkReadiness(target string) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	response, err := client.Get(target)
+	if err != nil {
+		return fmt.Errorf("request readiness endpoint: %w", err)
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, response.Body)
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("readiness endpoint returned HTTP %d", response.StatusCode)
+	}
+	return nil
 }
 
 func corsConfig(cfg config.Config) cors.Config {
@@ -142,15 +219,3 @@ func corsConfig(cfg config.Config) cors.Config {
 		AllowCredentials: true,
 	}
 }
-
-func sqldb(db *gorm.DB) interface{ Ping() error } {
-	sqlDB, err := db.DB()
-	if err != nil {
-		return &brokenDB{err: err}
-	}
-	return sqlDB
-}
-
-type brokenDB struct{ err error }
-
-func (b *brokenDB) Ping() error { return b.err }

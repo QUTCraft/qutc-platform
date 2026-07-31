@@ -1,8 +1,8 @@
 # QUTCraft Commons × AI 智能体集成设计
 
-> 状态：架构提案，尚未实现  
+> 状态：AI-0 后端基础与 AI-1 人工确认内容闭环已实现；AI-2+ 待后续版本
 > 目标版本：`v0.1.0-competition`（核心 CMS 通过 G5 后实施）  
-> 更新日期：2026-07-28  
+> 更新日期：2026-07-30
 > 前置条件：RBAC、审计、内容状态机、知识可见性和 API 契约通过 G5
 
 ## 1. 结论
@@ -296,18 +296,20 @@ queued/running/waiting_approval ───────────────→
 
 ## 8. API 草案
 
-以下是规划接口，不进入当前 OpenAPI，直到对应 Go 路由实现：
+以下接口中，AI-0 的组织配置、智能体目录、运行与知识检索已经进入 Go、OpenAPI、Apifox 和 TypeScript client；工具批准/拒绝与公开问答仍为规划：
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/api/v1/admin/ai/agents` | 获取当前组织可用智能体。 |
-| `POST` | `/api/v1/admin/ai/runs` | 创建一次智能体运行。 |
-| `GET` | `/api/v1/admin/ai/runs/{run_id}` | 查询状态、引用、输出和工具提案。 |
-| `POST` | `/api/v1/admin/ai/runs/{run_id}/cancel` | 取消未结束运行。 |
-| `POST` | `/api/v1/admin/ai/tool-calls/{tool_call_id}/approve` | 批准一次具体工具调用。 |
-| `POST` | `/api/v1/admin/ai/tool-calls/{tool_call_id}/reject` | 拒绝工具调用。 |
-| `POST` | `/api/v1/admin/ai/knowledge/search` | 权限感知的内部知识检索。 |
-| `POST` | `/api/v1/portal/organizations/{slug}/assistant/query` | 后续可选的公开知识问答。 |
+| `GET` | `/api/v1/admin/ai/config` | ✅ 已实现：读取组织策略与脱敏供应商状态。 |
+| `PATCH` | `/api/v1/admin/ai/config` | ✅ 已实现：保存组织启停、配额、超时、引用与上下文限制。 |
+| `GET` | `/api/v1/admin/ai/agents` | ✅ 已实现：获取当前组织可用智能体与供应商状态。 |
+| `POST` | `/api/v1/admin/ai/runs` | ✅ 已实现：创建异步内容提案运行。 |
+| `GET` | `/api/v1/admin/ai/runs/{run_id}` | ✅ 已实现：查询状态、引用和输出。 |
+| `POST` | `/api/v1/admin/ai/runs/{run_id}/cancel` | ✅ 已实现：取消未结束运行。 |
+| `POST` | `/api/v1/admin/ai/tool-calls/{tool_call_id}/approve` | ⏳ AI-1/AI-4：批准一次具体工具调用。 |
+| `POST` | `/api/v1/admin/ai/tool-calls/{tool_call_id}/reject` | ⏳ AI-1/AI-4：拒绝工具调用。 |
+| `POST` | `/api/v1/admin/ai/knowledge/search` | ✅ 已实现：权限感知的内部知识检索。 |
+| `POST` | `/api/v1/portal/organizations/{slug}/assistant/query` | ⏳ v0.2+：公开知识问答。 |
 
 建议创建运行的请求：
 
@@ -400,17 +402,21 @@ Object Storage
 
 ### AI-0 · 规范与 Mock
 
-- 定义 `ModelProvider`、AgentRun、Tool Schema 和审计模型；
-- 创建可重复 Mock Provider；
-- 只提供 `read_public` 和 Markdown 生成演示；
-- 建立 Prompt Injection 和权限测试集。
+- ✅ 定义并实现 `ModelProvider`、AgentDefinition、AgentRun、引用快照和审计模型；
+- ✅ 创建可重复且明确标识的 Mock Provider，并提供 OpenAI-compatible 真实驱动；
+- ✅ 提供组织隔离的内部知识读取和异步 Markdown 生成；
+- ✅ 提供 `/admin/ai` 配置页、组织级策略持久化、所有者保存权限和配置审计；
+- ✅ 建立跨组织、无认证、终态取消和“不自动创建内容”的集成测试；
+- ⏳ Prompt Injection 对抗数据集与输出质量评测继续在 AI-1 完善。
 
 ### AI-1 · 内容协作
 
-- 内容编辑器增加“AI 生成草稿/摘要/标签”；
-- 支持引用选定知识条目；
-- 所有写入停留在草稿；
-- 保存差异和人工确认记录。
+- ✅ 内容编辑器增加“从知识生成”工作台，支持任务描述、运行状态和取消；
+- ✅ 支持跨多次检索选择知识条目，并展示固定引用 ID 与版本；
+- ✅ 提供安全 Markdown 预览及与当前正文的并排差异预览；
+- ✅ 应用到编辑器不自动保存；二次确认后可调用现有 CMS 接口创建新草稿；
+- ✅ 所有 AI 写入停留在草稿，发布仍由既有 RBAC 和内容状态机控制；
+- ✅ Compose 集成测试连续三轮验证“生成 → 确认草稿 → 人工发布 → Portal → 下线”。
 
 ### AI-2 · 知识问答
 

@@ -1,15 +1,17 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/middleware"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/model"
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/storage"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -63,28 +65,25 @@ func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
 		return
 	}
 	id := uuid.NewString()
-	root := "/tmp/qutcraft-uploads"
-	if err := os.MkdirAll(root, 0o750); err != nil {
-		fail(c, http.StatusInternalServerError, "asset.storage_unavailable", "媒体存储暂不可用。")
+	if h.mediaStorage == nil {
+		fail(c, http.StatusServiceUnavailable, "asset.storage_unavailable", "媒体存储暂不可用。")
 		return
 	}
 	storedName := id + filepath.Ext(originalName)
-	storagePath := filepath.Join(root, storedName)
-	target, err := os.OpenFile(storagePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
-	if err != nil {
-		fail(c, http.StatusInternalServerError, "asset.storage_failed", "媒体文件保存失败。")
-		return
-	}
-	written, copyErr := io.Copy(target, io.LimitReader(file, maxAssetSize+1))
-	closeErr := target.Close()
-	if copyErr != nil || closeErr != nil || written > maxAssetSize {
-		_ = os.Remove(storagePath)
+	storageKey := principal.OrganizationID + "/" + storedName
+	written, storeErr := h.mediaStorage.Put(c.Request.Context(), storageKey, io.LimitReader(file, maxAssetSize+1), mimeType)
+	if storeErr != nil || written > maxAssetSize {
+		_ = h.mediaStorage.Delete(c.Request.Context(), storageKey)
+		if storeErr != nil {
+			fail(c, http.StatusServiceUnavailable, "asset.storage_unavailable", "媒体存储暂不可用。")
+			return
+		}
 		fail(c, http.StatusBadRequest, "asset.file_invalid", "媒体文件保存失败或超过大小限制。")
 		return
 	}
-	asset := model.MediaAsset{ID: id, OrganizationID: principal.OrganizationID, ContentID: contentID, UploadedBy: principal.UserID, OriginalName: originalName, StoredName: storedName, MimeType: mimeType, SizeBytes: written, StoragePath: storagePath}
+	asset := model.MediaAsset{ID: id, OrganizationID: principal.OrganizationID, ContentID: contentID, UploadedBy: principal.UserID, OriginalName: originalName, StoredName: storedName, MimeType: mimeType, SizeBytes: written, StorageDriver: h.mediaStorage.Driver(), StoragePath: storageKey}
 	if err := h.db.Create(&asset).Error; err != nil {
-		_ = os.Remove(storagePath)
+		_ = h.mediaStorage.Delete(c.Request.Context(), storageKey)
 		fail(c, http.StatusInternalServerError, "asset.metadata_failed", "媒体元数据保存失败。")
 		return
 	}
@@ -112,18 +111,37 @@ func (h *WorkspaceHandler) DownloadAsset(c *gin.Context) {
 			return
 		}
 	}
-	if _, err := os.Stat(asset.StoragePath); err != nil {
+	if h.mediaStorage == nil {
+		fail(c, http.StatusServiceUnavailable, "asset.storage_unavailable", "媒体存储暂不可用。")
+		return
+	}
+	assetStorageDriver := strings.TrimSpace(asset.StorageDriver)
+	if assetStorageDriver == "" {
+		assetStorageDriver = "local"
+	}
+	if assetStorageDriver != h.mediaStorage.Driver() {
+		fail(c, http.StatusServiceUnavailable, "asset.storage_driver_unavailable", "该媒体资源所属的存储后端当前未启用。")
+		return
+	}
+	source, err := h.mediaStorage.Open(c.Request.Context(), asset.StoragePath)
+	if errors.Is(err, storage.ErrNotFound) {
 		fail(c, http.StatusNotFound, "asset.file_missing", "媒体文件不存在。")
 		return
 	}
-	c.Header("X-Content-Type-Options", "nosniff")
-	if c.Param("slug") != "" && strings.HasPrefix(asset.MimeType, "image/") {
-		c.Header("Content-Disposition", fmt.Sprintf("inline; filename=%q", asset.OriginalName))
-		c.Header("Content-Type", asset.MimeType)
-		c.File(asset.StoragePath)
+	if err != nil {
+		fail(c, http.StatusServiceUnavailable, "asset.storage_unavailable", "媒体存储暂不可用。")
 		return
 	}
-	c.FileAttachment(asset.StoragePath, asset.OriginalName)
+	defer source.Close()
+	c.Header("X-Content-Type-Options", "nosniff")
+	disposition := "attachment"
+	if c.Param("slug") != "" && strings.HasPrefix(asset.MimeType, "image/") {
+		disposition = "inline"
+	}
+	contentDisposition := mime.FormatMediaType(disposition, map[string]string{"filename": asset.OriginalName})
+	c.DataFromReader(http.StatusOK, asset.SizeBytes, asset.MimeType, source, map[string]string{
+		"Content-Disposition": contentDisposition,
+	})
 }
 
 func assetResponse(asset model.MediaAsset) gin.H {

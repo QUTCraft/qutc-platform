@@ -2262,6 +2262,67 @@ h1, h2, h3, h4, h5, h6, p {
   margin-top: 18px;
 }
 
+.audit-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--md-sys-color-surface-container-high);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-md);
+}
+
+.audit-filters > .el-date-editor {
+  grid-column: span 2;
+  width: 100%;
+}
+
+.audit-filter-actions {
+  display: flex;
+  grid-column: span 2;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.audit-actor,
+.audit-target {
+  display: grid;
+  gap: 4px;
+}
+
+.audit-actor small,
+.audit-target small,
+.audit-request-id {
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audit-request-id {
+  display: block;
+}
+
+@media (max-width: 900px) {
+  .audit-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .audit-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .audit-filters > .el-date-editor,
+  .audit-filter-actions {
+    grid-column: 1;
+  }
+}
+
 .review-item, .app-item-card {
   display: flex;
   align-items: center;

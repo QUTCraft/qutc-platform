@@ -45,3 +45,29 @@ func TestCORSConfigAllowsConfiguredOriginAndRejectsOthers(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckReadinessRequiresHTTP200(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		wantOK bool
+	}{
+		{name: "ready", status: http.StatusOK, wantOK: true},
+		{name: "unavailable", status: http.StatusServiceUnavailable, wantOK: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+				response.WriteHeader(test.status)
+			}))
+			defer server.Close()
+			err := checkReadiness(server.URL)
+			if test.wantOK && err != nil {
+				t.Fatalf("checkReadiness() error = %v", err)
+			}
+			if !test.wantOK && err == nil {
+				t.Fatal("checkReadiness() accepted a non-200 response")
+			}
+		})
+	}
+}

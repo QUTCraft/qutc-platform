@@ -107,6 +107,48 @@ func (s *AuthService) LookupInvitation(rawToken string) (InvitationView, error) 
 	return s.invitationView(invit)
 }
 
+// RotateInvitationToken invalidates the previously issued link before an
+// administrator retries email delivery. The raw token is never persisted.
+func (s *AuthService) RotateInvitationToken(organizationID, invitationID string) (InvitationCreateResult, error) {
+	var result InvitationCreateResult
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var invitation model.Invitation
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND organization_id = ?", strings.TrimSpace(invitationID), organizationID).
+			First(&invitation).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return ErrInvitationNotFound
+			}
+			return err
+		}
+		switch invitationStatus(invitation, time.Now().UTC()) {
+		case "expired":
+			return ErrInvitationExpired
+		case "revoked":
+			return ErrInvitationRevoked
+		case "accepted":
+			return ErrInvitationAccepted
+		}
+		token, err := randomToken()
+		if err != nil {
+			return err
+		}
+		if err := tx.Model(&invitation).Updates(map[string]interface{}{
+			"token_hash": tokenHash(token),
+			"updated_at": time.Now().UTC(),
+		}).Error; err != nil {
+			return err
+		}
+		view, err := s.invitationViewWithDB(tx, invitation)
+		if err != nil {
+			return err
+		}
+		result = InvitationCreateResult{InvitationView: view, Token: token}
+		return nil
+	})
+	return result, err
+}
+
 func (s *AuthService) AcceptInvitation(principal Principal, rawToken string) (InvitationAcceptance, error) {
 	var result InvitationAcceptance
 	err := s.db.Transaction(func(tx *gorm.DB) error {

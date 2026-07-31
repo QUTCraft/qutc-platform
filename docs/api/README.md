@@ -6,6 +6,12 @@
 
 申请审批、服务器同步、失败重试、Mock 语义和受限命令的完整状态规范见 [申请审批与 ServerAdapter API 规范](server-adapter.md)。
 
+成员邀请的 SMTP 配置、投递状态、token 轮换重试和凭据边界见 [邀请邮件适配器规范](email-adapter.md)。
+
+Request ID、结构化日志、存活/就绪探针和组织隔离审计查询见 [API 可观测性与审计规范](observability.md)。
+
+组织运营智能体的 7 条已实现接口、组织配置页、RBAC、异步状态、模型供应商配置、错误码与审计见 [组织运营智能体 API 规范](ai-agent.md)。
+
 门户 Manifest 的字段、安全边界、草稿/启用 API 与默认 MD3 回退规则见 [自定义门户 Manifest v1](../product/portal-manifest-v1.md)。
 
 ## Apifox
@@ -14,10 +20,10 @@
 2. 导入本目录的 `openapi.yaml`（OpenAPI 3.1）。
 3. 导入 `apifox/core-smoke.postman_collection.json`，格式选择 Postman Collection 2.1。
 4. 导入 `apifox/local.postman_environment.json`，选择该环境后在本机填写 `adminEmail` 与 `adminPassword`；模板不会保存真实凭据。
-5. Compose 默认 API 地址为 `http://localhost:18080`。每次完整运行前清空 `runId`、`contentId`、`applicationId` 和 `accessToken`，然后按集合顺序执行。
+5. Compose 默认 API 地址为 `http://localhost:18080`。每次完整运行前清空 `runId`、`contentId`、`applicationId`、`knowledgeSourceId`、`agentRunId` 和 `accessToken`，然后按集合顺序执行。
 6. Apifox 只负责接口协作、Mock 与测试用例；仓库中的 YAML 仍是需要评审、需要提交的事实来源。
 
-核心集合会创建一篇带唯一 `runId` 的新闻草稿，验证“草稿不可见 → 发布可见 → 归档不可见”；随后提交一条白名单申请，验证后台可检索并将其拒绝。它会留下已归档内容和已拒绝申请作为审计记录，因此只应在开发、测试或明确允许写入的演示环境运行。
+核心集合会创建一篇带唯一 `runId` 的新闻草稿，验证“草稿不可见 → 发布可见 → 归档不可见”；随后验证申请审批，保存一组安全的默认智能体策略，并使用已有知识资料创建一条明确标识 Mock/真实模式的智能体运行。它会留下已归档内容、已拒绝申请、组织智能体配置和相关审计记录，因此只应在开发、测试或明确允许写入的演示环境运行。
 
 ## Swagger
 
@@ -40,7 +46,7 @@ python scripts/check-apifox-collection.py
 - `check-apifox-collection.py` 确认核心集合的请求仍匹配 OpenAPI，且环境模板不包含密码或 Token。
 - `scan-secrets.py` 扫描所有已跟踪及未忽略文件中的高置信度密钥格式，并阻止服务端密钥配置进入前端源码。
 
-这些脚本依赖 PyYAML；如果本机尚未安装，执行 `python -m pip install pyyaml`。健康检查 `/healthz` 也纳入契约，以便 Compose 冒烟和文档检查使用同一套入口。
+这些脚本依赖 PyYAML；如果本机尚未安装，执行 `python -m pip install pyyaml`。存活检查 `/healthz` 与 MySQL/Redis 就绪检查 `/readyz` 均纳入契约，以便 Compose 冒烟和文档检查使用同一套入口。
 
 也可以在 PowerShell 中运行统一门禁：
 
@@ -48,7 +54,7 @@ python scripts/check-apifox-collection.py
 .\scripts\run-quality-gate.ps1
 ```
 
-需要连同 S1—S4 的真实 Compose/MySQL 集成套件一起执行时使用：
+需要连同 S1—S6 的真实 Compose/MySQL/Redis 集成套件一起执行时使用：
 
 ```powershell
 .\scripts\run-quality-gate.ps1 -Integration
@@ -72,3 +78,4 @@ python scripts/check-apifox-collection.py
 - Admin API 以 `/api/v1/admin` 开头，必须携带 Bearer JWT，并由服务端以组织成员身份和 RBAC 二次授权。
 - 草稿、成员隐私、审核、后台 Dashboard 和 RCON 命令只允许出现在 Admin API，绝不可从 Portal API 泄露。
 - 资源下载地址由服务端返回受控 Portal 路径（未来可替换为短时签名 URL）；没有关联文件时返回 `null`，前端不得暴露或拼接对象存储凭据。
+- 媒体存储通过服务端 `local`/`s3` 驱动切换，MinIO/S3 bucket、对象键和凭据不属于 API 契约；配置与迁移规则见 [媒体存储适配规范](storage-adapter.md)。

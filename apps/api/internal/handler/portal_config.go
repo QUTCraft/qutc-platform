@@ -3,7 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -86,7 +86,12 @@ func (h *PortalConfigHandler) Public(c *gin.Context) {
 			response.Source = "active"
 			response.ActivatedAt = configuration.ActivatedAt
 		} else {
-			log.Printf("portal runtime fallback organization_id=%s configuration_id=%s reason=active_manifest_invalid", organization.ID, configuration.ID)
+			slog.Warn("portal runtime fallback",
+				"event", "portal_runtime_fallback",
+				"organization_id", organization.ID,
+				"configuration_id", configuration.ID,
+				"reason", "active_manifest_invalid",
+			)
 		}
 	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		fail(c, http.StatusInternalServerError, "portal.configuration_failed", "门户配置暂时无法加载。")

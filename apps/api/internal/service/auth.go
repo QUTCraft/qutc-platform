@@ -22,6 +22,7 @@ var (
 	ErrInvalidRefresh     = errors.New("invalid refresh token")
 	ErrInvalidPassword    = errors.New("password must be at least 12 characters")
 	ErrEmailInUse         = errors.New("email already registered")
+	ErrSessionInactive    = errors.New("user or organization membership is inactive")
 )
 
 type Principal struct {
@@ -220,6 +221,31 @@ func (s *AuthService) ParseAccessToken(raw string) (Principal, error) {
 		return Principal{}, ErrInvalidCredentials
 	}
 	return Principal{UserID: claims.Subject, OrganizationID: claims.OrganizationID, Email: claims.Email}, nil
+}
+
+func (s *AuthService) AuthenticateAccessToken(raw string) (Principal, error) {
+	principal, err := s.ParseAccessToken(raw)
+	if err != nil {
+		return Principal{}, err
+	}
+	var count int64
+	err = s.db.Table("memberships AS m").
+		Joins("JOIN users AS u ON u.id = m.user_id").
+		Where(
+			"m.user_id = ? AND m.organization_id = ? AND m.state = ? AND u.state = ?",
+			principal.UserID,
+			principal.OrganizationID,
+			"active",
+			"active",
+		).
+		Count(&count).Error
+	if err != nil {
+		return Principal{}, err
+	}
+	if count != 1 {
+		return Principal{}, ErrSessionInactive
+	}
+	return principal, nil
 }
 
 func (s *AuthService) ProfileFor(principal Principal) (Profile, error) {

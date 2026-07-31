@@ -42,10 +42,54 @@ func TestLoadNormalizesSecuritySettings(t *testing.T) {
 	}
 }
 
+func TestValidateStorageConfiguration(t *testing.T) {
+	base := Config{
+		AppEnv:             "development",
+		StorageDriver:      "local",
+		StorageLocalRoot:   "/tmp/qutcraft-uploads",
+		PublicWebBaseURL:   "https://portal.example.test",
+		EmailDriver:        "disabled",
+		CORSAllowedOrigins: []string{"https://portal.example.test"},
+	}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("local storage config rejected: %v", err)
+	}
+
+	s3 := base
+	s3.StorageDriver = "s3"
+	s3.S3Endpoint = "minio:9000"
+	s3.S3AccessKey = "integration-user"
+	s3.S3SecretKey = "integration-secret"
+	s3.S3Bucket = "qutcraft-media"
+	if err := s3.Validate(); err != nil {
+		t.Fatalf("S3 storage config rejected: %v", err)
+	}
+
+	for name, mutate := range map[string]func(*Config){
+		"unknown driver":     func(cfg *Config) { cfg.StorageDriver = "ftp" },
+		"endpoint scheme":    func(cfg *Config) { cfg.S3Endpoint = "http://minio:9000" },
+		"missing access key": func(cfg *Config) { cfg.S3AccessKey = "" },
+		"missing secret key": func(cfg *Config) { cfg.S3SecretKey = "" },
+		"missing bucket":     func(cfg *Config) { cfg.S3Bucket = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := s3
+			mutate(&cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("invalid storage configuration was accepted")
+			}
+		})
+	}
+}
+
 func TestValidateRejectsUnsafeProductionConfiguration(t *testing.T) {
 	base := Config{
 		AppEnv:                  "production",
 		JWTAccessSecret:         strings.Repeat("a", 48),
+		StorageDriver:           "local",
+		StorageLocalRoot:        "/tmp/qutcraft-uploads",
+		PublicWebBaseURL:        "https://portal.example.test",
+		EmailDriver:             "disabled",
 		CORSAllowedOrigins:      []string{"https://portal.example.test"},
 		AuthRateLimitPerMinute:  20,
 		PublicWriteLimitPerHour: 10,
@@ -64,6 +108,13 @@ func TestValidateRejectsUnsafeProductionConfiguration(t *testing.T) {
 		{name: "short JWT", mutate: func(cfg *Config) { cfg.JWTAccessSecret = "too-short" }},
 		{name: "demo seed", mutate: func(cfg *Config) { cfg.DemoSeedEnabled = true }},
 		{name: "short bootstrap password", mutate: func(cfg *Config) { cfg.BootstrapAdminPassword = "short" }},
+		{name: "placeholder S3 credentials", mutate: func(cfg *Config) {
+			cfg.StorageDriver = "s3"
+			cfg.S3Endpoint = "minio:9000"
+			cfg.S3AccessKey = "minioadmin"
+			cfg.S3SecretKey = "minioadmin-change-me"
+			cfg.S3Bucket = "qutcraft-media"
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -73,5 +124,110 @@ func TestValidateRejectsUnsafeProductionConfiguration(t *testing.T) {
 				t.Fatal("unsafe production config was accepted")
 			}
 		})
+	}
+}
+
+func TestValidateEmailConfiguration(t *testing.T) {
+	base := Config{
+		AppEnv:             "development",
+		StorageDriver:      "local",
+		StorageLocalRoot:   "/tmp/qutcraft-uploads",
+		PublicWebBaseURL:   "https://portal.example.test",
+		EmailDriver:        "smtp",
+		SMTPHost:           "smtp.example.test",
+		SMTPPort:           587,
+		SMTPUsername:       "mailer",
+		SMTPPassword:       "secret",
+		SMTPFromAddress:    "noreply@example.test",
+		SMTPSecurity:       "starttls",
+		CORSAllowedOrigins: []string{"https://portal.example.test"},
+	}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("valid SMTP config rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*Config){
+		"driver":        func(cfg *Config) { cfg.EmailDriver = "sendmail" },
+		"host":          func(cfg *Config) { cfg.SMTPHost = "" },
+		"port":          func(cfg *Config) { cfg.SMTPPort = 70000 },
+		"sender":        func(cfg *Config) { cfg.SMTPFromAddress = "" },
+		"password":      func(cfg *Config) { cfg.SMTPPassword = "" },
+		"security":      func(cfg *Config) { cfg.SMTPSecurity = "invalid" },
+		"public origin": func(cfg *Config) { cfg.PublicWebBaseURL = "/relative" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := base
+			mutate(&cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("invalid email configuration was accepted")
+			}
+		})
+	}
+
+	production := base
+	production.AppEnv = "production"
+	production.JWTAccessSecret = strings.Repeat("a", 48)
+	production.SMTPSecurity = "none"
+	if err := production.Validate(); err == nil {
+		t.Fatal("unencrypted production SMTP was accepted")
+	}
+}
+
+func TestLoadAndValidateAIConfiguration(t *testing.T) {
+	t.Setenv("AI_PROVIDER", "openai_compatible")
+	t.Setenv("AI_BASE_URL", "https://models.example.test/v1/")
+	t.Setenv("AI_API_KEY", "test-only-provider-key")
+	t.Setenv("AI_MODEL", "example-model")
+	t.Setenv("AI_REQUEST_TIMEOUT", "45s")
+	t.Setenv("AI_RUN_LIMIT_PER_HOUR", "12")
+
+	cfg := Load()
+	if cfg.AIBaseURL != "https://models.example.test/v1" || cfg.AIModel != "example-model" {
+		t.Fatalf("AI configuration was not normalized: %+v", cfg)
+	}
+	if cfg.AIRequestTimeout.String() != "45s" || cfg.AIRunLimitPerHour != 12 {
+		t.Fatalf("AI limits = %s/%d, want 45s/12", cfg.AIRequestTimeout, cfg.AIRunLimitPerHour)
+	}
+
+	base := Config{
+		AppEnv:             "development",
+		StorageDriver:      "local",
+		StorageLocalRoot:   "/tmp/qutcraft-uploads",
+		PublicWebBaseURL:   "https://portal.example.test",
+		EmailDriver:        "disabled",
+		AIProvider:         "openai_compatible",
+		AIBaseURL:          "https://models.example.test/v1",
+		AIAPIKey:           "test-only-provider-key",
+		AIModel:            "example-model",
+		CORSAllowedOrigins: []string{"https://portal.example.test"},
+	}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("valid AI configuration rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*Config){
+		"driver":   func(cfg *Config) { cfg.AIProvider = "unknown" },
+		"base URL": func(cfg *Config) { cfg.AIBaseURL = "/v1" },
+		"API key":  func(cfg *Config) { cfg.AIAPIKey = "" },
+		"model":    func(cfg *Config) { cfg.AIModel = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := base
+			mutate(&cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("invalid AI configuration was accepted")
+			}
+		})
+	}
+
+	production := base
+	production.AppEnv = "production"
+	production.JWTAccessSecret = strings.Repeat("a", 48)
+	production.AIProvider = "mock"
+	if err := production.Validate(); err == nil {
+		t.Fatal("production mock provider was accepted")
+	}
+	production.AIProvider = "openai_compatible"
+	production.AIBaseURL = "http://models.example.test/v1"
+	if err := production.Validate(); err == nil {
+		t.Fatal("unencrypted production model endpoint was accepted")
 	}
 }

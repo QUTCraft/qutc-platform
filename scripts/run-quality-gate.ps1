@@ -1,6 +1,8 @@
 param(
     [switch]$Integration,
-    [switch]$Runtime
+    [switch]$Runtime,
+    [switch]$StorageIntegration,
+    [switch]$BackupRestore
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,6 +54,16 @@ try {
         Invoke-Checked "S2 collaboration integration" { & scripts/run-s2-integration.ps1 }
         Invoke-Checked "S3 application integration" { & scripts/run-s3-integration.ps1 }
         Invoke-Checked "S4 portal integration" { & scripts/run-s4-integration.ps1 }
+        Invoke-Checked "S5 observability integration" { & scripts/run-s5-observability-integration.ps1 }
+        Invoke-Checked "S6 AI agent integration" { & scripts/run-s6-agent-integration.ps1 }
+    }
+
+    if ($StorageIntegration) {
+        Invoke-Checked "S3/MinIO storage integration" { & scripts/run-storage-integration.ps1 }
+    }
+
+    if ($BackupRestore) {
+        Invoke-Checked "MySQL/media backup restore rehearsal" { & scripts/run-backup-restore-rehearsal.ps1 }
     }
 
     Write-Host "QUALITY_GATE_OK"

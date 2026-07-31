@@ -7,18 +7,13 @@ import (
 
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/logging"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // RequestID 在每个请求入口注入或生成 request_id，写入 gin.Context 响应头和
 // context.Context，确保后续所有 handler、service 和日志调用都能获取。
 func RequestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		requestID := c.GetHeader("X-Request-ID")
-		if requestID == "" {
-			requestID = uuid.NewString()
-		}
-		c.Header("X-Request-ID", requestID)
+		requestID := EnsureRequestID(c)
 		c.Set("request_id", requestID)
 		c.Request = c.Request.WithContext(logging.WithRequestID(c.Request.Context(), requestID))
 		c.Next()
