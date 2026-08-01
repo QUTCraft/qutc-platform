@@ -3,11 +3,17 @@ package model
 import "time"
 
 type Organization struct {
-	ID        string `gorm:"primaryKey;type:char(36)"`
-	Slug      string `gorm:"uniqueIndex;size:64;not null"`
-	Name      string `gorm:"size:160;not null"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID              string `gorm:"primaryKey;type:char(36)"`
+	Slug            string `gorm:"uniqueIndex;size:64;not null"`
+	Name            string `gorm:"size:160;not null"`
+	ShortName       string `gorm:"size:40;not null;default:''"`
+	Tagline         string `gorm:"size:160;not null;default:''"`
+	Introduction    string `gorm:"size:2000;not null;default:''"`
+	ContactEmail    string `gorm:"size:254;not null;default:''"`
+	SocialLinksJSON string `gorm:"type:text;not null;default:'[]'"`
+	IsPublic        bool   `gorm:"index;not null;default:true"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type User struct {

@@ -42,8 +42,10 @@ const organization: Organization = {
   contact_email: 'contact@qutcraft.example',
   social_links: [
     { label: 'GitHub', href: 'https://github.com/QUTCraft/qutc-platform' },
-    { label: '加入我们', href: '#join' },
+	{ label: '加入我们', href: 'https://qutcraft.example/join' },
   ],
+	is_public: true,
+	updated_at: new Date().toISOString(),
 }
 
 const posts: PublicPost[] = [
@@ -197,7 +199,7 @@ const mockUserKey = 'qutc.mock_user'
 const savedMockUser = () => { try { return JSON.parse(window.localStorage.getItem(mockUserKey) ?? 'null') as AuthUser | null } catch { return null } }
 let mockUser: AuthUser | null = savedMockUser()
 const saveMockUser = (user: AuthUser | null) => { mockUser = user; if (user) window.localStorage.setItem(mockUserKey, JSON.stringify(user)); else window.localStorage.removeItem(mockUserKey) }
-const authPair = (user: AuthUser): TokenPair => ({ access_token: 'mock-access-token', refresh_token: 'mock-refresh-token', token_type: 'Bearer', expires_in: 900, user })
+const authPair = (user: AuthUser): TokenPair => ({ access_token: 'mock-access-token', token_type: 'Bearer', expires_in: 900, user })
 const requireMockAdmin = () => { if (!mockUser) throw new Error('请先登录后再访问管理工作台。') }
 
 const page = <T>(items: T[]): Page<T> => ({ items, page: 1, page_size: 20, total: items.length })
@@ -292,6 +294,7 @@ export async function mockGet<T>(path: string): Promise<T> {
   if (path.endsWith('/admin/notifications/email/status')) {
     return { driver: 'disabled', enabled: false, configured: false } as EmailAdapterStatus as T
   }
+	if (path.endsWith('/admin/organization')) return structuredClone(organization) as T
   if (path.endsWith('/admin/portal/config')) return structuredClone(portalConfiguration) as T
   if (path.endsWith('/configuration')) {
     const runtime: PortalRuntimeConfiguration = {
@@ -574,6 +577,10 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
 export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
   await wait()
   requireMockAdmin()
+	if (path.endsWith('/admin/organization')) {
+		Object.assign(organization, body as Partial<Organization>, { updated_at: new Date().toISOString() })
+		return structuredClone(organization) as T
+	}
   if (path.endsWith('/admin/ai/config')) {
     const payload = body as Pick<AIConfiguration, 'enabled' | 'run_limit_per_hour' | 'request_timeout_seconds' | 'max_sources' | 'max_context_characters'>
     aiConfiguration = {

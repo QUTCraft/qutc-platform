@@ -278,7 +278,7 @@ paths:
             schema: { $ref: '#/components/schemas/RegisterRequest' }
       responses:
         '201':
-          description: 注册成功，返回访问与刷新令牌
+          description: 注册成功；响应体返回短期访问令牌，刷新令牌通过 HttpOnly Cookie 下发
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TokenPairResponse' }
@@ -355,7 +355,7 @@ paths:
             schema: { $ref: '#/components/schemas/LoginRequest' }
       responses:
         '200':
-          description: 登录成功，返回访问与刷新令牌
+          description: 登录成功；响应体返回短期访问令牌，刷新令牌通过 HttpOnly Cookie 下发
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TokenPairResponse' }
@@ -366,15 +366,10 @@ paths:
     post:
       tags: [Auth]
       operationId: refreshAuthSession
-      summary: 轮换刷新令牌并获取新的令牌对
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      summary: 使用 HttpOnly Cookie 轮换刷新令牌并获取新的访问令牌
       responses:
         '200':
-          description: 新令牌对
+          description: 新访问令牌；轮换后的刷新令牌通过 HttpOnly Cookie 下发
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TokenPairResponse' }
@@ -385,12 +380,7 @@ paths:
     post:
       tags: [Auth]
       operationId: logoutAuthSession
-      summary: 撤销刷新令牌
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/LogoutRequest' }
+      summary: 撤销 HttpOnly Cookie 中的刷新令牌
       responses:
         '200':
           description: 刷新令牌已撤销或不存在
@@ -1431,6 +1421,40 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/organization:
+    get:
+      tags: [Admin]
+      operationId: getAdminOrganizationProfile
+      summary: 读取当前组织公开资料
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 当前组织公开资料
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      tags: [Admin]
+      operationId: updateAdminOrganizationProfile
+      summary: 更新当前组织公开资料
+      description: 需要 organization:configure；保存后立即影响 Portal，并写入 organization.profile_update 审计。
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizationProfileRequest' }
+      responses:
+        '200':
+          description: 组织资料已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/portal/config/enable:
     post:
       tags: [Admin]
@@ -1630,7 +1654,7 @@ components:
             redis: { type: string, enum: [ok, unavailable] }
     Organization:
       type: object
-      required: [id, slug, name, short_name, tagline, introduction, contact_email, social_links]
+      required: [id, slug, name, short_name, tagline, introduction, contact_email, social_links, is_public, updated_at]
       properties:
         id: { type: string, example: org_qutcraft }
         slug: { type: string, example: qutcraft }
@@ -1638,7 +1662,10 @@ components:
         short_name: { type: string, example: QUTCraft }
         tagline: { type: string, example: 把社团正在发生的事，认真地呈现出来。 }
         introduction: { type: string }
-        contact_email: { type: string, format: email }
+        contact_email:
+          oneOf:
+            - { type: string, format: email }
+            - { type: string, const: '' }
         social_links:
           type: array
           items:
@@ -1647,6 +1674,30 @@ components:
             properties:
               label: { type: string }
               href: { type: string, format: uri-reference }
+        is_public: { type: boolean }
+        updated_at: { type: string, format: date-time }
+    OrganizationProfileRequest:
+      type: object
+      required: [name, short_name, tagline, introduction, contact_email, social_links, is_public]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        short_name: { type: string, minLength: 1, maxLength: 40 }
+        tagline: { type: string, maxLength: 160 }
+        introduction: { type: string, maxLength: 2000 }
+        contact_email:
+          oneOf:
+            - { type: string, format: email, maxLength: 254 }
+            - { type: string, const: '' }
+        social_links:
+          type: array
+          maxItems: 12
+          items:
+            type: object
+            required: [label, href]
+            properties:
+              label: { type: string, minLength: 1, maxLength: 40 }
+              href: { type: string, format: uri }
+        is_public: { type: boolean }
     Post:
       type: object
       required: [id, title, excerpt, category, published_at, reading_minutes]
@@ -2480,21 +2531,11 @@ components:
       properties:
         email: { type: string, format: email, maxLength: 254 }
         password: { type: string, minLength: 1, maxLength: 128, writeOnly: true }
-    RefreshRequest:
-      type: object
-      required: [refresh_token]
-      properties:
-        refresh_token: { type: string, minLength: 1, writeOnly: true }
-    LogoutRequest:
-      type: object
-      properties:
-        refresh_token: { type: string, writeOnly: true }
     TokenPair:
       type: object
-      required: [access_token, refresh_token, token_type, expires_in, user]
+      required: [access_token, token_type, expires_in, user]
       properties:
         access_token: { type: string, writeOnly: true }
-        refresh_token: { type: string, writeOnly: true }
         token_type: { type: string, enum: [Bearer] }
         expires_in: { type: integer, minimum: 1, description: Access Token 剩余秒数。 }
         user: { $ref: '#/components/schemas/AuthUser' }

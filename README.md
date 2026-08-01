@@ -31,6 +31,7 @@ QUTCraft Platform 是一个面向校园社团与民间组织的可扩展内容�
 - 成员与权限：查看成员、组织角色和状态，创建邀请，并显示可选 SMTP 的真实投递结果与失败重试。
 - 审核与服务器：处理白名单/成员申请，演示受限 RCON 命令入口。
 - 审计记录：按动作、对象、结果、Request ID 与日期查询当前组织的管理操作。
+- 组织公开资料：维护名称、简称、标语、介绍、公开邮箱、社交链接和公开状态，修改立即作用于门户并留存审计。
 - 门户 Manifest 设置：真实读取、草稿保存、JSON 导入、同源预览、独立启用与 Portal/Admin 安全边界提示。
 
 > 前端仍保留契约 Mock 供离线演示；Compose 默认使用 remote 模式连接真实 API/MySQL。服务器操作使用明确标识的 Mock ServerAdapter，不会连接真实 Minecraft RCON；邀请邮件使用可选 SMTP Adapter，默认关闭且不会伪报发送成功。
@@ -38,8 +39,8 @@ QUTCraft Platform 是一个面向校园社团与民间组织的可扩展内容�
 ### 身份与工程底座
 
 - Go + Gin + GORM API 服务，包含存活/就绪探针、Request ID、脱敏 JSON 访问日志与统一 JSON 响应。
-- MySQL 迁移：组织、用户、角色、权限、成员关系、内容/项目/申请、门户配置、刷新令牌与审计事件。
-- 注册、登录、刷新令牌轮换、退出撤销与当前会话接口。
+- MySQL 版本化迁移：SQL 内嵌于 API 二进制、按序执行并记录 `schema_migrations`，兼容旧 AutoMigrate 数据卷升级。
+- 注册、登录、HttpOnly Refresh Cookie 轮换、退出撤销与当前会话接口；Access Token 只驻留于前端内存。
 - JWT Bearer 鉴权与基于 `resource:action` 的 RBAC 中间件。
 - 前端登录页、会话恢复、后台路由守卫与 Mock 演示账号。
 - MySQL、Redis、API、Web 及可选 MinIO 的 Docker Compose 开发环境；媒体卷由一次性 `media-init` 服务初始化权限，API 保持 nonroot 运行。
@@ -188,7 +189,10 @@ docker compose --profile docs up
 
 ```dotenv
 DEMO_SEED_ENABLED=true
+DEMO_SEED_PROFILE=qutcraft
 ```
+
+`DEMO_SEED_PROFILE=qutcraft` 提供 QUTCraft 社团演示资料；比赛或通用产品演示使用 `generic`，并建议同时将 `DEFAULT_ORGANIZATION_SLUG` 改为通用标识。Profile 只影响首次创建的组织和缺失的固定演示记录，不会覆盖后台已经编辑的资料。
 
 然后重新创建 API 容器：
 
@@ -209,6 +213,9 @@ docker compose up -d --build api
 - [申请审批与 ServerAdapter API 规范](docs/api/server-adapter.md)：审批事务、外部同步状态、失败重试、错误码与审计约束。
 - [邀请邮件适配器规范](docs/api/email-adapter.md)：SMTP 服务端配置、投递状态、token 轮换重试与凭据安全边界。
 - [API 可观测性与审计规范](docs/api/observability.md)：Request ID、结构化日志、存活/就绪探针和审计查询边界。
+- [数据库迁移与回退规范](docs/operations/database-migrations.md)：版本账本、旧数据卷基线、升级演练和备份回退边界。
+- [比赛演示运行手册](docs/product/competition-demo-runbook.md)：通用产品叙事、演示路径、环境门禁和故障回退。
+- [已知限制与延期项](docs/operations/known-issues.md)：RCON、AI 任务、邮件、限流和赛后能力的真实边界。
 - [API 协作说明](docs/api/README.md)：Apifox、Swagger 与契约变更流程。
 - [AI 智能体集成设计](docs/architecture/ai-agent-integration.md)：组织运营智能体的能力边界、架构、权限、工具与分阶段落地方案。
 - Portal API 前缀：`/api/v1/portal/organizations/{organization_slug}`，无认证、仅返回公开已发布数据。
@@ -216,7 +223,7 @@ docker compose up -d --build api
 
 接口或字段变更必须按以下顺序进行：更新 OpenAPI → 更新文档与示例 → 更新后端 DTO/鉴权/测试 → 更新前端 API client 与页面。禁止在前端猜测尚未定义的 URL 或字段。
 
-仓库内置统一质量门禁，覆盖 OpenAPI 结构与安全语义、70 条 Gin 路由、63 个前端请求、19 个 Apifox 核心请求、Go 测试、前端类型检查和生产构建：
+仓库内置统一质量门禁，覆盖 OpenAPI 结构与安全语义、72 条 Gin 路由、65 个前端请求、19 个 Apifox 核心请求、Go 测试、前端类型检查和生产构建：
 
 ```powershell
 .\scripts\run-quality-gate.ps1
@@ -228,7 +235,7 @@ Compose 已启动时，可同时执行 Web/API 路由冒烟和 S1—S6 真实 My
 .\scripts\run-quality-gate.ps1 -Integration
 ```
 
-Apifox 集合、环境模板、各检查器的单独运行方式见 [API 协作说明](docs/api/README.md)。GitHub Actions 会在 push 与 pull request 上运行不依赖外部服务的质量门禁。
+Apifox 集合、环境模板、各检查器的单独运行方式见 [API 协作说明](docs/api/README.md)。`apps/web` 另提供 `pnpm test:e2e`，使用 Playwright 在桌面和移动视口验证 Portal、登录、组织设置与 Markdown 编辑器。GitHub Actions 会在 push 与 pull request 上运行基础门禁及 Chromium 关键流程。
 
 ### S1 内容闭环集成测试
 
@@ -302,7 +309,7 @@ tests/integration/                # 集成测试
 
 | 文档 | 用途 |
 | --- | --- |
-| [功能地图 v2](docs/product/feature-map-v2.md) | 截至 2026 年 7 月 25 日的真实完成度、MVP 收口、依赖和 v0.2+ 扩展路线。 |
+| [功能地图 v2](docs/product/feature-map-v2.md) | 截至 2026 年 8 月 1 日的真实完成度、MVP 收口、依赖和 v0.2+ 扩展路线。 |
 | [项目排期 v2](schedule.md) | 从 2026 年 7 月 25 日重排至 8 月 31 日的业务切片、阶段门与延期切线。 |
 | [需求范围 v1](docs/product/requirements-v1.md) | MVP 边界、角色、用户故事、优先级与非功能要求。 |
 | [MVP 验收清单](docs/product/mvp-acceptance.md) | 截至 7 月 17 日的冻结检查点及后续可执行验收用例。 |

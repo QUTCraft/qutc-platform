@@ -18,6 +18,8 @@ dist/
 build/
 .vite/
 .cache/
+test-results/
+playwright-report/
 
 # Editors
 .idea/

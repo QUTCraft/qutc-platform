@@ -53,3 +53,11 @@ jobs:
       - name: Run repository quality gate
         shell: pwsh
         run: ./scripts/run-quality-gate.ps1
+
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run critical browser flows
+        working-directory: apps/web
+        run: pnpm test:e2e

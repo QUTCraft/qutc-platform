@@ -71,7 +71,7 @@ func (h *PortalConfigHandler) Get(c *gin.Context) {
 
 func (h *PortalConfigHandler) Public(c *gin.Context) {
 	var organization model.Organization
-	if err := h.db.Where("slug = ?", c.Param("slug")).First(&organization).Error; err != nil {
+	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&organization).Error; err != nil {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}

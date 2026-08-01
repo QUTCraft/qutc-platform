@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/admin'
-import type { EmailAdapterStatus, PortalConfiguration, PortalManifest } from '@/api/types'
+import type { EmailAdapterStatus, Organization, PortalConfiguration, PortalManifest } from '@/api/types'
 import { clearPortalFallback } from '@/portal/runtime'
 
 const allowedCapabilities: Array<{ value: PortalManifest['capabilities'][number]; label: string }> = [
@@ -13,6 +13,46 @@ const allowedCapabilities: Array<{ value: PortalManifest['capabilities'][number]
   { value: 'knowledge.read', label: '公开知识库' },
   { value: 'server.status.read', label: '脱敏服务器状态' },
 ]
+
+const organization = reactive<Pick<Organization, 'name' | 'short_name' | 'tagline' | 'introduction' | 'contact_email' | 'social_links' | 'is_public'>>({
+  name: '', short_name: '', tagline: '', introduction: '', contact_email: '', social_links: [], is_public: true,
+})
+const organizationLoading = ref(false)
+const organizationSaving = ref(false)
+
+async function loadOrganization() {
+  organizationLoading.value = true
+  try {
+    Object.assign(organization, await adminApi.getOrganization())
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '组织资料加载失败。')
+  } finally {
+    organizationLoading.value = false
+  }
+}
+
+async function saveOrganization() {
+  organizationSaving.value = true
+  try {
+    Object.assign(organization, await adminApi.updateOrganization({
+      ...organization,
+      social_links: organization.social_links.map((link) => ({ label: link.label.trim(), href: link.href.trim() })),
+    }))
+    ElMessage.success('组织公开资料已保存并立即应用到门户。')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '组织资料保存失败。')
+  } finally {
+    organizationSaving.value = false
+  }
+}
+
+function addSocialLink() {
+  if (organization.social_links.length < 12) organization.social_links.push({ label: '', href: '' })
+}
+
+function removeSocialLink(index: number) {
+  organization.social_links.splice(index, 1)
+}
 
 const manifest = reactive<PortalManifest>({
   schema: 'qutc.portal/v1',
@@ -155,6 +195,7 @@ async function loadEmailStatus() {
 }
 
 onMounted(() => {
+	void loadOrganization()
   void loadPortalConfiguration()
   void loadEmailStatus()
 })
@@ -164,13 +205,43 @@ onMounted(() => {
   <section class="admin-page-heading">
     <div>
       <h2>系统设置</h2>
-      <p>管理公开门户配置，并检查服务端邀请邮件适配器的运行状态。</p>
+	  <p>管理组织公开资料、门户配置，并检查服务端邀请邮件适配器的运行状态。</p>
     </div>
   </section>
 
   <section class="settings-layout">
     <div class="settings-main-column">
-      <article v-loading="loading" class="admin-panel">
+	  <article v-loading="organizationLoading" class="admin-panel">
+		<div class="panel-heading">
+		  <div>
+			<h2>组织公开资料</h2>
+			<p>这里的内容由 Portal API 公开读取，修改后立即生效并写入审计。</p>
+		  </div>
+		  <el-switch v-model="organization.is_public" inline-prompt active-text="公开" inactive-text="隐藏" />
+		</div>
+		<el-form :model="organization" label-position="top">
+		  <div class="form-grid">
+			<el-form-item label="组织全称" required><el-input v-model="organization.name" maxlength="160" show-word-limit /></el-form-item>
+			<el-form-item label="组织简称" required><el-input v-model="organization.short_name" maxlength="40" show-word-limit /></el-form-item>
+		  </div>
+		  <el-form-item label="门户标语"><el-input v-model="organization.tagline" maxlength="160" show-word-limit /></el-form-item>
+		  <el-form-item label="组织介绍"><el-input v-model="organization.introduction" type="textarea" :rows="5" maxlength="2000" show-word-limit /></el-form-item>
+		  <el-form-item label="公开联系邮箱"><el-input v-model="organization.contact_email" type="email" placeholder="contact@example.org" /></el-form-item>
+		  <el-form-item label="公开链接">
+			<div class="social-links-editor">
+			  <div v-for="(link, index) in organization.social_links" :key="index" class="social-link-row">
+				<el-input v-model="link.label" maxlength="40" placeholder="名称，如 GitHub" />
+				<el-input v-model="link.href" placeholder="https://..." />
+				<el-button text type="danger" @click="removeSocialLink(index)">移除</el-button>
+			  </div>
+			  <el-button plain round :disabled="organization.social_links.length >= 12" @click="addSocialLink">添加链接</el-button>
+			</div>
+		  </el-form-item>
+		  <el-button type="primary" round :loading="organizationSaving" @click="saveOrganization">保存组织资料</el-button>
+		</el-form>
+	  </article>
+
+	  <article v-loading="loading" class="admin-panel" style="margin-top: 20px;">
         <div class="panel-heading">
           <div>
             <h2>门户 Manifest</h2>
@@ -322,6 +393,18 @@ onMounted(() => {
   margin-top: 16px;
 }
 
+.social-links-editor {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+
+.social-link-row {
+  display: grid;
+  grid-template-columns: minmax(140px, .4fr) minmax(240px, 1fr) auto;
+  gap: 10px;
+}
+
 .email-status-actions {
   display: flex;
   flex-wrap: wrap;
@@ -338,6 +421,10 @@ onMounted(() => {
 
   .portal-capabilities {
     grid-template-columns: 1fr;
+  }
+
+  .social-link-row {
+	grid-template-columns: 1fr;
   }
 }
 </style>

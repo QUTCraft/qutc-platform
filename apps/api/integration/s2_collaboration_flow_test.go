@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"net/http"
+	"net/http/cookiejar"
 	"strings"
 	"testing"
 	"time"
@@ -28,9 +29,8 @@ type invitationDTO struct {
 }
 
 type tokenPairDTO struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	User         struct {
+	AccessToken string `json:"access_token"`
+	User        struct {
 		ID    string   `json:"id"`
 		Email string   `json:"email"`
 		Roles []string `json:"roles"`
@@ -54,7 +54,11 @@ type projectMilestoneDTO struct {
 
 func TestS2InvitationAndProjectCollaboration(t *testing.T) {
 	cfg := loadIntegrationConfig(t)
-	client := &http.Client{Timeout: 10 * time.Second}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("create cookie jar: %v", err)
+	}
+	client := &http.Client{Timeout: 10 * time.Second, Jar: jar}
 	db := openIntegrationDB(t, cfg.mysqlDSN)
 	ownerToken := loginAsOwner(t, client, cfg)
 
@@ -189,9 +193,7 @@ func TestS2InvitationAndProjectCollaboration(t *testing.T) {
 		"state": "disabled",
 	}, http.StatusOK)
 	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/membership/history", editor.AccessToken, nil, http.StatusUnauthorized)
-	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/auth/refresh", "", map[string]any{
-		"refresh_token": editor.RefreshToken,
-	}, http.StatusUnauthorized)
+	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/auth/refresh", "", map[string]any{}, http.StatusUnauthorized)
 	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/auth/login", "", map[string]any{
 		"email": email, "password": password,
 	}, http.StatusUnauthorized)

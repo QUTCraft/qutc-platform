@@ -14,6 +14,7 @@ import (
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/storage"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 const (
@@ -82,7 +83,12 @@ func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
 		return
 	}
 	asset := model.MediaAsset{ID: id, OrganizationID: principal.OrganizationID, ContentID: contentID, UploadedBy: principal.UserID, OriginalName: originalName, StoredName: storedName, MimeType: mimeType, SizeBytes: written, StorageDriver: h.mediaStorage.Driver(), StoragePath: storageKey}
-	if err := h.db.Create(&asset).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&asset).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "asset.upload", "asset", asset.ID)
+	}); err != nil {
 		_ = h.mediaStorage.Delete(c.Request.Context(), storageKey)
 		fail(c, http.StatusInternalServerError, "asset.metadata_failed", "媒体元数据保存失败。")
 		return
@@ -100,7 +106,7 @@ func (h *WorkspaceHandler) DownloadAsset(c *gin.Context) {
 	if slug := c.Param("slug"); slug != "" {
 		var organization model.Organization
 		var content model.Content
-		if h.db.Where("slug = ? AND id = ?", slug, asset.OrganizationID).First(&organization).Error != nil || asset.ContentID == "" || h.db.Where("id = ? AND organization_id = ? AND status = ?", asset.ContentID, asset.OrganizationID, "published").First(&content).Error != nil {
+		if h.db.Where("slug = ? AND id = ? AND is_public = ?", slug, asset.OrganizationID, true).First(&organization).Error != nil || asset.ContentID == "" || h.db.Where("id = ? AND organization_id = ? AND status = ?", asset.ContentID, asset.OrganizationID, "published").First(&content).Error != nil {
 			fail(c, http.StatusNotFound, "asset.not_public", "媒体资源尚未公开。")
 			return
 		}

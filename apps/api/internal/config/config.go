@@ -53,6 +53,7 @@ type Config struct {
 	BootstrapAdminPassword  string
 	BootstrapAdminName      string
 	DemoSeedEnabled         bool
+	DemoSeedProfile         string
 }
 
 func Load() Config {
@@ -102,10 +103,14 @@ func Load() Config {
 		BootstrapAdminPassword:  os.Getenv("BOOTSTRAP_ADMIN_PASSWORD"),
 		BootstrapAdminName:      value("BOOTSTRAP_ADMIN_NAME", "QUTCraft Admin"),
 		DemoSeedEnabled:         boolean("DEMO_SEED_ENABLED", false),
+		DemoSeedProfile:         strings.ToLower(value("DEMO_SEED_PROFILE", "qutcraft")),
 	}
 }
 
 func (c Config) Validate() error {
+	if c.DemoSeedProfile != "" && c.DemoSeedProfile != "qutcraft" && c.DemoSeedProfile != "generic" {
+		return fmt.Errorf("DEMO_SEED_PROFILE must be qutcraft or generic")
+	}
 	switch c.StorageDriver {
 	case "local":
 		if strings.TrimSpace(c.StorageLocalRoot) == "" {

@@ -203,14 +203,14 @@ Portal 通过 `organization_slug` 定位组织。Admin 当前为“当前 token 
 
 ## 5. Auth API（身份与会话）
 
-公共前缀：`/api/v1/auth`。注册、登录、刷新与退出使用 JSON 请求体；`/me` 必须携带 Bearer JWT。当前开发环境返回令牌对供前端联调，生产部署应优先将刷新令牌置于 `HttpOnly`、`Secure`、`SameSite` Cookie，并避免将其长期存入浏览器存储。
+公共前缀：`/api/v1/auth`。注册和登录使用 JSON 请求体；刷新与退出从 `qutc_refresh` HttpOnly Cookie 读取刷新令牌；`/me` 必须携带 Bearer JWT。Access Token 只在前端运行内存中保存，刷新令牌不会进入响应 JSON、浏览器脚本或 Web Storage。生产环境 Cookie 同时启用 `Secure`，所有环境均使用 `SameSite=Strict`。
 
 | 方法与路径 | 认证 | 说明 |
 | --- | --- | --- |
 | `POST /register` | 无 | 注册用户并作为 `member` 加入默认组织。 |
-| `POST /login` | 无 | 验证邮箱和密码，签发访问/刷新令牌对。 |
-| `POST /refresh` | 刷新令牌 | 轮换刷新令牌，签发新令牌对。 |
-| `POST /logout` | 无 | 撤销提交的刷新令牌；重复调用应保持安全。 |
+| `POST /login` | 无 | 验证邮箱和密码，返回 Access Token，并通过 HttpOnly Cookie 下发 Refresh Token。 |
+| `POST /refresh` | HttpOnly Cookie | 原子轮换 Refresh Token，返回新的 Access Token。 |
+| `POST /logout` | HttpOnly Cookie | 撤销 Cookie 对应 Refresh Token 并清除 Cookie；重复调用保持安全。 |
 | `GET /me` | Bearer JWT | 返回当前用户、当前组织和角色。 |
 
 ### 5.1 当前用户资料
@@ -231,13 +231,12 @@ Portal 通过 `organization_slug` 定位组织。Admin 当前为“当前 token 
 }
 ```
 
-登录与刷新成功均返回：
+登录与刷新成功均返回以下响应体，同时通过 `Set-Cookie` 下发或轮换 Refresh Token：
 
 ```json
 {
   "data": {
     "access_token": "<jwt>",
-    "refresh_token": "<opaque-token>",
     "token_type": "Bearer",
     "expires_in": 900,
     "user": {
@@ -252,7 +251,7 @@ Portal 通过 `organization_slug` 定位组织。Admin 当前为“当前 token 
 }
 ```
 
-访问令牌短时有效；刷新令牌只以哈希形式保存在服务端，并在刷新时轮换。密码最少 12 个字符。认证失败、禁用用户或失效刷新令牌均不得泄露账户是否存在以外的敏感细节。
+访问令牌短时有效且只驻留于页面内存；刷新令牌只以哈希形式保存在服务端，并在刷新时轮换。密码最少 12 个字符。认证失败、禁用用户或失效刷新令牌均不得泄露账户是否存在以外的敏感细节。
 
 ## 6. Portal API（公开只读）
 
@@ -275,8 +274,10 @@ Operation ID：`getPortalOrganization`
 | `short_name` | string | 导航、Logo 区等短名称。 |
 | `tagline` | string | 门户主标语。 |
 | `introduction` | string | 门户简介正文。 |
-| `contact_email` | string(email) | 可公开联系邮箱。 |
-| `social_links` | array | `{ label, href }` 形式的公开外链。 |
+| `contact_email` | string(email) 或空字符串 | 可公开联系邮箱；组织不公开邮箱时为空。 |
+| `social_links` | array | `{ label, href }` 形式的公开 HTTPS/HTTP 外链。 |
+| `is_public` | boolean | 是否允许通过 Portal API 公开访问。 |
+| `updated_at` | string(date-time) | 组织资料更新时间。 |
 
 ```json
 {
@@ -288,13 +289,17 @@ Operation ID：`getPortalOrganization`
     "tagline": "把社团正在发生的事，认真地呈现出来。",
     "introduction": "QUTCraft 是青岛理工大学的 Minecraft 社团。",
     "contact_email": "contact@qutcraft.example",
-    "social_links": [{ "label": "GitHub", "href": "https://github.com/QUTCraft/qutc-platform" }]
+	"social_links": [{ "label": "GitHub", "href": "https://github.com/QUTCraft/qutc-platform" }],
+	"is_public": true,
+	"updated_at": "2026-08-01T10:00:00Z"
   },
   "meta": { "request_id": "req_example" }
 }
 ```
 
 可能返回：`404`（组织不存在或未启用公开门户）。
+
+后台使用 `GET /api/v1/admin/organization` 读取当前组织资料，使用 `PATCH /api/v1/admin/organization` 修改。两个端点都需要 `organization:configure`；修改在数据库事务中写入 `organization.profile_update` 审计并失效当前组织的 Portal 缓存。组织 `slug` 和内部 ID 不允许通过该接口修改。
 
 ### 5.2 获取公开动态
 
@@ -827,13 +832,13 @@ Operation ID：`listAdminAuditEvents`
 
 以下能力可能是后续平台所需功能，但**不是当前 API**：
 
-- 密码重置、SSO、多组织主动切换与基于 Cookie 的刷新令牌投递。
+- 密码重置、邮箱验证、2FA、SSO 与多组织主动切换。
 - 内容删除、定时发布、复杂审核流与版本历史。
-- 分片上传、资源签发刷新、病毒扫描回调与对象存储适配。
+- 分片上传、病毒扫描回调与跨存储后端在线迁移。
 - 批量邀请、邀请撤销/重发、成员资料编辑。
-- 申请创建、撤回、拒绝原因、申请人通知。
+- 申请人状态查询、撤回、补充材料与审批通知。
 - RCON 命令白名单配置、命令历史查询、服务器监控明细。
-- 门户版本回滚、资源包上传/审核、运行时健康查询和组织基础资料设置。
+- 门户历史版本回滚、资源包上传/审核与运行时健康查询。
 - AI 工具调用批准/拒绝、公开知识问答与多智能体工作流。
 
 开发上述任一能力时，必须先将端点、权限、幂等性、审计字段、错误码和敏感信息处理加入 OpenAPI，而不是仅在前端页面中临时约定。

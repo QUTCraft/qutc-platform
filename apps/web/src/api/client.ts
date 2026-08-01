@@ -1,5 +1,5 @@
 import { mockDelete, mockGet, mockPatch, mockPost } from '@/api/mock'
-import { clearTokens, getAccessToken, getRefreshToken, saveTokens } from '@/auth/token-storage'
+import { clearTokens, getAccessToken, saveTokens } from '@/auth/token-storage'
 import type { ApiEnvelope, Page } from '@/api/types'
 
 const apiMode = import.meta.env.VITE_API_MODE ?? 'mock'
@@ -39,8 +39,6 @@ function notifySessionExpired() {
 }
 
 async function refreshAccessToken() {
-  const refreshToken = getRefreshToken()
-  if (!refreshToken) return false
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
       try {
@@ -48,11 +46,11 @@ async function refreshAccessToken() {
           method: 'POST',
           headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ refresh_token: refreshToken }),
+		  body: JSON.stringify({}),
         })
-        const payload = await response.json().catch(() => null) as ApiEnvelope<{ access_token: string; refresh_token: string }> | null
+		const payload = await response.json().catch(() => null) as ApiEnvelope<{ access_token: string }> | null
         if (!response.ok || !payload || !('data' in payload)) return false
-        saveTokens(payload.data.access_token, payload.data.refresh_token)
+		saveTokens(payload.data.access_token)
         return true
       } catch {
         return false

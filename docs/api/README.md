@@ -74,7 +74,7 @@ python scripts/check-apifox-collection.py
 - 列表响应统一为 `{ data: [], meta: { request_id, page, page_size, total } }`。
 - 单对象响应统一为 `{ data: {}, meta: { request_id } }`。
 - Portal API 无认证，只读且只返回已发布的公开数据。
-- Auth API 负责注册、登录、刷新令牌、退出和当前会话；刷新令牌在服务端只保存哈希，并在刷新时轮换。
+- Auth API 负责注册、登录、刷新令牌、退出和当前会话；刷新令牌通过 HttpOnly Cookie 投递、在服务端只保存哈希并于刷新时轮换，Access Token 只驻留于前端内存。
 - Admin API 以 `/api/v1/admin` 开头，必须携带 Bearer JWT，并由服务端以组织成员身份和 RBAC 二次授权。
 - 草稿、成员隐私、审核、后台 Dashboard 和 RCON 命令只允许出现在 Admin API，绝不可从 Portal API 泄露。
 - 资源下载地址由服务端返回受控 Portal 路径（未来可替换为短时签名 URL）；没有关联文件时返回 `null`，前端不得暴露或拼接对象存储凭据。

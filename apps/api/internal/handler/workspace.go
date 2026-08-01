@@ -180,16 +180,16 @@ func queryMax(c *gin.Context, key string, max int) (string, bool) {
 
 func (h *WorkspaceHandler) Organization(c *gin.Context) {
 	var org model.Organization
-	if err := h.db.Where("slug = ?", c.Param("slug")).First(&org).Error; err != nil {
+	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&org).Error; err != nil {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
-	respond(c, http.StatusOK, gin.H{"id": org.ID, "slug": org.Slug, "name": org.Name, "short_name": "QUTCraft", "tagline": "把社团正在发生的事，认真地呈现出来。", "introduction": "QUTCraft 是青岛理工大学的 Minecraft 社团，持续建设内容、项目与公共知识资产。", "contact_email": "contact@qutcraft.example", "social_links": []gin.H{{"label": "GitHub", "href": "https://github.com/QUTCraft/qutc-platform"}}})
+	respond(c, http.StatusOK, organizationProfileItem(org))
 }
 
 func (h *WorkspaceHandler) PortalContentDetail(c *gin.Context) {
 	var organization model.Organization
-	if err := h.db.Where("slug = ?", c.Param("slug")).First(&organization).Error; err != nil {
+	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&organization).Error; err != nil {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
@@ -209,7 +209,7 @@ func (h *WorkspaceHandler) PortalPosts(c *gin.Context) {
 		return
 	}
 	var organization model.Organization
-	if err := h.db.Where("slug = ?", c.Param("slug")).First(&organization).Error; err != nil {
+	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&organization).Error; err != nil {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
@@ -239,7 +239,7 @@ func (h *WorkspaceHandler) PortalProjects(c *gin.Context) {
 		return
 	}
 	var organization model.Organization
-	if err := h.db.Where("slug = ?", c.Param("slug")).First(&organization).Error; err != nil {
+	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&organization).Error; err != nil {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
@@ -273,7 +273,7 @@ func (h *WorkspaceHandler) PortalResources(c *gin.Context) {
 		return
 	}
 	var organization model.Organization
-	if err := h.db.Where("slug = ?", c.Param("slug")).First(&organization).Error; err != nil {
+	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&organization).Error; err != nil {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
@@ -306,7 +306,7 @@ func (h *WorkspaceHandler) PortalKnowledge(c *gin.Context) {
 		return
 	}
 	var organization model.Organization
-	if err := h.db.Where("slug = ?", c.Param("slug")).First(&organization).Error; err != nil {
+	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&organization).Error; err != nil {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
@@ -342,7 +342,7 @@ func (h *WorkspaceHandler) PortalKnowledge(c *gin.Context) {
 
 func (h *WorkspaceHandler) PortalKnowledgeDirectories(c *gin.Context) {
 	var organization model.Organization
-	if err := h.db.Where("slug = ?", c.Param("slug")).First(&organization).Error; err != nil {
+	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&organization).Error; err != nil {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
@@ -388,6 +388,11 @@ func (h *WorkspaceHandler) knowledgeDirectoryNames(organizationID string, conten
 	return names
 }
 func (h *WorkspaceHandler) PortalServer(c *gin.Context) {
+	var organization model.Organization
+	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&organization).Error; err != nil {
+		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
+		return
+	}
 	status, err := h.serverAdapter.Status(c.Request.Context())
 	if err != nil {
 		respond(c, http.StatusOK, gin.H{"enabled": false, "label": "Minecraft 服务", "state": "offline", "version": nil, "online_players": nil, "max_players": nil, "updated_at": time.Now().UTC(), "apply_url": "#join"})
@@ -555,7 +560,12 @@ func (h *WorkspaceHandler) AdminCreateKnowledgeDirectory(c *gin.Context) {
 		return
 	}
 	directory := model.KnowledgeDirectory{ID: directoryID, OrganizationID: principal.OrganizationID, ParentID: strings.TrimSpace(body.ParentID), Name: strings.TrimSpace(body.Name), Slug: strings.TrimSpace(body.Slug), Description: strings.TrimSpace(body.Description), SortOrder: body.SortOrder, IsPublic: body.IsPublic}
-	if err := h.db.Create(&directory).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&directory).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "knowledge_directory.create", "knowledge_directory", directory.ID)
+	}); err != nil {
 		fail(c, http.StatusConflict, "knowledge_directory.slug_in_use", "知识库目录标识已存在。")
 		return
 	}
@@ -588,7 +598,12 @@ func (h *WorkspaceHandler) AdminUpdateKnowledgeDirectory(c *gin.Context) {
 		return
 	}
 	directory.ParentID, directory.Name, directory.Slug, directory.Description, directory.SortOrder, directory.IsPublic = strings.TrimSpace(body.ParentID), strings.TrimSpace(body.Name), strings.TrimSpace(body.Slug), strings.TrimSpace(body.Description), body.SortOrder, body.IsPublic
-	if err := h.db.Save(&directory).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&directory).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "knowledge_directory.update", "knowledge_directory", directory.ID)
+	}); err != nil {
 		fail(c, http.StatusConflict, "knowledge_directory.slug_in_use", "知识库目录标识已存在。")
 		return
 	}
@@ -654,7 +669,12 @@ func (h *WorkspaceHandler) AdminCreateContent(c *gin.Context) {
 		return
 	}
 	content := model.Content{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, AuthorUserID: principal.UserID, Title: normalized.Title, Type: normalized.Type, Category: normalized.Category, KnowledgeDirectoryID: directoryID, Status: service.ContentStatusDraft, Excerpt: normalized.Excerpt, Body: normalized.Body}
-	if err := h.db.Create(&content).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&content).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "content.create", "content", content.ID)
+	}); err != nil {
 		fail(c, http.StatusInternalServerError, "content.create_failed", "内容草稿创建失败。")
 		return
 	}
@@ -692,7 +712,10 @@ func (h *WorkspaceHandler) AdminUpdateContent(c *gin.Context) {
 		if err := tx.Save(&content).Error; err != nil {
 			return err
 		}
-		return bindMarkdownAssets(tx, principal.OrganizationID, content.ID, content.Body)
+		if err := bindMarkdownAssets(tx, principal.OrganizationID, content.ID, content.Body); err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "content.update", "content", content.ID)
 	}); err != nil {
 		fail(c, http.StatusInternalServerError, "content.update_failed", "内容保存失败。")
 		return
@@ -735,13 +758,15 @@ func (h *WorkspaceHandler) changeContentStatus(c *gin.Context, status string) {
 				return err
 			}
 		}
-		return tx.Save(&content).Error
+		if err := tx.Save(&content).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "content."+status, "content", content.ID)
 	}); err != nil {
 		fail(c, http.StatusInternalServerError, "content.status_update_failed", "内容状态更新失败。")
 		return
 	}
 	h.invalidatePortalCache(principal.OrganizationID)
-	_ = h.db.Create(&model.AuditEvent{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ActorUserID: principal.UserID, Action: "content." + status, TargetType: "content", TargetID: content.ID, Result: "success", RequestID: ensureRequestID(c)}).Error
 	respond(c, http.StatusOK, contentAdminItem(content, h.db))
 }
 
@@ -947,7 +972,10 @@ func (h *WorkspaceHandler) LeaveMembership(c *gin.Context) {
 		if err := tx.Where("membership_id = ?", membership.ID).Delete(&model.MembershipRole{}).Error; err != nil {
 			return err
 		}
-		return tx.Create(&model.MembershipEvent{ID: uuid.NewString(), MembershipID: membership.ID, State: "left", Reason: "self_leave"}).Error
+		if err := tx.Create(&model.MembershipEvent{ID: uuid.NewString(), MembershipID: membership.ID, State: "left", Reason: "self_leave"}).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "membership.leave", "membership", membership.ID)
 	}); err != nil {
 		fail(c, http.StatusInternalServerError, "membership.leave_failed", "退出组织暂时无法完成。")
 		return
@@ -1023,18 +1051,20 @@ func (h *WorkspaceHandler) AdminUpdateUser(c *gin.Context) {
 				return err
 			}
 		}
-		return tx.Create(&model.MembershipEvent{
+		if err := tx.Create(&model.MembershipEvent{
 			ID:           uuid.NewString(),
 			MembershipID: membership.ID,
 			State:        body.State,
 			Reason:       membershipUpdateReason(currentState, targetRole, body.State, body.Role),
-		}).Error
+		}).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "membership.update", "membership", membership.ID)
 	})
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "membership.update_failed", "成员信息保存失败。")
 		return
 	}
-	_ = h.db.Create(&model.AuditEvent{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ActorUserID: principal.UserID, Action: "membership.update", TargetType: "membership", TargetID: membership.ID, Result: "success", RequestID: ensureRequestID(c)}).Error
 	respond(c, http.StatusOK, gin.H{"id": user.ID, "name": user.DisplayName, "email": user.Email, "role": body.Role, "state": body.State, "joined_at": membership.CreatedAt})
 }
 
@@ -1114,7 +1144,10 @@ func (h *WorkspaceHandler) AdminCreateProject(c *gin.Context) {
 		if err := tx.Create(&project).Error; err != nil {
 			return err
 		}
-		return tx.Create(&model.ProjectMember{ProjectID: project.ID, UserID: principal.UserID, Role: "owner"}).Error
+		if err := tx.Create(&model.ProjectMember{ProjectID: project.ID, UserID: principal.UserID, Role: "owner"}).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "project.create", "project", project.ID)
 	}); err != nil {
 		fail(c, http.StatusInternalServerError, "project.create_failed", "项目创建失败。")
 		return
@@ -1136,7 +1169,12 @@ func (h *WorkspaceHandler) AdminUpdateProject(c *gin.Context) {
 		return
 	}
 	project.Title, project.Summary, project.Status, project.Tags, project.IsPublic = strings.TrimSpace(body.Title), strings.TrimSpace(body.Summary), body.Status, strings.Join(body.Tags, ","), body.IsPublic
-	if err := h.db.Save(&project).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&project).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "project.update", "project", project.ID)
+	}); err != nil {
 		fail(c, http.StatusInternalServerError, "project.update_failed", "项目保存失败。")
 		return
 	}
@@ -1219,7 +1257,12 @@ func (h *WorkspaceHandler) AdminAddProjectMember(c *gin.Context) {
 			return
 		}
 		member.Role = body.Role
-		if err := h.db.Save(&member).Error; err != nil {
+		if err := h.db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Save(&member).Error; err != nil {
+				return err
+			}
+			return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "project_member.update", "project_member", member.UserID)
+		}); err != nil {
 			fail(c, http.StatusInternalServerError, "project_member.update_failed", "项目成员角色保存失败。")
 			return
 		}
@@ -1231,7 +1274,12 @@ func (h *WorkspaceHandler) AdminAddProjectMember(c *gin.Context) {
 		return
 	}
 	member = model.ProjectMember{ProjectID: project.ID, UserID: body.UserID, Role: body.Role}
-	if err := h.db.Create(&member).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&member).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "project_member.create", "project_member", member.UserID)
+	}); err != nil {
 		fail(c, http.StatusInternalServerError, "project_member.create_failed", "项目成员添加失败。")
 		return
 	}
@@ -1239,7 +1287,7 @@ func (h *WorkspaceHandler) AdminAddProjectMember(c *gin.Context) {
 }
 
 func (h *WorkspaceHandler) AdminUpdateProjectMember(c *gin.Context) {
-	project, _, ok := h.projectForPrincipal(c)
+	project, principal, ok := h.projectForPrincipal(c)
 	if !ok {
 		return
 	}
@@ -1260,7 +1308,12 @@ func (h *WorkspaceHandler) AdminUpdateProjectMember(c *gin.Context) {
 		return
 	}
 	member.Role = body.Role
-	if err := h.db.Save(&member).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&member).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "project_member.update", "project_member", member.UserID)
+	}); err != nil {
 		fail(c, http.StatusInternalServerError, "project_member.update_failed", "项目成员角色保存失败。")
 		return
 	}
@@ -1268,7 +1321,7 @@ func (h *WorkspaceHandler) AdminUpdateProjectMember(c *gin.Context) {
 }
 
 func (h *WorkspaceHandler) AdminRemoveProjectMember(c *gin.Context) {
-	project, _, ok := h.projectForPrincipal(c)
+	project, principal, ok := h.projectForPrincipal(c)
 	if !ok {
 		return
 	}
@@ -1281,7 +1334,12 @@ func (h *WorkspaceHandler) AdminRemoveProjectMember(c *gin.Context) {
 		fail(c, http.StatusConflict, "project_member.owner_immutable", "项目负责人不能移出项目。")
 		return
 	}
-	if err := h.db.Delete(&member).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&member).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "project_member.delete", "project_member", member.UserID)
+	}); err != nil {
 		fail(c, http.StatusInternalServerError, "project_member.delete_failed", "项目成员移除失败。")
 		return
 	}
@@ -1339,7 +1397,7 @@ func validProjectMilestoneRequest(body projectMilestoneRequest) bool {
 }
 
 func (h *WorkspaceHandler) AdminCreateProjectMilestone(c *gin.Context) {
-	project, _, ok := h.projectForPrincipal(c)
+	project, principal, ok := h.projectForPrincipal(c)
 	if !ok {
 		return
 	}
@@ -1359,7 +1417,12 @@ func (h *WorkspaceHandler) AdminCreateProjectMilestone(c *gin.Context) {
 		completedAt = &now
 	}
 	milestone := model.ProjectMilestone{ID: uuid.NewString(), ProjectID: project.ID, Title: strings.TrimSpace(body.Title), Status: body.Status, DueAt: dueAt, CompletedAt: completedAt}
-	if err := h.db.Create(&milestone).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&milestone).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "project_milestone.create", "project_milestone", milestone.ID)
+	}); err != nil {
 		fail(c, http.StatusInternalServerError, "project_milestone.create_failed", "里程碑创建失败。")
 		return
 	}
@@ -1367,7 +1430,7 @@ func (h *WorkspaceHandler) AdminCreateProjectMilestone(c *gin.Context) {
 }
 
 func (h *WorkspaceHandler) AdminUpdateProjectMilestone(c *gin.Context) {
-	project, _, ok := h.projectForPrincipal(c)
+	project, principal, ok := h.projectForPrincipal(c)
 	if !ok {
 		return
 	}
@@ -1395,7 +1458,12 @@ func (h *WorkspaceHandler) AdminUpdateProjectMilestone(c *gin.Context) {
 	} else {
 		milestone.CompletedAt = nil
 	}
-	if err := h.db.Save(&milestone).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&milestone).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "project_milestone.update", "project_milestone", milestone.ID)
+	}); err != nil {
 		fail(c, http.StatusInternalServerError, "project_milestone.update_failed", "里程碑保存失败。")
 		return
 	}
@@ -1403,7 +1471,7 @@ func (h *WorkspaceHandler) AdminUpdateProjectMilestone(c *gin.Context) {
 }
 
 func (h *WorkspaceHandler) AdminDeleteProjectMilestone(c *gin.Context) {
-	project, _, ok := h.projectForPrincipal(c)
+	project, principal, ok := h.projectForPrincipal(c)
 	if !ok {
 		return
 	}
@@ -1412,7 +1480,12 @@ func (h *WorkspaceHandler) AdminDeleteProjectMilestone(c *gin.Context) {
 		fail(c, http.StatusNotFound, "project_milestone.not_found", "里程碑不存在。")
 		return
 	}
-	if err := h.db.Delete(&milestone).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&milestone).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "project_milestone.delete", "project_milestone", milestone.ID)
+	}); err != nil {
 		fail(c, http.StatusInternalServerError, "project_milestone.delete_failed", "里程碑删除失败。")
 		return
 	}
@@ -1520,7 +1593,7 @@ func (h *WorkspaceHandler) SubmitApplication(c *gin.Context) {
 	}
 
 	var organization model.Organization
-	if err := h.db.Where("slug = ?", c.Param("slug")).First(&organization).Error; err != nil {
+	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&organization).Error; err != nil {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}

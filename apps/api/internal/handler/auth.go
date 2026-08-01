@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/middleware"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
@@ -11,11 +12,13 @@ import (
 )
 
 type AuthHandler struct {
-	auth *service.AuthService
+	auth         *service.AuthService
+	refreshTTL   time.Duration
+	secureCookie bool
 }
 
-func NewAuthHandler(auth *service.AuthService) *AuthHandler {
-	return &AuthHandler{auth: auth}
+func NewAuthHandler(auth *service.AuthService, refreshTTL time.Duration, secureCookie bool) *AuthHandler {
+	return &AuthHandler{auth: auth, refreshTTL: refreshTTL, secureCookie: secureCookie}
 }
 
 type registerRequest struct {
@@ -30,8 +33,18 @@ type loginRequest struct {
 	Password string `json:"password" binding:"required,max=128"`
 }
 
-type refreshRequest struct {
-	RefreshToken string `json:"refresh_token" binding:"required"`
+const refreshCookieName = "qutc_refresh"
+
+func (h *AuthHandler) setRefreshCookie(c *gin.Context, token string) {
+	http.SetCookie(c.Writer, &http.Cookie{Name: refreshCookieName, Value: token, Path: "/api/v1/auth", MaxAge: int(h.refreshTTL.Seconds()), HttpOnly: true, Secure: h.secureCookie, SameSite: http.SameSiteStrictMode})
+}
+
+func (h *AuthHandler) clearRefreshCookie(c *gin.Context) {
+	http.SetCookie(c.Writer, &http.Cookie{Name: refreshCookieName, Value: "", Path: "/api/v1/auth", MaxAge: -1, HttpOnly: true, Secure: h.secureCookie, SameSite: http.SameSiteStrictMode})
+}
+
+func tokenPairResponse(pair service.TokenPair) gin.H {
+	return gin.H{"access_token": pair.AccessToken, "token_type": pair.TokenType, "expires_in": pair.ExpiresIn, "user": pair.User}
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -68,7 +81,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		}
 		return
 	}
-	respond(c, http.StatusCreated, pair)
+	h.setRefreshCookie(c, pair.RefreshToken)
+	respond(c, http.StatusCreated, tokenPairResponse(pair))
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
@@ -86,16 +100,17 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "auth.login_failed", "登录暂时无法完成。")
 		return
 	}
-	respond(c, http.StatusOK, pair)
+	h.setRefreshCookie(c, pair.RefreshToken)
+	respond(c, http.StatusOK, tokenPairResponse(pair))
 }
 
 func (h *AuthHandler) Refresh(c *gin.Context) {
-	var request refreshRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
+	refreshToken, cookieErr := c.Cookie(refreshCookieName)
+	if cookieErr != nil || strings.TrimSpace(refreshToken) == "" {
 		fail(c, http.StatusBadRequest, "auth.validation_failed", "刷新令牌不能为空。")
 		return
 	}
-	pair, err := h.auth.Refresh(request.RefreshToken)
+	pair, err := h.auth.Refresh(refreshToken)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidRefresh) || errors.Is(err, service.ErrInvalidCredentials) {
 			fail(c, http.StatusUnauthorized, "auth.refresh_invalid", "刷新令牌无效或已过期。")
@@ -104,22 +119,18 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "auth.refresh_failed", "刷新会话暂时无法完成。")
 		return
 	}
-	respond(c, http.StatusOK, pair)
+	h.setRefreshCookie(c, pair.RefreshToken)
+	respond(c, http.StatusOK, tokenPairResponse(pair))
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
-	var request struct {
-		RefreshToken string `json:"refresh_token"`
-	}
-	if err := c.ShouldBindJSON(&request); err != nil {
-		fail(c, http.StatusBadRequest, "auth.validation_failed", "退出请求格式错误。")
-		return
-	}
-	if err := h.auth.Logout(request.RefreshToken); err != nil {
+	refreshToken, _ := c.Cookie(refreshCookieName)
+	if err := h.auth.Logout(refreshToken); err != nil {
 		fail(c, http.StatusInternalServerError, "auth.logout_failed", "退出会话暂时无法完成。")
 		return
 	}
-	respond(c, http.StatusOK, gin.H{"revoked": strings.TrimSpace(request.RefreshToken) != ""})
+	h.clearRefreshCookie(c)
+	respond(c, http.StatusOK, gin.H{"revoked": strings.TrimSpace(refreshToken) != ""})
 }
 
 func (h *AuthHandler) Me(c *gin.Context) {

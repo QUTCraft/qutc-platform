@@ -38,19 +38,11 @@ func Connect(cfg config.Config) (*gorm.DB, error) {
 }
 
 func MigrateAndSeed(db *gorm.DB, cfg config.Config) error {
-	if err := db.AutoMigrate(
-		&model.Organization{}, &model.User{}, &model.Role{}, &model.Permission{},
-		&model.RolePermission{}, &model.Membership{}, &model.MembershipEvent{}, &model.Invitation{}, &model.InvitationDelivery{}, &model.MembershipRole{},
-		&model.RefreshToken{}, &model.AuditEvent{}, &model.Content{}, &model.KnowledgeDirectory{}, &model.MediaAsset{},
-		&model.Project{}, &model.ProjectMember{}, &model.ProjectMilestone{},
-		&model.Application{}, &model.ApplicationServerSync{},
-		&model.PortalConfiguration{},
-		&model.AgentDefinition{}, &model.AgentConfiguration{}, &model.AgentRun{}, &model.AgentCitation{},
-	); err != nil {
-		return fmt.Errorf("auto migrate: %w", err)
+	if err := runMigrations(db); err != nil {
+		return err
 	}
 
-	organization, err := findOrCreateOrganization(db, cfg.DefaultOrganizationSlug)
+	organization, err := findOrCreateOrganization(db, cfg)
 	if err != nil {
 		return err
 	}
@@ -90,16 +82,45 @@ func SeedDemoData(db *gorm.DB, cfg config.Config, organization model.Organizatio
 	return seedApplications(db, cfg, organization)
 }
 
-func findOrCreateOrganization(db *gorm.DB, slug string) (model.Organization, error) {
+func findOrCreateOrganization(db *gorm.DB, cfg config.Config) (model.Organization, error) {
+	slug := cfg.DefaultOrganizationSlug
 	var organization model.Organization
 	err := db.Where("slug = ?", slug).First(&organization).Error
 	if err == nil {
+		if organization.ShortName == "" {
+			organization.ShortName = organization.Name
+			organization.SocialLinksJSON = "[]"
+			organization.IsPublic = true
+			if slug == "qutcraft" {
+				organization.ShortName = "QUTCraft"
+				organization.Tagline = "把社团正在发生的事，认真地呈现出来。"
+				organization.Introduction = "QUTCraft 是青岛理工大学的 Minecraft 社团，持续建设内容、项目与公共知识资产。"
+				organization.ContactEmail = "contact@qutcraft.example"
+				organization.SocialLinksJSON = `[{"label":"GitHub","href":"https://github.com/QUTCraft/qutc-platform"}]`
+			}
+			if saveErr := db.Save(&organization).Error; saveErr != nil {
+				return model.Organization{}, fmt.Errorf("backfill organization profile: %w", saveErr)
+			}
+		}
 		return organization, nil
 	}
 	if err != gorm.ErrRecordNotFound {
 		return model.Organization{}, fmt.Errorf("find organization: %w", err)
 	}
-	organization = model.Organization{ID: uuid.NewString(), Slug: slug, Name: "QUTCraft Commons"}
+	organization = model.Organization{ID: uuid.NewString(), Slug: slug, Name: slug, ShortName: slug, SocialLinksJSON: "[]", IsPublic: true}
+	if cfg.DemoSeedProfile == "generic" {
+		organization.Name = "Campus Commons"
+		organization.ShortName = "Commons"
+		organization.Tagline = "让组织信息、协作与公共内容持续流动。"
+		organization.Introduction = "面向校园社团与民间组织的公共门户、内容分发和协作平台。"
+	} else if slug == "qutcraft" {
+		organization.Name = "QUTCraft Commons"
+		organization.ShortName = "QUTCraft"
+		organization.Tagline = "把社团正在发生的事，认真地呈现出来。"
+		organization.Introduction = "QUTCraft 是青岛理工大学的 Minecraft 社团，持续建设内容、项目与公共知识资产。"
+		organization.ContactEmail = "contact@qutcraft.example"
+		organization.SocialLinksJSON = `[{"label":"GitHub","href":"https://github.com/QUTCraft/qutc-platform"}]`
+	}
 	if err := db.Create(&organization).Error; err != nil {
 		return model.Organization{}, fmt.Errorf("create organization: %w", err)
 	}
@@ -273,6 +294,14 @@ func seedContent(db *gorm.DB, cfg config.Config, organization model.Organization
 		{ID: "content_resource", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "QUTCraft CMS 产品说明", Type: "resource", Category: "document", Status: "published", Excerpt: "项目目标、门户范围与 MVP 路线。", Body: "QUTCraft CMS 的公开产品说明与接入资料。", PublishedAt: &publishedAt},
 		{ID: "content_knowledge", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "如何让社团项目可交接", Type: "knowledge", Category: "项目协作", KnowledgeDirectoryID: stringPointer("knowledge_directory_collaboration"), Status: "published", Excerpt: "建立不依赖个人记忆的项目协作方式。", Body: "从目标、角色、决策记录到发布节奏，建立可持续的知识库。", PublishedAt: &publishedAt},
 	}
+	if cfg.DemoSeedProfile == "generic" {
+		items = []model.Content{
+			{ID: "content_cms", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "组织数字化工作台正式启用", Type: "news", Category: "组织动态", Status: "published", Excerpt: "统一管理公共内容、项目进展、成员协作和知识资产。", Body: "# 组织数字化工作台正式启用\n\n我们开始使用统一平台维护公共门户、内容和组织协作。", PublishedAt: &publishedAt},
+			{ID: "content_build", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "暑期开放活动报名", Type: "news", Category: "活动", Status: "draft", Excerpt: "面向成员开放的活动草稿。", Body: "该内容尚未发布，只能在后台看到。"},
+			{ID: "content_resource", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "组织协作平台产品说明", Type: "resource", Category: "document", Status: "published", Excerpt: "公共门户、内容分发与协作管理的产品范围。", Body: "面向校园社团与民间组织的通用产品说明。", PublishedAt: &publishedAt},
+			{ID: "content_knowledge", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "如何让组织项目可交接", Type: "knowledge", Category: "项目协作", KnowledgeDirectoryID: stringPointer("knowledge_directory_collaboration"), Status: "published", Excerpt: "建立不依赖个人记忆的项目协作方式。", Body: "从目标、角色、决策记录到发布节奏，建立可持续的知识库。", PublishedAt: &publishedAt},
+		}
+	}
 	for _, item := range items {
 		var existing model.Content
 		err := db.Where("id = ?", item.ID).First(&existing).Error
@@ -298,6 +327,13 @@ func seedProjects(db *gorm.DB, cfg config.Config, organization model.Organizatio
 		{ID: "project_cms", OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "QUTCraft CMS", Summary: "面向校园社团与民间组织的公开门户与内容分发系统，QUTCraft 是首个落地案例。", Status: "active", Tags: "Vue 3,Go,API-first", IsPublic: true},
 		{ID: "project_spawn", OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "主城公共区域计划", Summary: "把成员作品、活动路线与社区服务设施组织成一个可以长期生长的起点。", Status: "active", Tags: "建筑,社区共建", IsPublic: true},
 		{ID: "project_wiki", OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "社团知识库迁移", Summary: "将散落的经验、规则、活动资料和技术笔记逐步整理为可检索的公共知识库。", Status: "research", Tags: "知识库,信息架构", IsPublic: true},
+	}
+	if cfg.DemoSeedProfile == "generic" {
+		items = []model.Project{
+			{ID: "project_cms", OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "组织数字化平台", Summary: "面向校园社团与民间组织的公共门户、内容分发与协作管理系统。", Status: "active", Tags: "Vue 3,Go,API-first", IsPublic: true},
+			{ID: "project_spawn", OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "校园开放活动计划", Summary: "组织报名、宣传、现场协作和活动成果归档。", Status: "active", Tags: "活动,公共协作", IsPublic: true},
+			{ID: "project_wiki", OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "组织知识库迁移", Summary: "将散落的制度、活动资料和经验整理为可检索、可交接的知识库。", Status: "research", Tags: "知识库,信息架构", IsPublic: true},
+		}
 	}
 	for _, item := range items {
 		var existing model.Project

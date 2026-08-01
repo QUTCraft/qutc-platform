@@ -1,5 +1,5 @@
 -- Application decisions and external server synchronization are separate facts.
--- The API also applies this table through GORM AutoMigrate for existing volumes.
+-- Ordered migration; legacy AutoMigrate volumes are registered as the 001-008 baseline.
 CREATE TABLE IF NOT EXISTS application_server_syncs (
   id CHAR(36) PRIMARY KEY,
   organization_id CHAR(36) NOT NULL,

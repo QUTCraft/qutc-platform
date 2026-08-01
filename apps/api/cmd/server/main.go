@@ -94,7 +94,7 @@ func main() {
 	router.Use(middleware.RequestID(), middleware.StructuredLogger(appLogger), gin.Recovery(), cors.New(corsConfig(cfg)))
 
 	authService := service.NewAuthService(db, cfg)
-	authHandler := handler.NewAuthHandler(authService)
+	authHandler := handler.NewAuthHandler(authService, cfg.JWTRefreshTTL, cfg.AppEnv == "production")
 	invitationHandler := handler.NewInvitationHandler(db, authService, emailSender, cfg.PublicWebBaseURL)
 	workspaceHandler := handler.NewWorkspaceHandlerWithDependencies(db, publicCache, cfg.AppEnv, serveradapter.NewMock(), cfg.ServerAdapterTimeout, mediaStorage)
 	portalConfigHandler := handler.NewPortalConfigHandler(db)
@@ -131,6 +131,8 @@ func main() {
 	admin := v1.Group("/admin", middleware.RequireAuth(authService))
 	admin.GET("/session", middleware.RequirePermission(authService, "organization:read"), authHandler.Me)
 	admin.GET("/dashboard", middleware.RequirePermission(authService, "organization:read"), workspaceHandler.AdminDashboard)
+	admin.GET("/organization", middleware.RequirePermission(authService, "organization:configure"), workspaceHandler.AdminOrganization)
+	admin.PATCH("/organization", middleware.RequirePermission(authService, "organization:configure"), workspaceHandler.AdminUpdateOrganization)
 	admin.GET("/content", middleware.RequirePermission(authService, "content:read"), workspaceHandler.AdminContent)
 	admin.GET("/content/:id", middleware.RequirePermission(authService, "content:read"), workspaceHandler.AdminContentDetail)
 	admin.GET("/knowledge/directories", middleware.RequirePermission(authService, "knowledge:read"), workspaceHandler.AdminKnowledgeDirectories)

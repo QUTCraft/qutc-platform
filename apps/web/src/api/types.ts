@@ -26,6 +26,8 @@ export interface Organization {
   introduction: string
   contact_email: string
   social_links: Array<{ label: string; href: string }>
+	is_public: boolean
+	updated_at: string
 }
 
 export interface PublicPost {
@@ -441,7 +443,6 @@ export interface AuthUser {
 
 export interface TokenPair {
   access_token: string
-  refresh_token: string
   token_type: 'Bearer'
   expires_in: number
   user: AuthUser

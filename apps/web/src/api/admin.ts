@@ -1,5 +1,5 @@
 import { del, get, getPage, patch, post, upload } from '@/api/client'
-import type { AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, EmailAdapterStatus, InvitationRole, MediaAsset, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
+import type { AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, EmailAdapterStatus, InvitationRole, MediaAsset, Organization, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
 
 const adminBase = '/api/v1/admin'
 
@@ -19,6 +19,8 @@ function withQuery(path: string, params: object = {}) {
 
 export const adminApi = {
   getDashboard: () => get<AdminDashboard>(`${adminBase}/dashboard`),
+	getOrganization: () => get<Organization>(`${adminBase}/organization`),
+	updateOrganization: (payload: Pick<Organization, 'name' | 'short_name' | 'tagline' | 'introduction' | 'contact_email' | 'social_links' | 'is_public'>) => patch<Organization>(`${adminBase}/organization`, payload),
   getContent: (params: PageQuery = {}) => getPage<AdminContent>(withQuery(`${adminBase}/content`, params)),
   getContentById: (id: string) => get<AdminContent>(`${adminBase}/content/${id}`),
   createContent: (payload: Pick<AdminContent, 'title' | 'type' | 'category' | 'knowledge_directory_id' | 'excerpt' | 'body'>) => post<AdminContent>(`${adminBase}/content`, payload),

@@ -22,6 +22,17 @@ func TestLoadDemoSeedEnabled(t *testing.T) {
 	}
 }
 
+func TestDemoSeedProfiles(t *testing.T) {
+	t.Setenv("DEMO_SEED_PROFILE", "generic")
+	if cfg := Load(); cfg.DemoSeedProfile != "generic" || cfg.Validate() != nil {
+		t.Fatalf("generic demo profile was not accepted: %+v", cfg)
+	}
+	t.Setenv("DEMO_SEED_PROFILE", "unknown")
+	if err := Load().Validate(); err == nil {
+		t.Fatal("unknown demo profile was accepted")
+	}
+}
+
 func TestLoadNormalizesSecuritySettings(t *testing.T) {
 	t.Setenv("CORS_ALLOWED_ORIGINS", " https://portal.example.test, ,https://admin.example.test ")
 	t.Setenv("AUTH_RATE_LIMIT_PER_MINUTE", "0")

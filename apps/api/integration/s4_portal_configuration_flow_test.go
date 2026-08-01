@@ -29,6 +29,77 @@ type portalRuntimeConfigurationDTO struct {
 	ActivatedAt *time.Time              `json:"activated_at"`
 }
 
+type organizationProfileDTO struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	ShortName    string `json:"short_name"`
+	Tagline      string `json:"tagline"`
+	Introduction string `json:"introduction"`
+	ContactEmail string `json:"contact_email"`
+	SocialLinks  []struct {
+		Label string `json:"label"`
+		Href  string `json:"href"`
+	} `json:"social_links"`
+	IsPublic bool `json:"is_public"`
+}
+
+func TestS4OrganizationProfileAndPublicBoundary(t *testing.T) {
+	cfg := loadIntegrationConfig(t)
+	client := &http.Client{Timeout: 10 * time.Second}
+	db := openIntegrationDB(t, cfg.mysqlDSN)
+	ownerToken := loginAsOwner(t, client, cfg)
+
+	var original model.Organization
+	if err := db.Where("slug = ?", cfg.organizationSlug).First(&original).Error; err != nil {
+		t.Fatalf("load organization: %v", err)
+	}
+	startedAt := time.Now().UTC().Add(-time.Second)
+	t.Cleanup(func() {
+		_ = db.Save(&original).Error
+		_ = db.Where("target_id = ? AND action = ? AND created_at >= ?", original.ID, "organization.profile_update", startedAt).Delete(&model.AuditEvent{}).Error
+	})
+
+	adminURL := cfg.apiURL + "/api/v1/admin/organization"
+	portalURL := cfg.apiURL + "/api/v1/portal/organizations/" + cfg.organizationSlug
+	requireStatus(t, client, http.MethodGet, adminURL, "", nil, http.StatusUnauthorized)
+	var current apiEnvelope[organizationProfileDTO]
+	decodeJSON(t, request(t, client, http.MethodGet, adminURL, ownerToken, nil, http.StatusOK), &current)
+
+	payload := map[string]any{
+		"name": current.Data.Name, "short_name": current.Data.ShortName,
+		"tagline": "S4 organization profile " + uuid.NewString()[:8], "introduction": current.Data.Introduction,
+		"contact_email": current.Data.ContactEmail, "social_links": current.Data.SocialLinks, "is_public": true,
+	}
+	var updated apiEnvelope[organizationProfileDTO]
+	decodeJSON(t, request(t, client, http.MethodPatch, adminURL, ownerToken, payload, http.StatusOK), &updated)
+	if updated.Data.Tagline != payload["tagline"] || !updated.Data.IsPublic {
+		t.Fatalf("updated organization = %+v", updated.Data)
+	}
+	var public apiEnvelope[organizationProfileDTO]
+	decodeJSON(t, request(t, client, http.MethodGet, portalURL, "", nil, http.StatusOK), &public)
+	if public.Data.Tagline != updated.Data.Tagline {
+		t.Fatalf("portal tagline = %q, want %q", public.Data.Tagline, updated.Data.Tagline)
+	}
+
+	payload["is_public"] = false
+	requireStatus(t, client, http.MethodPatch, adminURL, ownerToken, payload, http.StatusOK)
+	for _, suffix := range []string{"", "/posts", "/server-status"} {
+		requireStatus(t, client, http.MethodGet, portalURL+suffix, "", nil, http.StatusNotFound)
+	}
+	requireStatus(t, client, http.MethodPost, portalURL+"/apply", "", map[string]any{
+		"type": "membership", "class_name": "integration", "name": "S4 Hidden",
+		"game_id": "S4Hidden", "qq_number": "123456789", "email": "s4-hidden@integration.invalid",
+	}, http.StatusNotFound)
+
+	var auditCount int64
+	if err := db.Model(&model.AuditEvent{}).Where("target_id = ? AND action = ? AND created_at >= ?", original.ID, "organization.profile_update", startedAt).Count(&auditCount).Error; err != nil {
+		t.Fatalf("count organization profile audits: %v", err)
+	}
+	if auditCount != 2 {
+		t.Fatalf("organization profile audit events = %d, want 2", auditCount)
+	}
+}
+
 func TestS4PortalConfigurationDraftAndEnable(t *testing.T) {
 	cfg := loadIntegrationConfig(t)
 	client := &http.Client{Timeout: 10 * time.Second}
