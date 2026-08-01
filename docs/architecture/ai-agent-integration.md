@@ -1,6 +1,6 @@
 # QUTCraft Commons × AI 智能体集成设计
 
-> 状态：AI-0 后端基础与 AI-1 人工确认内容闭环已实现；AI-2+ 待后续版本
+> 状态：AI-0、AI-1 与服务创新类活动策划/领域专用人工批准首片已实现；AI-2+ 待后续版本
 > 目标版本：`v0.1.0-competition`（核心 CMS 通过 G5 后实施）  
 > 更新日期：2026-07-30
 > 前置条件：RBAC、审计、内容状态机、知识可见性和 API 契约通过 G5
@@ -306,8 +306,11 @@ queued/running/waiting_approval ───────────────→
 | `POST` | `/api/v1/admin/ai/runs` | ✅ 已实现：创建异步内容提案运行。 |
 | `GET` | `/api/v1/admin/ai/runs/{run_id}` | ✅ 已实现：查询状态、引用和输出。 |
 | `POST` | `/api/v1/admin/ai/runs/{run_id}/cancel` | ✅ 已实现：取消未结束运行。 |
-| `POST` | `/api/v1/admin/ai/tool-calls/{tool_call_id}/approve` | ⏳ AI-1/AI-4：批准一次具体工具调用。 |
-| `POST` | `/api/v1/admin/ai/tool-calls/{tool_call_id}/reject` | ⏳ AI-1/AI-4：拒绝工具调用。 |
+| `POST` | `/api/v1/admin/ai/activity-plans` | ✅ 服务创新主线：从结构化活动需求与知识引用创建方案。 |
+| `GET` | `/api/v1/admin/ai/activity-plans/{plan_id}` | ✅ 查询方案、固定引用和建议操作。 |
+| `POST` | `/api/v1/admin/ai/activity-plans/{plan_id}/approve` | ✅ 领域专用人工批准：事务创建项目、里程碑和公告草稿。 |
+| `POST` | `/api/v1/admin/ai/tool-calls/{tool_call_id}/approve` | ⏳ AI-4：面向任意智能体的通用工具批准。 |
+| `POST` | `/api/v1/admin/ai/tool-calls/{tool_call_id}/reject` | ⏳ AI-4：面向任意智能体的通用工具拒绝。 |
 | `POST` | `/api/v1/admin/ai/knowledge/search` | ✅ 已实现：权限感知的内部知识检索。 |
 | `POST` | `/api/v1/portal/organizations/{slug}/assistant/query` | ⏳ v0.2+：公开知识问答。 |
 

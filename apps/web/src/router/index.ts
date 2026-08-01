@@ -27,6 +27,7 @@ const router = createRouter({
     { path: '/admin/reviews', name: 'admin-reviews', component: () => import('@/views/admin/AdminReviewsView.vue'), meta: { layout: 'admin', requiresAuth: true } },
     { path: '/admin/audit', name: 'admin-audit', component: () => import('@/views/admin/AdminAuditView.vue'), meta: { layout: 'admin', requiresAuth: true } },
     { path: '/admin/ai', name: 'admin-ai', component: () => import('@/views/admin/AdminAISettingsView.vue'), meta: { layout: 'admin', requiresAuth: true } },
+    { path: '/admin/activity-planner', name: 'admin-activity-planner', component: () => import('@/views/admin/AdminActivityPlannerView.vue'), meta: { layout: 'admin', requiresAuth: true } },
     { path: '/admin/settings', name: 'admin-settings', component: () => import('@/views/admin/AdminSettingsView.vue'), meta: { layout: 'admin', requiresAuth: true } },
     { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue') },
   ],

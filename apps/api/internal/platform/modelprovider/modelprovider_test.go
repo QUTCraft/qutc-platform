@@ -38,6 +38,28 @@ func TestMockProviderIsExplicitAndDeterministic(t *testing.T) {
 	}
 }
 
+func TestMockActivityPlannerUsesDedicatedPolicyAndSections(t *testing.T) {
+	provider, err := New(Config{Driver: "mock", Model: "mock-content-v1"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	result, err := provider.Generate(context.Background(), GenerateRequest{
+		AgentKey: "activity-planner", PromptVersion: "activity-planner/v1",
+		Task: "校园开源工作坊", Sources: []Source{{ID: "rule-1", Title: "活动规范", Excerpt: "活动需要提前审批。"}},
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	for _, expected := range []string{"活动目标与服务价值", "建议流程", "人员、物资与风险", "宣传建议", "qutc://knowledge/rule-1"} {
+		if !strings.Contains(result.Markdown, expected) {
+			t.Fatalf("activity plan omitted %q: %s", expected, result.Markdown)
+		}
+	}
+	if result.PromptVersion != "activity-planner/v1" || result.Mode != "mock" {
+		t.Fatalf("activity plan metadata = %+v", result)
+	}
+}
+
 func TestOpenAICompatibleProvider(t *testing.T) {
 	const apiKey = "test-only-secret-provider-key"
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {

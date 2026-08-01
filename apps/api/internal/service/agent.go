@@ -126,6 +126,8 @@ type agentExecution struct {
 	organizationID string
 	actorUserID    string
 	requestID      string
+	agentKey       string
+	promptVersion  string
 	task           string
 	sources        []modelprovider.Source
 	timeout        time.Duration
@@ -433,7 +435,8 @@ func (s *AgentService) CreateRun(principal Principal, input AgentRunCreateInput,
 
 	execution := agentExecution{
 		runID: run.ID, organizationID: principal.OrganizationID, actorUserID: principal.UserID,
-		requestID: requestID, task: input.Task, sources: sources,
+		requestID: requestID, agentKey: definition.Key, promptVersion: definition.SystemPolicyVersion,
+		task: input.Task, sources: sources,
 		timeout: time.Duration(configuration.RequestTimeoutSeconds) * time.Second,
 	}
 	go s.execute(execution)
@@ -527,7 +530,10 @@ func (s *AgentService) execute(execution agentExecution) {
 		s.cancelMu.Unlock()
 	}()
 
-	generated, err := s.provider.Generate(ctx, modelprovider.GenerateRequest{Task: execution.task, Sources: execution.sources})
+	generated, err := s.provider.Generate(ctx, modelprovider.GenerateRequest{
+		AgentKey: execution.agentKey, PromptVersion: execution.promptVersion,
+		Task: execution.task, Sources: execution.sources,
+	})
 	completedAt := time.Now().UTC()
 	if err != nil {
 		code, message := safeModelFailure(ctx, err)

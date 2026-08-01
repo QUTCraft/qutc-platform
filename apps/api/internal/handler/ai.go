@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/middleware"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
@@ -32,6 +33,23 @@ type agentConfigurationRequest struct {
 	RequestTimeoutSeconds int  `json:"request_timeout_seconds"`
 	MaxSources            int  `json:"max_sources"`
 	MaxContextCharacters  int  `json:"max_context_characters"`
+}
+
+type createActivityPlanRequest struct {
+	Title                string                   `json:"title"`
+	Objective            string                   `json:"objective"`
+	Audience             string                   `json:"audience"`
+	Venue                string                   `json:"venue"`
+	StartsAt             string                   `json:"starts_at"`
+	EndsAt               string                   `json:"ends_at"`
+	ExpectedParticipants int                      `json:"expected_participants"`
+	Budget               string                   `json:"budget"`
+	Constraints          string                   `json:"constraints"`
+	ContextRefs          []service.AgentSourceRef `json:"context_refs"`
+}
+
+type approveActivityPlanRequest struct {
+	Actions []string `json:"actions"`
 }
 
 func NewAIHandler(agents *service.AgentService) *AIHandler {
@@ -164,6 +182,101 @@ func (h *AIHandler) CancelRun(c *gin.Context) {
 		return
 	}
 	respond(c, http.StatusOK, run)
+}
+
+func (h *AIHandler) CreateActivityPlan(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var request createActivityPlanRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		fail(c, http.StatusBadRequest, "ai.activity_plan_validation_failed", "请提供完整、有效的活动需求。")
+		return
+	}
+	startsAt, err := optionalRFC3339(request.StartsAt)
+	if err != nil {
+		fail(c, http.StatusBadRequest, "ai.activity_plan_validation_failed", "活动开始时间必须是 RFC3339 日期时间。")
+		return
+	}
+	endsAt, err := optionalRFC3339(request.EndsAt)
+	if err != nil {
+		fail(c, http.StatusBadRequest, "ai.activity_plan_validation_failed", "活动结束时间必须是 RFC3339 日期时间。")
+		return
+	}
+	plan, err := h.agents.CreateActivityPlan(principal, service.ActivityPlanCreateInput{
+		Title: request.Title, Objective: request.Objective, Audience: request.Audience,
+		Venue: request.Venue, StartsAt: startsAt, EndsAt: endsAt,
+		ExpectedParticipants: request.ExpectedParticipants, Budget: request.Budget,
+		Constraints: request.Constraints, ContextRefs: request.ContextRefs,
+	}, ensureRequestID(c))
+	if err != nil {
+		h.failActivityPlan(c, err)
+		return
+	}
+	respond(c, http.StatusAccepted, plan)
+}
+
+func (h *AIHandler) GetActivityPlan(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	plan, err := h.agents.GetActivityPlan(principal.OrganizationID, strings.TrimSpace(c.Param("plan_id")))
+	if err != nil {
+		h.failActivityPlan(c, err)
+		return
+	}
+	respond(c, http.StatusOK, plan)
+}
+
+func (h *AIHandler) ApproveActivityPlan(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var request approveActivityPlanRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		fail(c, http.StatusBadRequest, "ai.activity_plan_validation_failed", "请选择需要人工批准的操作。")
+		return
+	}
+	result, err := h.agents.ApproveActivityPlan(principal, strings.TrimSpace(c.Param("plan_id")), request.Actions, ensureRequestID(c))
+	if err != nil {
+		h.failActivityPlan(c, err)
+		return
+	}
+	respond(c, http.StatusOK, result)
+}
+
+func optionalRFC3339(value string) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, err
+	}
+	parsed = parsed.UTC()
+	return &parsed, nil
+}
+
+func (h *AIHandler) failActivityPlan(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, service.ErrActivityPlanValidation):
+		fail(c, http.StatusBadRequest, "ai.activity_plan_validation_failed", "活动需求或批准操作不符合接口约束。")
+	case errors.Is(err, service.ErrActivityPlanNotFound):
+		fail(c, http.StatusNotFound, "ai.activity_plan_not_found", "活动策划不存在。")
+	case errors.Is(err, service.ErrActivityPlanNotReady):
+		fail(c, http.StatusConflict, "ai.activity_plan_not_ready", "活动方案尚未生成完成，不能执行建议操作。")
+	case errors.Is(err, service.ErrActivityPlanAlreadyApplied):
+		fail(c, http.StatusConflict, "ai.activity_plan_already_applied", "活动方案已经批准执行，不能重复创建业务对象。")
+	default:
+		h.failRun(c, err)
+	}
 }
 
 func (h *AIHandler) failRun(c *gin.Context, err error) {

@@ -221,7 +221,7 @@ export interface AIProviderStatus {
 
 export interface AIAgentDefinition {
   id: string
-  key: 'content-copilot'
+  key: 'content-copilot' | 'activity-planner'
   name: string
   purpose: string
   system_policy_version: string
@@ -294,6 +294,46 @@ export interface AIAgentRun {
   expires_at: string
   created_at: string
   updated_at: string
+}
+
+export type ActivityPlanStatus = 'generating' | 'ready' | 'failed' | 'canceled' | 'applied'
+
+export interface ActivityActionProposal {
+  key: string
+  kind: 'project' | 'milestone' | 'content'
+  title: string
+  description: string
+  due_at?: string | null
+  requires: string[]
+}
+
+export interface ActivityPlan {
+  id: string
+  title: string
+  objective: string
+  audience: string
+  venue: string
+  starts_at?: string | null
+  ends_at?: string | null
+  expected_participants: number
+  budget: string
+  constraints: string
+  status: ActivityPlanStatus
+  run: AIAgentRun
+  proposed_actions: ActivityActionProposal[]
+  approved_actions: string[]
+  project_id?: string | null
+  announcement_content_id?: string | null
+  approved_by?: string | null
+  approved_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ActivityPlanApprovalResult extends ActivityPlan {
+  created_project_id?: string | null
+  created_milestone_ids: string[]
+  created_content_id?: string | null
 }
 
 export type AdminMembershipWriteState = 'active' | 'disabled'

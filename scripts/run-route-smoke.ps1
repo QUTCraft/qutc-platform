@@ -16,7 +16,8 @@ $routes = @(
     "/apply",
     "/login",
     "/admin/audit",
-    "/admin/ai"
+    "/admin/ai",
+    "/admin/activity-planner"
 )
 
 foreach ($route in $routes) {

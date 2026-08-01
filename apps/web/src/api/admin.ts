@@ -1,5 +1,5 @@
 import { del, get, getPage, patch, post, upload } from '@/api/client'
-import type { AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, EmailAdapterStatus, InvitationRole, MediaAsset, Organization, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
+import type { ActivityPlan, ActivityPlanApprovalResult, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, EmailAdapterStatus, InvitationRole, MediaAsset, Organization, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
 
 const adminBase = '/api/v1/admin'
 
@@ -46,9 +46,23 @@ export const adminApi = {
   updateAIConfiguration: (payload: Pick<AIConfiguration, 'enabled' | 'run_limit_per_hour' | 'request_timeout_seconds' | 'max_sources' | 'max_context_characters'>) => patch<AIConfiguration>(`${adminBase}/ai/config`, payload),
   getAIAgents: () => get<AIAgentCatalog>(`${adminBase}/ai/agents`),
   searchAIKnowledge: (payload: { query: string; limit?: number }) => post<AIKnowledgeResult[]>(`${adminBase}/ai/knowledge/search`, payload),
-  createAIRun: (payload: { agent_key: 'content-copilot'; task: string; context_refs: AISourceReference[]; output_mode: 'proposal' }) => post<AIAgentRun>(`${adminBase}/ai/runs`, payload),
+  createAIRun: (payload: { agent_key: 'content-copilot' | 'activity-planner'; task: string; context_refs: AISourceReference[]; output_mode: 'proposal' }) => post<AIAgentRun>(`${adminBase}/ai/runs`, payload),
   getAIRun: (id: string) => get<AIAgentRun>(`${adminBase}/ai/runs/${id}`),
   cancelAIRun: (id: string) => post<AIAgentRun>(`${adminBase}/ai/runs/${id}/cancel`),
+  createActivityPlan: (payload: {
+    title: string
+    objective: string
+    audience: string
+    venue: string
+    starts_at?: string
+    ends_at?: string
+    expected_participants: number
+    budget: string
+    constraints: string
+    context_refs: AISourceReference[]
+  }) => post<ActivityPlan>(`${adminBase}/ai/activity-plans`, payload),
+  getActivityPlan: (id: string) => get<ActivityPlan>(`${adminBase}/ai/activity-plans/${id}`),
+  approveActivityPlan: (id: string, actions: string[]) => post<ActivityPlanApprovalResult>(`${adminBase}/ai/activity-plans/${id}/approve`, { actions }),
   getProjects: (params: PageQuery = {}) => getPage<AdminProject>(withQuery(`${adminBase}/projects`, params)),
   createProject: (payload: Pick<AdminProject, 'title' | 'summary' | 'status' | 'tags' | 'is_public'>) => post<AdminProject>(`${adminBase}/projects`, payload),
   updateProject: (id: string, payload: Pick<AdminProject, 'title' | 'summary' | 'status' | 'tags' | 'is_public'>) => patch<AdminProject>(`${adminBase}/projects/${id}`, payload),

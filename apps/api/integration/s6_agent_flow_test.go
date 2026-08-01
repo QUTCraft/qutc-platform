@@ -62,6 +62,22 @@ type aiRunDTO struct {
 	} `json:"citations"`
 }
 
+type activityPlanDTO struct {
+	ID              string   `json:"id"`
+	Status          string   `json:"status"`
+	Run             aiRunDTO `json:"run"`
+	ProposedActions []struct {
+		Key  string `json:"key"`
+		Kind string `json:"kind"`
+	} `json:"proposed_actions"`
+	ApprovedActions       []string `json:"approved_actions"`
+	ProjectID             *string  `json:"project_id"`
+	AnnouncementContentID *string  `json:"announcement_content_id"`
+	CreatedProjectID      *string  `json:"created_project_id"`
+	CreatedMilestoneIDs   []string `json:"created_milestone_ids"`
+	CreatedContentID      *string  `json:"created_content_id"`
+}
+
 func TestS6AgentKnowledgeGenerationBoundary(t *testing.T) {
 	cfg := loadIntegrationConfig(t)
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -172,7 +188,7 @@ func TestS6AgentKnowledgeGenerationBoundary(t *testing.T) {
 	catalogBody := request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/ai/agents", ownerToken, nil, http.StatusOK)
 	var catalogEnvelope apiEnvelope[aiAgentCatalogDTO]
 	decodeJSON(t, catalogBody, &catalogEnvelope)
-	if len(catalogEnvelope.Data.Agents) != 1 || catalogEnvelope.Data.Agents[0].Key != "content-copilot" {
+	if len(catalogEnvelope.Data.Agents) != 2 || !containsAgentKey(catalogEnvelope.Data.Agents, "content-copilot") || !containsAgentKey(catalogEnvelope.Data.Agents, "activity-planner") {
 		t.Fatalf("agent catalog = %+v", catalogEnvelope.Data)
 	}
 	if !catalogEnvelope.Data.Provider.Enabled || catalogEnvelope.Data.Provider.Mode != "mock" || catalogEnvelope.Data.Provider.Provider != "mock" {
@@ -287,6 +303,94 @@ func TestS6AgentKnowledgeGenerationBoundary(t *testing.T) {
 	}
 }
 
+func TestS6ActivityPlannerApprovalBoundary(t *testing.T) {
+	cfg := loadIntegrationConfig(t)
+	client := &http.Client{Timeout: 10 * time.Second}
+	db := openIntegrationDB(t, cfg.mysqlDSN)
+	ownerToken := loginAsOwner(t, client, cfg)
+	var organization model.Organization
+	if err := db.Where("slug = ?", cfg.organizationSlug).First(&organization).Error; err != nil {
+		t.Fatalf("load organization: %v", err)
+	}
+	var owner model.User
+	if err := db.Where("email = ?", cfg.adminEmail).First(&owner).Error; err != nil {
+		t.Fatalf("load owner: %v", err)
+	}
+
+	sourceID := uuid.NewString()
+	if err := db.Create(&model.Content{ID: sourceID, OrganizationID: organization.ID, AuthorUserID: owner.ID, Title: "S6 校园活动规范 " + uuid.NewString(), Type: "knowledge", Category: "activity", Status: "draft", Excerpt: "活动须核对场地、安全和宣传信息。", Body: "活动负责人应在执行前完成场地确认、人员分工和风险预案。"}).Error; err != nil {
+		t.Fatalf("create activity knowledge: %v", err)
+	}
+	var planID, runID string
+	var projectID, contentID *string
+	var milestoneIDs []string
+	t.Cleanup(func() {
+		if planID != "" {
+			_ = db.Where("id = ?", planID).Delete(&model.ActivityPlan{}).Error
+		}
+		if len(milestoneIDs) > 0 {
+			_ = db.Where("target_type = ? AND target_id IN ?", "project_milestone", milestoneIDs).Delete(&model.AuditEvent{}).Error
+			_ = db.Where("id IN ?", milestoneIDs).Delete(&model.ProjectMilestone{}).Error
+		}
+		if contentID != nil {
+			_ = db.Where("target_type = ? AND target_id = ?", "content", *contentID).Delete(&model.AuditEvent{}).Error
+			_ = db.Where("id = ?", *contentID).Delete(&model.Content{}).Error
+		}
+		if projectID != nil {
+			_ = db.Where("target_type = ? AND target_id = ?", "project", *projectID).Delete(&model.AuditEvent{}).Error
+			_ = db.Where("project_id = ?", *projectID).Delete(&model.ProjectMember{}).Error
+			_ = db.Where("id = ?", *projectID).Delete(&model.Project{}).Error
+		}
+		if planID != "" {
+			_ = db.Where("target_type = ? AND target_id = ?", "activity_plan", planID).Delete(&model.AuditEvent{}).Error
+		}
+		if runID != "" {
+			_ = db.Where("run_id = ?", runID).Delete(&model.AgentCitation{}).Error
+			_ = db.Where("target_type = ? AND target_id = ?", "agent_run", runID).Delete(&model.AuditEvent{}).Error
+			_ = db.Where("id = ?", runID).Delete(&model.AgentRun{}).Error
+		}
+		_ = db.Where("id = ?", sourceID).Delete(&model.Content{}).Error
+	})
+
+	start := time.Now().UTC().Add(20 * 24 * time.Hour).Truncate(time.Second)
+	createBody := request(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/ai/activity-plans", ownerToken, map[string]any{
+		"title": "S6 校园开源工作坊", "objective": "验证活动策划到执行对象的闭环", "audience": "在校学生",
+		"venue": "测试场地", "starts_at": start.Format(time.RFC3339), "ends_at": start.Add(4 * time.Hour).Format(time.RFC3339),
+		"expected_participants": 40, "budget": "500 元", "constraints": "需要安全预案",
+		"context_refs": []map[string]string{{"type": "content", "id": sourceID}},
+	}, http.StatusAccepted)
+	var createEnvelope apiEnvelope[activityPlanDTO]
+	decodeJSON(t, createBody, &createEnvelope)
+	planID, runID = createEnvelope.Data.ID, createEnvelope.Data.Run.ID
+	if planID == "" || runID == "" {
+		t.Fatalf("activity plan create = %+v", createEnvelope.Data)
+	}
+
+	ready := waitForActivityPlan(t, client, cfg, ownerToken, planID)
+	if ready.Status != "ready" || ready.Run.Status != "succeeded" || len(ready.ProposedActions) != 6 || len(ready.Run.Citations) != 1 {
+		t.Fatalf("ready activity plan = %+v", ready)
+	}
+	approvalBody := request(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/ai/activity-plans/"+planID+"/approve", ownerToken, map[string]any{
+		"actions": []string{"create_project", "create_preparation_milestone", "create_announcement_draft"},
+	}, http.StatusOK)
+	var approvalEnvelope apiEnvelope[activityPlanDTO]
+	decodeJSON(t, approvalBody, &approvalEnvelope)
+	projectID, contentID, milestoneIDs = approvalEnvelope.Data.CreatedProjectID, approvalEnvelope.Data.CreatedContentID, approvalEnvelope.Data.CreatedMilestoneIDs
+	if approvalEnvelope.Data.Status != "applied" || projectID == nil || contentID == nil || len(milestoneIDs) != 1 {
+		t.Fatalf("activity approval = %+v", approvalEnvelope.Data)
+	}
+	var project model.Project
+	if err := db.Where("id = ? AND organization_id = ?", *projectID, organization.ID).First(&project).Error; err != nil || project.IsPublic {
+		t.Fatalf("created project = %+v, error = %v", project, err)
+	}
+	var content model.Content
+	if err := db.Where("id = ? AND organization_id = ?", *contentID, organization.ID).First(&content).Error; err != nil || content.Status != "draft" {
+		t.Fatalf("created announcement = %+v, error = %v", content, err)
+	}
+	requireStatus(t, client, http.MethodGet, portalContentURL(cfg, *contentID), "", nil, http.StatusNotFound)
+	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/ai/activity-plans/"+planID+"/approve", ownerToken, map[string]any{"actions": []string{"create_project"}}, http.StatusConflict)
+}
+
 func waitForAgentRun(t *testing.T, client *http.Client, cfg integrationConfig, token, runID string) aiRunDTO {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -301,6 +405,34 @@ func waitForAgentRun(t *testing.T, client *http.Client, cfg integrationConfig, t
 	}
 	t.Fatalf("agent run %s did not reach a terminal state", runID)
 	return aiRunDTO{}
+}
+
+func waitForActivityPlan(t *testing.T, client *http.Client, cfg integrationConfig, token, planID string) activityPlanDTO {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		body := request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/ai/activity-plans/"+planID, token, nil, http.StatusOK)
+		var envelope apiEnvelope[activityPlanDTO]
+		decodeJSON(t, body, &envelope)
+		if envelope.Data.Status == "ready" || envelope.Data.Status == "failed" || envelope.Data.Status == "canceled" || envelope.Data.Status == "applied" {
+			return envelope.Data
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("activity plan %s did not reach a terminal state", planID)
+	return activityPlanDTO{}
+}
+
+func containsAgentKey(agents []struct {
+	Key             string   `json:"key"`
+	AllowedToolKeys []string `json:"allowed_tool_keys"`
+}, key string) bool {
+	for _, agent := range agents {
+		if agent.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 func countOrganizationContent(t *testing.T, db *gorm.DB, organizationID string) int64 {

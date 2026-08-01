@@ -615,6 +615,93 @@
           }
         }
       ]
+    },
+    {
+      "name": "20 - Create AI activity plan",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"校园技术开放日 {{runId}}\",\n  \"objective\": \"帮助校园组织展示项目并招募协作者\",\n  \"audience\": \"校内学生与社团负责人\",\n  \"venue\": \"大学生活动中心\",\n  \"expected_participants\": 80,\n  \"budget\": \"2000 元以内\",\n  \"constraints\": \"方案需要可执行、可审计，不得自动发布内容\",\n  \"context_refs\": [\n    {\n      \"type\": \"content\",\n      \"id\": \"{{knowledgeSourceId}}\"\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/ai/activity-plans",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "ai", "activity-plans"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('activity plan is accepted', () => pm.response.to.have.status(202));",
+            "const plan = pm.response.json().data;",
+            "pm.expect(['generating', 'ready']).to.include(plan.status);",
+            "pm.environment.set('activityPlanId', plan.id);"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "21 - Read AI activity plan",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/ai/activity-plans/{{activityPlanId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "ai", "activity-plans", "{{activityPlanId}}"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('activity plan is readable', () => pm.response.to.have.status(200));",
+            "const plan = pm.response.json().data;",
+            "pm.expect(['generating', 'ready', 'failed', 'canceled']).to.include(plan.status);"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "22 - Approve safe AI activity actions",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"actions\": [\n    \"create_project\",\n    \"create_announcement_draft\"\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/ai/activity-plans/{{activityPlanId}}/approve",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "ai", "activity-plans", "{{activityPlanId}}", "approve"]
+        },
+        "description": "仅在上一请求返回 ready 后执行。人工批准只创建非公开项目和公告草稿，不会发布。"
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('approved actions are applied once', () => pm.response.to.have.status(200));",
+            "const result = pm.response.json().data;",
+            "pm.expect(result.status).to.eql('applied');",
+            "pm.expect(result.created_project_id).to.be.a('string').and.not.empty;",
+            "pm.expect(result.created_content_id).to.be.a('string').and.not.empty;"
+          ]
+        }
+      }]
     }
   ],
   "variable": []

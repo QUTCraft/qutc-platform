@@ -1,13 +1,13 @@
 # 组织运营智能体 API 规范
 
-> 实施状态：AI-0 后端基础与 AI-1 人工确认内容闭环已实现
-> 更新日期：2026-07-31
+> 实施状态：内容协作闭环与服务创新类活动策划首片已实现
+> 更新日期：2026-08-01
 > 事实来源：[OpenAPI 3.1](openapi.yaml)
 > 架构与长期边界：[AI 智能体集成设计](../architecture/ai-agent-integration.md)
 
 ## 1. 当前交付范围
 
-当前实现是一条受控的“知识资料 → Markdown 提案 → 人工确认 → CMS 草稿”闭环，不是聊天装饰，也不会绕过 CMS：
+当前实现包含两条受控闭环，不是聊天装饰，也不会绕过 CMS、项目权限或人工批准：
 
 1. 成员读取当前组织的运行策略与脱敏供应商状态；组织所有者可在 `/admin/ai` 保存策略。
 2. 管理员或编辑读取当前组织可用的 `content-copilot`。
@@ -17,6 +17,8 @@
 6. 查询运行，取得标准 Markdown、固定引用快照、模型模式和 Token 用量。
 7. Admin 内容编辑器展示安全 Markdown、当前正文对比和固定引用。
 8. 用户再次确认后选择“应用到编辑器但不保存”，或显式调用现有 CMS 创建接口生成 `draft`；发布仍走原有人工权限流程。
+9. `activity-planner` 接收结构化活动需求与显式知识引用，生成活动方案和固定建议操作。
+10. 用户逐项批准后，服务端在一个事务中创建非公开项目、所选里程碑和公告草稿，并逐项写审计。
 
 本次同时实现：
 
@@ -33,7 +35,7 @@
 
 当前未实现：
 
-- `AgentToolCall`、`AgentApproval` 及其批准/拒绝接口；
+- 面向任意智能体的通用 `AgentToolCall`、`AgentApproval` 工作流设计器；活动策划已实现领域专用批准接口；
 - 公开 Portal 问答、自动周报、多智能体和 RCON/ServerAdapter 工具。
 
 ## 2. 权限
@@ -47,6 +49,9 @@
 | `POST /api/v1/admin/ai/runs` | `ai:use` ∩ `knowledge:read` |
 | `GET /api/v1/admin/ai/runs/{run_id}` | `ai:use`，并强制当前组织 |
 | `POST /api/v1/admin/ai/runs/{run_id}/cancel` | `ai:use`，并强制当前组织 |
+| `POST /api/v1/admin/ai/activity-plans` | `ai:use` ∩ `knowledge:read` |
+| `GET /api/v1/admin/ai/activity-plans/{plan_id}` | `ai:use`，并强制当前组织 |
+| `POST /api/v1/admin/ai/activity-plans/{plan_id}/approve` | `ai:use` ∩ `project:manage` ∩ `content:create` |
 
 `editor`、`administrator`、`owner` 默认具有 `ai:use`；`member` 默认没有。服务端从 Bearer JWT 对应的活动成员关系取得 `organization_id`，请求体和查询参数不能覆盖组织范围。
 
@@ -265,6 +270,56 @@ Authorization: Bearer <access-token>
 7. 草稿只能由既有 `content:publish` 流程人工发布；AI API 没有发布能力。
 
 生成正文缺失某条固定引用 ID 时，前端会补充“引用资料”章节，保证创建的草稿保留来源标识。模型输出、标题和摘要仍可在保存或发布前由人工编辑。
+
+### 3.8 校园活动策划与人工批准
+
+创建活动策划：
+
+```http
+POST /api/v1/admin/ai/activity-plans
+Authorization: Bearer <access-token>
+Content-Type: application/json
+
+{
+  "title": "校园开源创作工作坊",
+  "objective": "帮助学生完成第一次开源协作实践",
+  "audience": "全校对开源与内容创作感兴趣的学生",
+  "venue": "嘉陵江路校区机房",
+  "starts_at": "2026-08-20T06:00:00Z",
+  "ends_at": "2026-08-20T10:00:00Z",
+  "expected_participants": 40,
+  "budget": "500 元",
+  "constraints": "需要提前确认场地、设备与安全责任人",
+  "context_refs": [{ "type": "content", "id": "knowledge-content-id" }]
+}
+```
+
+响应为 `202`。客户端轮询 `GET /api/v1/admin/ai/activity-plans/{plan_id}`，直到 `status` 进入 `ready`、`failed` 或 `canceled`。`ready` 响应同时包含底层 `run`、固定引用和以下建议操作键：
+
+- `create_project`；
+- `create_preparation_milestone`；
+- `create_promotion_milestone`；
+- `create_execution_milestone`；
+- `create_retrospective_milestone`；
+- `create_announcement_draft`。
+
+人工批准：
+
+```http
+POST /api/v1/admin/ai/activity-plans/{plan_id}/approve
+Authorization: Bearer <access-token>
+Content-Type: application/json
+
+{
+  "actions": [
+    "create_project",
+    "create_preparation_milestone",
+    "create_announcement_draft"
+  ]
+}
+```
+
+服务端只接受上述固定键，拒绝重复键、未知键和缺少 `create_project` 的里程碑操作。批准必须满足 `ai:use`、`project:manage` 和 `content:create`，并且只能执行一次。所有选中对象在同一事务中创建：项目固定为非公开，里程碑固定为 `planned`，公告固定为 `draft`；任一创建或审计失败都会整体回滚。接口没有发布、审批、邮件或 ServerAdapter/RCON 能力。
 
 ## 4. 部署配置与组织策略
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Collection, DataAnalysis, Document, Folder, MagicStick, Monitor, Setting, SwitchButton, Tickets, UserFilled } from '@element-plus/icons-vue'
+import { ArrowLeft, Collection, DataAnalysis, Document, Folder, MagicStick, Monitor, Promotion, Setting, SwitchButton, Tickets, UserFilled } from '@element-plus/icons-vue'
 import { session, signOut } from '@/stores/session'
 
 const route = useRoute()
@@ -16,6 +16,7 @@ const navigation = [
   { label: '成员管理', to: '/admin/users', icon: UserFilled },
   { label: '审核与服务器', to: '/admin/reviews', icon: Monitor },
   { label: '审计记录', to: '/admin/audit', icon: Tickets },
+  { label: '活动策划', to: '/admin/activity-planner', icon: Promotion },
   { label: '智能体配置', to: '/admin/ai', icon: MagicStick },
   { label: '系统设置', to: '/admin/settings', icon: Setting },
 ]

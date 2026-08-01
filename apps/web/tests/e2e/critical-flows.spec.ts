@@ -29,3 +29,16 @@ test('content editor keeps the full-page markdown workspace scrollable', async (
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
 })
+
+test('activity planner opens as a structured three-step workspace', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByRole('button', { name: /登录工作台/ }).click()
+  await expect(page).toHaveURL(/\/admin$/)
+  await page.goto('/admin/activity-planner')
+
+  await expect(page.getByRole('heading', { name: 'AI 校园活动策划' })).toBeVisible()
+  await expect(page.getByText('活动需求', { exact: true })).toBeVisible()
+  await expect(page.getByText('选择依据', { exact: true })).toBeVisible()
+  await expect(page.getByText('审查执行', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('活动名称')).toBeVisible()
+})

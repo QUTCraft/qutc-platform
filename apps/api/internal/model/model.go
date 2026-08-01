@@ -306,3 +306,28 @@ type AgentCitation struct {
 	SourceUpdatedAt time.Time `gorm:"not null"`
 	CreatedAt       time.Time
 }
+
+type ActivityPlan struct {
+	ID                    string     `gorm:"primaryKey;type:char(36)"`
+	OrganizationID        string     `gorm:"index;type:char(36);not null"`
+	ActorUserID           string     `gorm:"index;type:char(36);not null"`
+	AgentRunID            string     `gorm:"uniqueIndex;type:char(36);not null"`
+	Title                 string     `gorm:"size:160;not null"`
+	Objective             string     `gorm:"size:1000;not null"`
+	Audience              string     `gorm:"size:500;not null"`
+	Venue                 string     `gorm:"size:300;not null;default:''"`
+	StartsAt              *time.Time `gorm:"index"`
+	EndsAt                *time.Time `gorm:"index"`
+	ExpectedParticipants  int        `gorm:"not null;default:0"`
+	Budget                string     `gorm:"size:200;not null;default:''"`
+	Constraints           string     `gorm:"size:2000;not null;default:''"`
+	ContextRefsJSON       string     `gorm:"type:text;not null"`
+	Status                string     `gorm:"index;size:24;not null"`
+	ApprovedBy            *string    `gorm:"index;type:char(36)"`
+	ApprovedAt            *time.Time `gorm:"index"`
+	ProjectID             *string    `gorm:"index;type:char(36)"`
+	AnnouncementContentID *string    `gorm:"index;type:char(36)"`
+	ApprovedActionsJSON   string     `gorm:"type:text;not null"`
+	CreatedAt             time.Time  `gorm:"index"`
+	UpdatedAt             time.Time
+}

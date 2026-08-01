@@ -1,4 +1,5 @@
 import type {
+  ActivityPlan,
   AdminApplication,
   AdminContent,
   AdminDashboard,
@@ -122,16 +123,21 @@ const auditEvents: AuditEvent[] = [
 ]
 
 const aiAgentCatalog: AIAgentCatalog = {
-  agents: [{
-    id: 'agent_content_copilot',
-    key: 'content-copilot',
-    name: '内容协作智能体',
-    purpose: '根据当前组织内已授权的知识资料生成带引用的 Markdown 内容提案；结果必须由人工确认。',
-    system_policy_version: 'content-copilot/v1',
-    allowed_tool_keys: ['knowledge.search', 'knowledge.read'],
-    model_profile: 'content-generation',
-    enabled: true,
-  }],
+  agents: [
+    {
+      id: 'agent_content_copilot', key: 'content-copilot', name: '内容协作智能体',
+      purpose: '根据当前组织内已授权的知识资料生成带引用的 Markdown 内容提案；结果必须由人工确认。',
+      system_policy_version: 'content-copilot/v1', allowed_tool_keys: ['knowledge.search', 'knowledge.read'],
+      model_profile: 'content-generation', enabled: true,
+    },
+    {
+      id: 'agent_activity_planner', key: 'activity-planner', name: '校园活动策划智能体',
+      purpose: '生成带引用的活动方案，并提出须由人工批准的项目、里程碑和公告草稿。',
+      system_policy_version: 'activity-planner/v1',
+      allowed_tool_keys: ['knowledge.search', 'knowledge.read', 'project.create_proposal', 'milestone.create_proposal', 'content.create_draft_proposal'],
+      model_profile: 'activity-planning', enabled: true,
+    },
+  ],
   provider: {
     provider: 'mock',
     mode: 'mock',
@@ -149,6 +155,7 @@ let aiConfiguration: AIConfiguration = {
   provider: structuredClone(aiAgentCatalog.provider),
 }
 const aiRuns: Record<string, AIAgentRun> = {}
+const activityPlans: Record<string, ActivityPlan> = {}
 
 let adminInvitations: AdminInvitation[] = []
 
@@ -254,6 +261,12 @@ export async function mockGet<T>(path: string): Promise<T> {
   }
   if (path.endsWith('/admin/ai/config')) return structuredClone(aiConfiguration) as T
   if (path.endsWith('/admin/ai/agents')) return structuredClone(aiAgentCatalog) as T
+  const activityPlanMatch = path.match(/\/admin\/ai\/activity-plans\/([^/]+)$/)
+  if (activityPlanMatch) {
+    const plan = activityPlans[activityPlanMatch[1]]
+    if (!plan) throw new Error('活动策划不存在。')
+    return structuredClone(plan) as T
+  }
   const aiRunMatch = path.match(/\/admin\/ai\/runs\/([^/]+)$/)
   if (aiRunMatch) {
     const run = aiRuns[aiRunMatch[1]]
@@ -359,6 +372,71 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
         updated_at: item.updated_at,
       }))
     return results as T
+  }
+  if (path.endsWith('/admin/ai/activity-plans')) {
+    const payload = body as {
+      title: string; objective: string; audience: string; venue: string; starts_at?: string; ends_at?: string
+      expected_participants: number; budget: string; constraints: string; context_refs: Array<{ type: 'content'; id: string }>
+    }
+    const sourceItems = payload.context_refs.map((reference) => adminContent.find((item) => item.id === reference.id && item.type === 'knowledge'))
+    if (!payload.title.trim() || !payload.objective.trim() || !payload.audience.trim() || sourceItems.some((item) => !item)) throw new Error('活动需求或引用资料不符合约束。')
+    const now = new Date().toISOString()
+    const runID = `ai_run_${Date.now()}`
+    const citations = sourceItems.map((item, index) => ({ id: `ai_citation_${Date.now()}_${index}`, source_type: 'content' as const, source_id: item!.id, title: item!.title, excerpt: item!.excerpt ?? '', source_updated_at: item!.updated_at }))
+    const markdown = `# ${payload.title}\n\n> 此方案由开发 Mock 生成，仅用于验证活动策划与人工批准闭环。\n\n## 活动目标与服务价值\n\n${payload.objective}\n\n## 时间流程\n\n1. 完成活动立项和场地确认。\n2. 完成人员分工与宣传。\n3. 执行活动并记录关键事实。\n4. 完成总结与知识沉淀。\n\n## 风险与应急\n\n${payload.constraints || '活动前核对审批、安全、设备和天气风险。'}\n\n## 引用资料\n${sourceItems.map((item) => `- [${item!.title}](qutc://knowledge/${item!.id})`).join('\n')}`
+    const run: AIAgentRun = {
+      id: runID, agent_key: 'activity-planner', agent_name: '校园活动策划智能体', status: 'succeeded', task: payload.title,
+      output_title: payload.title, output_excerpt: payload.objective.slice(0, 180), output_markdown: markdown,
+      provider: 'mock', mode: 'mock', model: 'mock-content-v1', prompt_version: 'activity-planner/v1', input_tokens: 64, output_tokens: 128,
+      failure_code: '', failure_message: '', request_id: `mock-request-${runID}`, citations, started_at: now, completed_at: now,
+      expires_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(), created_at: now, updated_at: now,
+    }
+    aiRuns[runID] = run
+    const planID = `activity_plan_${Date.now()}`
+    const start = payload.starts_at ? new Date(payload.starts_at) : null
+    const end = payload.ends_at ? new Date(payload.ends_at) : null
+    const due = (base: Date | null, days: number) => base ? new Date(base.getTime() + days * 86400000).toISOString() : null
+    const plan: ActivityPlan = {
+      id: planID, ...payload, status: 'ready', run,
+      proposed_actions: [
+        { key: 'create_project', kind: 'project', title: payload.title, description: '创建非公开项目。', requires: [] },
+        { key: 'create_preparation_milestone', kind: 'milestone', title: '完成活动方案与审批确认', description: '核对场地、规则与负责人。', due_at: due(start, -14), requires: ['create_project'] },
+        { key: 'create_promotion_milestone', kind: 'milestone', title: '完成宣传与人员确认', description: '准备宣传和执行分工。', due_at: due(start, -3), requires: ['create_project'] },
+        { key: 'create_execution_milestone', kind: 'milestone', title: '活动执行与现场保障', description: '执行活动并记录异常。', due_at: due(start, 0), requires: ['create_project'] },
+        { key: 'create_retrospective_milestone', kind: 'milestone', title: '完成活动总结与知识沉淀', description: '完成总结与改进项。', due_at: due(end, 3), requires: ['create_project'] },
+        { key: 'create_announcement_draft', kind: 'content', title: `活动预告｜${payload.title}`, description: '创建 CMS 草稿，不自动发布。', requires: [] },
+      ],
+      approved_actions: [], project_id: null, announcement_content_id: null, approved_by: null, approved_at: null, created_at: now, updated_at: now,
+    }
+    activityPlans[planID] = plan
+    return structuredClone(plan) as T
+  }
+  const activityApproveMatch = path.match(/\/admin\/ai\/activity-plans\/([^/]+)\/approve$/)
+  if (activityApproveMatch) {
+    const plan = activityPlans[activityApproveMatch[1]]
+    if (!plan) throw new Error('活动策划不存在。')
+    if (plan.status === 'applied') throw new Error('活动方案已经批准执行。')
+    const actions = (body as { actions: string[] }).actions
+    if (!actions.length) throw new Error('请选择至少一项建议操作。')
+    let projectID: string | null = null
+    let contentID: string | null = null
+    const milestoneIDs: string[] = []
+    if (actions.includes('create_project')) {
+      projectID = `project_${Date.now()}`
+      adminProjects.unshift({ id: projectID, title: plan.title, summary: plan.objective, status: 'research', tags: ['AI活动策划', '校园活动'], is_public: false, owner: mockUser?.display_name ?? 'Owner', member_count: 1, milestone_count: 0, updated_at: new Date().toISOString() })
+      adminProjectMembers[projectID] = []
+      adminProjectMilestones[projectID] = plan.proposed_actions.filter((action) => action.kind === 'milestone' && actions.includes(action.key)).map((action, index) => {
+        const id = `milestone_${Date.now()}_${index}`; milestoneIDs.push(id)
+        return { id, project_id: projectID!, title: action.title, status: 'planned', due_at: action.due_at ?? null, completed_at: null, updated_at: new Date().toISOString() }
+      })
+      adminProjects[0].milestone_count = milestoneIDs.length
+    }
+    if (actions.includes('create_announcement_draft')) {
+      contentID = `content_${Date.now()}`
+      adminContent.unshift({ id: contentID, title: `活动预告｜${plan.title}`, type: 'news', category: '校园活动', status: 'draft', author: mockUser?.display_name ?? 'Owner', excerpt: plan.objective, body: plan.run.output_markdown, updated_at: new Date().toISOString() })
+    }
+    Object.assign(plan, { status: 'applied', approved_actions: actions, project_id: projectID, announcement_content_id: contentID, approved_by: mockUser?.id, approved_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    return { ...structuredClone(plan), created_project_id: projectID, created_milestone_ids: milestoneIDs, created_content_id: contentID } as T
   }
   if (path.endsWith('/admin/ai/runs')) {
     const payload = body as { agent_key: string; task: string; context_refs: Array<{ type: 'content'; id: string }> }

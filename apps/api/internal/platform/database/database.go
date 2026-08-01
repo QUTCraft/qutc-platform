@@ -174,25 +174,32 @@ func seedRBAC(db *gorm.DB) error {
 }
 
 func seedAgentDefinitions(db *gorm.DB, organization model.Organization) error {
-	var existing model.AgentDefinition
-	err := db.Where("organization_id = ? AND `key` = ?", organization.ID, "content-copilot").First(&existing).Error
-	if err == nil {
-		return nil
+	definitions := []model.AgentDefinition{
+		{
+			ID: uuid.NewString(), OrganizationID: organization.ID, Key: "content-copilot",
+			Name: "内容协作智能体", Purpose: "根据当前组织内已授权的知识资料生成带引用的 Markdown 内容提案；结果必须由人工确认。",
+			SystemPolicyVersion: "content-copilot/v1", AllowedToolKeys: `["knowledge.search","knowledge.read"]`,
+			ModelProfile: "content-generation", Enabled: true,
+		},
+		{
+			ID: uuid.NewString(), OrganizationID: organization.ID, Key: "activity-planner",
+			Name: "校园活动策划智能体", Purpose: "根据活动约束与组织知识生成带引用的可执行活动方案，并提出须由人工批准的项目、里程碑和公告草稿。",
+			SystemPolicyVersion: "activity-planner/v1", AllowedToolKeys: `["knowledge.search","knowledge.read","project.create_proposal","milestone.create_proposal","content.create_draft_proposal"]`,
+			ModelProfile: "activity-planning", Enabled: true,
+		},
 	}
-	if err != gorm.ErrRecordNotFound {
-		return fmt.Errorf("find content copilot definition: %w", err)
-	}
-	definition := model.AgentDefinition{
-		ID: uuid.NewString(), OrganizationID: organization.ID, Key: "content-copilot",
-		Name:                "内容协作智能体",
-		Purpose:             "根据当前组织内已授权的知识资料生成带引用的 Markdown 内容提案；结果必须由人工确认。",
-		SystemPolicyVersion: "content-copilot/v1",
-		AllowedToolKeys:     `["knowledge.search","knowledge.read"]`,
-		ModelProfile:        "content-generation",
-		Enabled:             true,
-	}
-	if err := db.Create(&definition).Error; err != nil {
-		return fmt.Errorf("seed content copilot definition: %w", err)
+	for _, definition := range definitions {
+		var existing model.AgentDefinition
+		err := db.Where("organization_id = ? AND `key` = ?", organization.ID, definition.Key).First(&existing).Error
+		if err == nil {
+			continue
+		}
+		if err != gorm.ErrRecordNotFound {
+			return fmt.Errorf("find agent definition %s: %w", definition.Key, err)
+		}
+		if err := db.Create(&definition).Error; err != nil {
+			return fmt.Errorf("seed agent definition %s: %w", definition.Key, err)
+		}
 	}
 	return nil
 }

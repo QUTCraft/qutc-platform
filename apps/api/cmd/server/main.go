@@ -178,6 +178,9 @@ func main() {
 	admin.POST("/ai/runs", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "ai:use"), middleware.RequirePermission(authService, "knowledge:read"), aiHandler.CreateRun)
 	admin.GET("/ai/runs/:run_id", middleware.RequirePermission(authService, "ai:use"), aiHandler.GetRun)
 	admin.POST("/ai/runs/:run_id/cancel", middleware.RequirePermission(authService, "ai:use"), aiHandler.CancelRun)
+	admin.POST("/ai/activity-plans", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "ai:use"), middleware.RequirePermission(authService, "knowledge:read"), aiHandler.CreateActivityPlan)
+	admin.GET("/ai/activity-plans/:plan_id", middleware.RequirePermission(authService, "ai:use"), aiHandler.GetActivityPlan)
+	admin.POST("/ai/activity-plans/:plan_id/approve", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "ai:use"), middleware.RequirePermission(authService, "project:manage"), middleware.RequirePermission(authService, "content:create"), aiHandler.ApproveActivityPlan)
 
 	portal := v1.Group("/portal/organizations/:slug")
 	portal.GET("", workspaceHandler.Organization)

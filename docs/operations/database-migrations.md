@@ -36,6 +36,8 @@ SELECT version, applied_at FROM schema_migrations ORDER BY version;
 2. 运行备份脚本并校验清单与 SHA-256。
 3. 用待发布 API 启动同一数据卷。
 4. 检查 `/readyz`、`schema_migrations`、核心闭环和审计。
+
+010 的 `activity_plans` 迁移不新增数据库外键。原因是 001—008 期间的历史 AutoMigrate 数据卷可能同时存在 `utf8mb4_unicode_ci` 与 `utf8mb4_0900_ai_ci` 标识列，直接建立跨表外键会使旧卷无法升级。组织归属、运行、项目和内容引用由服务端事务、组织过滤与集成测试强制校验；新迁移不得为了补外键原地修改历史表 collation。
 5. 在空数据库再次启动，验证 001 至最新版本可完整执行。
 
 ## 5. 回退边界

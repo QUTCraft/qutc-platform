@@ -1,6 +1,6 @@
 # QUTCraft Platform
 
-QUTCraft Platform 是一个面向校园社团与民间组织的可扩展内容与组织协作平台。项目以“公开门户与内部管理相分离”为基础：访客通过门户了解组织、项目、资源与知识内容；组织成员通过独立后台完成内容生产、成员协作、申请审核及可选的服务器适配操作。
+QUTCraft Platform 是“社团智枢 Commons Agent”的工程底座：一套面向校园社团与民间组织的 AI 活动策划、内容与组织协作平台。成员可以从组织知识生成带引用的活动方案，人工逐项批准后创建项目、里程碑与公告草稿；访客仍只通过独立门户读取已发布公开信息。
 
 青岛理工大学 QUTCraft Minecraft 社团是本项目的首个真实落地场景。它验证了平台既可以保持通用的组织数字化能力，也可以通过公开 API 构建具有社团特色的门户，而不会让 Minecraft 服务器能力污染通用业务核心。
 
@@ -14,6 +14,7 @@ QUTCraft Platform 是一个面向校园社团与民间组织的可扩展内容�
 - **可替换门户**：默认提供 MD3 门户；组织可以基于 Portal API 开发自己的公开门户主题。
 - **安全回退**：自定义入口需通过同源、类型和门户 ID 标记探测；超时或资源错误自动保留 MD3，`?portal=md3` 可强制恢复。
 - **可验证的适配**：QUTCraft 服务器状态与白名单审批属于可选服务器适配器能力；没有真实服务器时使用 Mock 保持演示可复现。
+- **AI 建议而非越权执行**：智能体只读取显式选择的组织知识并提出类型化操作；项目、里程碑和草稿必须由人批准，内容永不自动发布。
 
 ## 当前能力
 
@@ -33,6 +34,8 @@ QUTCraft Platform 是一个面向校园社团与民间组织的可扩展内容�
 - 审计记录：按动作、对象、结果、Request ID 与日期查询当前组织的管理操作。
 - 组织公开资料：维护名称、简称、标语、介绍、公开邮箱、社交链接和公开状态，修改立即作用于门户并留存审计。
 - 门户 Manifest 设置：真实读取、草稿保存、JSON 导入、同源预览、独立启用与 Portal/Admin 安全边界提示。
+- AI 活动策划：结构化活动需求、组织知识检索、带引用方案、建议操作审查，以及人工批准创建非公开项目、里程碑和公告草稿。
+- 内容协作智能体：从选定知识生成 Markdown，支持预览、对比、引用核对和人工确认创建草稿。
 
 > 前端仍保留契约 Mock 供离线演示；Compose 默认使用 remote 模式连接真实 API/MySQL。服务器操作使用明确标识的 Mock ServerAdapter，不会连接真实 Minecraft RCON；邀请邮件使用可选 SMTP Adapter，默认关闭且不会伪报发送成功。
 
@@ -223,7 +226,7 @@ docker compose up -d --build api
 
 接口或字段变更必须按以下顺序进行：更新 OpenAPI → 更新文档与示例 → 更新后端 DTO/鉴权/测试 → 更新前端 API client 与页面。禁止在前端猜测尚未定义的 URL 或字段。
 
-仓库内置统一质量门禁，覆盖 OpenAPI 结构与安全语义、72 条 Gin 路由、65 个前端请求、19 个 Apifox 核心请求、Go 测试、前端类型检查和生产构建：
+仓库内置统一质量门禁，覆盖 OpenAPI 结构与安全语义、75 条 Gin 路由、68 个前端请求、22 个 Apifox 核心请求、Go 测试、前端类型检查和生产构建：
 
 ```powershell
 .\scripts\run-quality-gate.ps1
@@ -235,7 +238,7 @@ Compose 已启动时，可同时执行 Web/API 路由冒烟和 S1—S6 真实 My
 .\scripts\run-quality-gate.ps1 -Integration
 ```
 
-Apifox 集合、环境模板、各检查器的单独运行方式见 [API 协作说明](docs/api/README.md)。`apps/web` 另提供 `pnpm test:e2e`，使用 Playwright 在桌面和移动视口验证 Portal、登录、组织设置与 Markdown 编辑器。GitHub Actions 会在 push 与 pull request 上运行基础门禁及 Chromium 关键流程。
+Apifox 集合、环境模板、各检查器的单独运行方式见 [API 协作说明](docs/api/README.md)。`apps/web` 另提供 `pnpm test:e2e`，使用 Playwright 在桌面和移动视口验证 Portal、登录、组织设置、Markdown 编辑器与 AI 活动策划工作台。GitHub Actions 会在 push 与 pull request 上运行基础门禁及 Chromium 关键流程。
 
 ### S1 内容闭环集成测试
 

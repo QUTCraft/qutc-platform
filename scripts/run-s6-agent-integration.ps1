@@ -58,7 +58,7 @@ $env:QUTC_INTEGRATION_CACHE_NAMESPACE = Get-Setting "APP_ENV" "development"
 $apiProjectPath = Join-Path $repoRootPath "apps\api"
 Push-Location $apiProjectPath
 try {
-    & go test -tags=integration ./integration -run "^TestS6Agent" -count=1 -v
+    & go test -tags=integration ./integration -run "^TestS6" -count=1 -v
     if ($LASTEXITCODE -ne 0) {
         throw "S6 AI agent integration tests failed with exit code $LASTEXITCODE."
     }

@@ -941,10 +941,10 @@ paths:
     post:
       tags: [AI]
       operationId: createAdminAIRun
-      summary: 创建一次异步智能体内容生成运行
+      summary: 创建一次异步智能体生成运行
       description: |
-        需要 `ai:use` 与 `knowledge:read`。当前阶段只允许 content-copilot 读取显式选择、属于当前组织的 knowledge 内容，
-        并生成带引用的 Markdown 提案。接口不会创建或发布 CMS 内容；创建成功后通过查询接口获取终态。
+        需要 `ai:use` 与 `knowledge:read`。content-copilot 与 activity-planner 只能读取显式选择、属于当前组织的 knowledge 内容，
+        并生成带引用的 Markdown 提案。接口不会自行创建项目或发布 CMS 内容；创建成功后通过查询接口获取终态。
       security: [{ BearerAuth: [] }]
       requestBody:
         required: true
@@ -1011,6 +1011,83 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/ai/activity-plans:
+    post:
+      tags: [AI]
+      operationId: createAdminAIActivityPlan
+      summary: 创建带引用的校园活动策划任务
+      description: 需要 `ai:use` 与 `knowledge:read`。结构化活动需求与显式选择的当前组织知识会交给 activity-planner；接口只生成方案和建议操作，不创建项目或发布内容。
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActivityPlanCreateRequest' }
+      responses:
+        '202':
+          description: 活动策划任务已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivityPlanResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/admin/ai/activity-plans/{plan_id}:
+    get:
+      tags: [AI]
+      operationId: getAdminAIActivityPlan
+      summary: 查询活动策划、固定引用和建议操作
+      description: 需要 `ai:use`，且只能读取当前组织的数据。状态会随底层智能体运行同步为 generating、ready、failed 或 canceled。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 36 }
+      responses:
+        '200':
+          description: 活动策划详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivityPlanResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/ai/activity-plans/{plan_id}/approve:
+    post:
+      tags: [AI]
+      operationId: approveAdminAIActivityPlan
+      summary: 人工批准活动策划中的类型化建议操作
+      description: |
+        需要 `ai:use`、`project:manage` 与 `content:create`。只接受服务端定义的操作键；里程碑必须与创建项目同时批准。
+        所有对象在一个事务中创建并逐项审计。项目保持非公开，公告固定创建为 draft，接口永不自动发布内容或执行外部命令。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 36 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActivityPlanApprovalRequest' }
+      responses:
+        '200':
+          description: 所选建议操作已在事务中执行
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivityPlanApprovalResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /api/v1/admin/notifications/email/status:
     get:
       tags: [Admin]
@@ -2052,7 +2129,7 @@ components:
       required: [agent_key, task, context_refs, output_mode]
       additionalProperties: false
       properties:
-        agent_key: { type: string, minLength: 1, maxLength: 64, enum: [content-copilot] }
+        agent_key: { type: string, minLength: 1, maxLength: 64, enum: [content-copilot, activity-planner] }
         task: { type: string, minLength: 1, maxLength: 1000 }
         context_refs:
           type: array
@@ -2125,6 +2202,95 @@ components:
         expires_at: { type: string, format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    ActivityPlanCreateRequest:
+      type: object
+      required: [title, objective, audience, venue, expected_participants, budget, constraints, context_refs]
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 160 }
+        objective: { type: string, minLength: 1, maxLength: 1000 }
+        audience: { type: string, minLength: 1, maxLength: 500 }
+        venue: { type: string, maxLength: 300 }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time, description: 若同时提供开始时间，必须晚于 starts_at。 }
+        expected_participants: { type: integer, minimum: 0, maximum: 100000 }
+        budget: { type: string, maxLength: 200 }
+        constraints: { type: string, maxLength: 2000 }
+        context_refs:
+          type: array
+          minItems: 1
+          maxItems: 10
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/AISourceReference' }
+    ActivityPlanActionKey:
+      type: string
+      enum: [create_project, create_preparation_milestone, create_promotion_milestone, create_execution_milestone, create_retrospective_milestone, create_announcement_draft]
+    ActivityActionProposal:
+      type: object
+      required: [key, kind, title, description, requires]
+      properties:
+        key: { $ref: '#/components/schemas/ActivityPlanActionKey' }
+        kind: { type: string, enum: [project, milestone, content] }
+        title: { type: string, maxLength: 160 }
+        description: { type: string, maxLength: 500 }
+        due_at: { type: [string, 'null'], format: date-time }
+        requires:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityPlanActionKey' }
+    ActivityPlanStatus:
+      type: string
+      enum: [generating, ready, failed, canceled, applied]
+    ActivityPlan:
+      type: object
+      required: [id, title, objective, audience, venue, expected_participants, budget, constraints, status, run, proposed_actions, approved_actions, created_at, updated_at]
+      properties:
+        id: { type: string, maxLength: 36 }
+        title: { type: string, maxLength: 160 }
+        objective: { type: string, maxLength: 1000 }
+        audience: { type: string, maxLength: 500 }
+        venue: { type: string, maxLength: 300 }
+        starts_at: { type: [string, 'null'], format: date-time }
+        ends_at: { type: [string, 'null'], format: date-time }
+        expected_participants: { type: integer, minimum: 0, maximum: 100000 }
+        budget: { type: string, maxLength: 200 }
+        constraints: { type: string, maxLength: 2000 }
+        status: { $ref: '#/components/schemas/ActivityPlanStatus' }
+        run: { $ref: '#/components/schemas/AIRun' }
+        proposed_actions:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityActionProposal' }
+        approved_actions:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityPlanActionKey' }
+        project_id: { type: [string, 'null'], maxLength: 36 }
+        announcement_content_id: { type: [string, 'null'], maxLength: 36 }
+        approved_by: { type: [string, 'null'], maxLength: 36 }
+        approved_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ActivityPlanApprovalRequest:
+      type: object
+      required: [actions]
+      additionalProperties: false
+      properties:
+        actions:
+          type: array
+          minItems: 1
+          maxItems: 6
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/ActivityPlanActionKey' }
+    ActivityPlanApprovalResult:
+      allOf:
+        - $ref: '#/components/schemas/ActivityPlan'
+        - type: object
+          required: [created_milestone_ids]
+          properties:
+            created_project_id: { type: [string, 'null'], maxLength: 36 }
+            created_milestone_ids:
+              type: array
+              maxItems: 4
+              items: { type: string, maxLength: 36 }
+            created_content_id: { type: [string, 'null'], maxLength: 36 }
     InvitationRole:
       type: string
       enum: [member, editor, administrator]
@@ -2641,6 +2807,18 @@ components:
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/AIRun' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    ActivityPlanResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/ActivityPlan' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    ActivityPlanApprovalResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/ActivityPlanApprovalResult' }
         meta: { $ref: '#/components/schemas/Meta' }
     AdminUserResponse:
       type: object

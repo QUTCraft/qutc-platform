@@ -85,6 +85,7 @@ def main() -> int:
         "runId",
         "contentId",
         "applicationId",
+        "activityPlanId",
     }
     present_variables = {
         variable.get("key")
