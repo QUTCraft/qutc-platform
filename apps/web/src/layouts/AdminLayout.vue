@@ -24,6 +24,11 @@ const navigation = [
 const title = computed(() => route.path.startsWith('/admin/content/') ? '内容编辑器' : navigation.find((item) => item.to === route.path)?.label ?? '后台管理')
 const roleLabel = computed(() => session.user?.roles.includes('owner') ? '所有者' : session.user?.roles.includes('administrator') ? '管理员' : '成员')
 
+function isNavigationActive(path: string) {
+  if (path === '/admin') return route.path === path
+  return route.path === path || (!path.startsWith('/admin/activity-planner') && route.path.startsWith(`${path}/`))
+}
+
 async function logout() {
   await signOut()
   await router.replace('/login')
@@ -48,6 +53,9 @@ async function logout() {
           :key="item.to"
           :to="item.to"
           class="rail-link"
+          :class="{ 'is-active': isNavigationActive(item.to) }"
+          :aria-current="isNavigationActive(item.to) ? 'page' : undefined"
+          :data-testid="`admin-nav-${item.to.replaceAll('/', '-').replace(/^-/, '')}`"
           @click="menuOpen = false"
         >
           <el-icon><component :is="item.icon" /></el-icon>

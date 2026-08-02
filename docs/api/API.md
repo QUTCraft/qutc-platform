@@ -767,7 +767,7 @@ Operation ID：`listAdminAuditEvents`
 
 ### 7.11 组织运营智能体
 
-当前智能体基础、内容协作与活动策划闭环提供 13 条管理接口：
+当前智能体基础、内容协作与活动策划闭环提供 14 条管理接口：
 
 | 方法 | 路径 | 权限 | 作用 |
 | --- | --- | --- | --- |
@@ -778,7 +778,8 @@ Operation ID：`listAdminAuditEvents`
 | `POST` | `/api/v1/admin/ai/runs` | `ai:use` ∩ `knowledge:read` | 创建异步 Markdown 提案运行。 |
 | `GET` | `/api/v1/admin/ai/runs/{run_id}` | `ai:use` | 查询状态、输出、引用、模型版本与用量。 |
 | `POST` | `/api/v1/admin/ai/runs/{run_id}/cancel` | `ai:use` | 取消 queued/running 运行。 |
-| `GET` | `/api/v1/admin/ai/activity-plans` | `ai:use` | 分页读取当前组织的活动策划历史摘要。 |
+| `GET` | `/api/v1/admin/ai/activity-plans` | `ai:use` | 分页读取当前组织的活动策划历史摘要，并返回当前登录用户自己的评分状态与均分。 |
+| `GET` | `/api/v1/admin/ai/activity-plans/evaluation-summary` | `ai:use` | 汇总当前组织的五维人工评分和模型/Prompt 分组，不返回评语正文。 |
 | `POST` | `/api/v1/admin/ai/activity-plans` | `ai:use` ∩ `knowledge:read` | 从结构化活动简报和固定知识引用创建策划运行。 |
 | `GET` | `/api/v1/admin/ai/activity-plans/{plan_id}` | `ai:use` | 读取方案、引用、建议操作与执行状态。 |
 | `GET` | `/api/v1/admin/ai/activity-plans/{plan_id}/evaluation` | `ai:use` | 读取当前用户的五维人工评分；未评分时返回 `null`。 |

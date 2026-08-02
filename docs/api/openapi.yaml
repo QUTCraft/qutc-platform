@@ -1023,7 +1023,7 @@ paths:
         - { $ref: '#/components/parameters/PageSize' }
       responses:
         '200':
-          description: 活动策划历史
+          description: 活动策划历史；每项包含当前登录评审人的评分状态，不暴露其他评审人的明细
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ActivityPlanListResponse' }
@@ -1054,6 +1054,21 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/admin/ai/activity-plans/evaluation-summary:
+    get:
+      tags: [AI]
+      operationId: getAdminAIActivityPlanEvaluationSummary
+      summary: 获取当前组织的活动方案人工质量汇总
+      description: 需要 `ai:use`。按组织汇总五维人工评分、已评方案数和模型/Prompt 分组；不返回任何评语正文或其他组织数据。
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 当前组织人工质量汇总；无评分时计数和均分为 0
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivityPlanEvaluationSummaryResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/ai/activity-plans/{plan_id}:
     get:
       tags: [AI]
@@ -2337,7 +2352,7 @@ components:
         updated_at: { type: string, format: date-time }
     ActivityPlanSummary:
       type: object
-      required: [id, title, status, provider, mode, model, prompt_version, created_at, updated_at]
+      required: [id, title, status, provider, mode, model, prompt_version, has_my_evaluation, my_evaluation_score, created_at, updated_at]
       properties:
         id: { type: string, maxLength: 36 }
         title: { type: string, maxLength: 160 }
@@ -2350,6 +2365,8 @@ components:
         prompt_version: { type: string, maxLength: 64 }
         project_id: { type: [string, 'null'], maxLength: 36 }
         announcement_content_id: { type: [string, 'null'], maxLength: 36 }
+        has_my_evaluation: { type: boolean, description: 当前登录用户是否已评价此方案。 }
+        my_evaluation_score: { type: [number, 'null'], minimum: 1, maximum: 5, description: 当前登录用户的五维平均分；未评价时为 null。 }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     ActivityPlanEvaluationRequest:
@@ -2375,6 +2392,38 @@ components:
             overall_score: { type: number, minimum: 1, maximum: 5 }
             created_at: { type: string, format: date-time }
             updated_at: { type: string, format: date-time }
+    ActivityPlanEvaluationDimensions:
+      type: object
+      required: [accuracy, feasibility, campus_fit, clarity, adoptability]
+      properties:
+        accuracy: { type: number, minimum: 0, maximum: 5 }
+        feasibility: { type: number, minimum: 0, maximum: 5 }
+        campus_fit: { type: number, minimum: 0, maximum: 5 }
+        clarity: { type: number, minimum: 0, maximum: 5 }
+        adoptability: { type: number, minimum: 0, maximum: 5 }
+    ActivityPlanEvaluationModelSummary:
+      type: object
+      required: [provider, mode, model, prompt_version, evaluations, evaluated_plans, average_score]
+      properties:
+        provider: { type: string, maxLength: 32 }
+        mode: { type: string, enum: [mock, real, disabled] }
+        model: { type: string, maxLength: 120 }
+        prompt_version: { type: string, maxLength: 64 }
+        evaluations: { type: integer, minimum: 1 }
+        evaluated_plans: { type: integer, minimum: 1 }
+        average_score: { type: number, minimum: 1, maximum: 5 }
+    ActivityPlanEvaluationSummary:
+      type: object
+      required: [total_evaluations, evaluated_plans, average_score, dimension_averages, by_model]
+      properties:
+        total_evaluations: { type: integer, minimum: 0 }
+        evaluated_plans: { type: integer, minimum: 0 }
+        average_score: { type: number, minimum: 0, maximum: 5 }
+        dimension_averages: { $ref: '#/components/schemas/ActivityPlanEvaluationDimensions' }
+        by_model:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityPlanEvaluationModelSummary' }
+        updated_at: { type: [string, 'null'], format: date-time }
     ActivityPlanApprovalRequest:
       type: object
       required: [actions]
@@ -2937,6 +2986,12 @@ components:
           oneOf:
             - { $ref: '#/components/schemas/ActivityPlanEvaluation' }
             - { type: 'null' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    ActivityPlanEvaluationSummaryResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/ActivityPlanEvaluationSummary' }
         meta: { $ref: '#/components/schemas/Meta' }
     ActivityPlanApprovalResponse:
       type: object

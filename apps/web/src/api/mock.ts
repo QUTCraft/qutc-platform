@@ -1,6 +1,7 @@
 import type {
   ActivityPlan,
   ActivityPlanEvaluation,
+  ActivityPlanEvaluationSummary,
   ActivityPlanSummary,
   AdminApplication,
   AdminContent,
@@ -236,9 +237,9 @@ export async function mockGet<T>(path: string): Promise<T> {
     }
     return dashboard as T
   }
-  if (path.endsWith('/admin/content')) return page(adminContent) as T
-  if (path.endsWith('/admin/knowledge/directories')) return page(adminKnowledgeDirectories) as T
-  if (path.endsWith('/admin/users')) return page(adminUsers) as T
+  if (requestUrl.pathname.endsWith('/admin/content')) return page(adminContent) as T
+  if (requestUrl.pathname.endsWith('/admin/knowledge/directories')) return page(adminKnowledgeDirectories) as T
+  if (requestUrl.pathname.endsWith('/admin/users')) return page(adminUsers) as T
   if (requestUrl.pathname.endsWith('/admin/audit-events')) {
     const action = requestUrl.searchParams.get('action')
     const targetType = requestUrl.searchParams.get('target_type')
@@ -264,6 +265,34 @@ export async function mockGet<T>(path: string): Promise<T> {
   }
   if (path.endsWith('/admin/ai/config')) return structuredClone(aiConfiguration) as T
   if (path.endsWith('/admin/ai/agents')) return structuredClone(aiAgentCatalog) as T
+  if (requestUrl.pathname.endsWith('/admin/ai/activity-plans/evaluation-summary')) {
+    const evaluations = Object.values(activityPlanEvaluations)
+    const average = (field: keyof Pick<ActivityPlanEvaluation, 'accuracy' | 'feasibility' | 'campus_fit' | 'clarity' | 'adoptability' | 'overall_score'>) => evaluations.length
+      ? evaluations.reduce((sum, item) => sum + item[field], 0) / evaluations.length
+      : 0
+    const groups = new Map<string, ActivityPlanEvaluationSummary['by_model'][number]>()
+    for (const evaluation of evaluations) {
+      const plan = activityPlans[evaluation.plan_id]
+      if (!plan) continue
+      const key = [plan.run.provider, plan.run.mode, plan.run.model, plan.run.prompt_version].join(':')
+      const existing = groups.get(key)
+      if (existing) {
+        existing.evaluations += 1
+        existing.evaluated_plans += 1
+        existing.average_score = ((existing.average_score * (existing.evaluations - 1)) + evaluation.overall_score) / existing.evaluations
+      } else {
+        groups.set(key, { provider: plan.run.provider, mode: plan.run.mode, model: plan.run.model, prompt_version: plan.run.prompt_version, evaluations: 1, evaluated_plans: 1, average_score: evaluation.overall_score })
+      }
+    }
+    return {
+      total_evaluations: evaluations.length,
+      evaluated_plans: new Set(evaluations.map((item) => item.plan_id)).size,
+      average_score: average('overall_score'),
+      dimension_averages: { accuracy: average('accuracy'), feasibility: average('feasibility'), campus_fit: average('campus_fit'), clarity: average('clarity'), adoptability: average('adoptability') },
+      by_model: [...groups.values()],
+      updated_at: evaluations.sort((left, right) => right.updated_at.localeCompare(left.updated_at))[0]?.updated_at ?? null,
+    } as T
+  }
   if (requestUrl.pathname.endsWith('/admin/ai/activity-plans')) {
     const pageNumber = Math.max(1, Number(requestUrl.searchParams.get('page') ?? 1))
     const pageSize = Math.min(100, Math.max(1, Number(requestUrl.searchParams.get('page_size') ?? 20)))
@@ -273,6 +302,8 @@ export async function mockGet<T>(path: string): Promise<T> {
         id: plan.id, title: plan.title, status: plan.status, starts_at: plan.starts_at, ends_at: plan.ends_at,
         provider: plan.run.provider, mode: plan.run.mode, model: plan.run.model, prompt_version: plan.run.prompt_version,
         project_id: plan.project_id, announcement_content_id: plan.announcement_content_id,
+        has_my_evaluation: Boolean(activityPlanEvaluations[plan.id]),
+        my_evaluation_score: activityPlanEvaluations[plan.id]?.overall_score ?? null,
         created_at: plan.created_at, updated_at: plan.updated_at,
       }))
     const start = (pageNumber - 1) * pageSize

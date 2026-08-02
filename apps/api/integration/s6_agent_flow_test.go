@@ -84,6 +84,14 @@ type activityPlanDTO struct {
 	CreatedContentID      *string  `json:"created_content_id"`
 }
 
+type activityPlanSummaryDTO struct {
+	ID                string   `json:"id"`
+	Status            string   `json:"status"`
+	Model             string   `json:"model"`
+	HasMyEvaluation   bool     `json:"has_my_evaluation"`
+	MyEvaluationScore *float64 `json:"my_evaluation_score"`
+}
+
 type activityPlanEvaluationDTO struct {
 	ID             string  `json:"id"`
 	PlanID         string  `json:"plan_id"`
@@ -95,6 +103,20 @@ type activityPlanEvaluationDTO struct {
 	Adoptability   int     `json:"adoptability"`
 	OverallScore   float64 `json:"overall_score"`
 	Notes          string  `json:"notes"`
+}
+
+type activityPlanEvaluationSummaryDTO struct {
+	TotalEvaluations int64   `json:"total_evaluations"`
+	EvaluatedPlans   int64   `json:"evaluated_plans"`
+	AverageScore     float64 `json:"average_score"`
+	ByModel          []struct {
+		Mode           string  `json:"mode"`
+		Model          string  `json:"model"`
+		PromptVersion  string  `json:"prompt_version"`
+		Evaluations    int64   `json:"evaluations"`
+		EvaluatedPlans int64   `json:"evaluated_plans"`
+		AverageScore   float64 `json:"average_score"`
+	} `json:"by_model"`
 }
 
 func TestS6AgentKnowledgeGenerationBoundary(t *testing.T) {
@@ -442,14 +464,14 @@ func TestS6ActivityPlannerApprovalBoundary(t *testing.T) {
 	}
 
 	historyBody := request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/ai/activity-plans?page=1&page_size=10", editorToken, nil, http.StatusOK)
-	var historyEnvelope apiEnvelope[[]struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
-		Model  string `json:"model"`
-	}]
+	var historyEnvelope apiEnvelope[[]activityPlanSummaryDTO]
 	decodeJSON(t, historyBody, &historyEnvelope)
-	if historyEnvelope.Meta.Total < 1 || !containsActivityPlan(historyEnvelope.Data, planID) {
+	historyPlan, found := findActivityPlan(historyEnvelope.Data, planID)
+	if historyEnvelope.Meta.Total < 1 || !found {
 		t.Fatalf("activity history does not contain plan %s: %+v", planID, historyEnvelope)
+	}
+	if historyPlan.HasMyEvaluation || historyPlan.MyEvaluationScore != nil {
+		t.Fatalf("unevaluated history plan exposed a score: %+v", historyPlan)
 	}
 
 	requireStatus(t, client, http.MethodPut, cfg.apiURL+"/api/v1/admin/ai/activity-plans/"+planID+"/evaluation", editorToken, map[string]any{
@@ -470,15 +492,35 @@ func TestS6ActivityPlannerApprovalBoundary(t *testing.T) {
 	if getEvaluationEnvelope.Data == nil || getEvaluationEnvelope.Data.ID != evaluationEnvelope.Data.ID {
 		t.Fatalf("saved activity evaluation was not returned: %+v", getEvaluationEnvelope.Data)
 	}
+	evaluatedHistoryBody := request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/ai/activity-plans?page=1&page_size=10", editorToken, nil, http.StatusOK)
+	var evaluatedHistoryEnvelope apiEnvelope[[]activityPlanSummaryDTO]
+	decodeJSON(t, evaluatedHistoryBody, &evaluatedHistoryEnvelope)
+	evaluatedHistoryPlan, found := findActivityPlan(evaluatedHistoryEnvelope.Data, planID)
+	if !found || !evaluatedHistoryPlan.HasMyEvaluation || evaluatedHistoryPlan.MyEvaluationScore == nil || *evaluatedHistoryPlan.MyEvaluationScore != 4.2 {
+		t.Fatalf("evaluated history plan did not expose the current reviewer's score: %+v", evaluatedHistoryPlan)
+	}
 	ownerEvaluationBody := request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/ai/activity-plans/"+planID+"/evaluation", ownerToken, nil, http.StatusOK)
 	var ownerEvaluationEnvelope apiEnvelope[*activityPlanEvaluationDTO]
 	decodeJSON(t, ownerEvaluationBody, &ownerEvaluationEnvelope)
 	if ownerEvaluationEnvelope.Data != nil {
 		t.Fatalf("owner unexpectedly received editor evaluation: %+v", ownerEvaluationEnvelope.Data)
 	}
+	ownerHistoryBody := request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/ai/activity-plans?page=1&page_size=10", ownerToken, nil, http.StatusOK)
+	var ownerHistoryEnvelope apiEnvelope[[]activityPlanSummaryDTO]
+	decodeJSON(t, ownerHistoryBody, &ownerHistoryEnvelope)
+	ownerHistoryPlan, found := findActivityPlan(ownerHistoryEnvelope.Data, planID)
+	if !found || ownerHistoryPlan.HasMyEvaluation || ownerHistoryPlan.MyEvaluationScore != nil {
+		t.Fatalf("activity history leaked another reviewer's score: %+v", ownerHistoryPlan)
+	}
 	var evaluationAuditCount int64
 	if err := db.Model(&model.AuditEvent{}).Where("organization_id = ? AND action = ? AND target_id = ? AND request_id = ?", organization.ID, "ai.activity_plan_evaluate", planID, evaluationRequestID).Count(&evaluationAuditCount).Error; err != nil || evaluationAuditCount != 1 {
 		t.Fatalf("activity evaluation audit count = %d, error = %v", evaluationAuditCount, err)
+	}
+	summaryBody := request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/ai/activity-plans/evaluation-summary", editorToken, nil, http.StatusOK)
+	var summaryEnvelope apiEnvelope[activityPlanEvaluationSummaryDTO]
+	decodeJSON(t, summaryBody, &summaryEnvelope)
+	if summaryEnvelope.Data.TotalEvaluations < 1 || summaryEnvelope.Data.EvaluatedPlans < 1 || summaryEnvelope.Data.AverageScore < 1 || !containsEvaluationModel(summaryEnvelope.Data, "mock", "activity-planner/v2") {
+		t.Fatalf("activity evaluation summary = %+v", summaryEnvelope.Data)
 	}
 
 	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/ai/activity-plans/"+planID, editorToken, nil, http.StatusOK)
@@ -566,13 +608,18 @@ func TestS6ActivityPlannerApprovalBoundary(t *testing.T) {
 	}
 }
 
-func containsActivityPlan(plans []struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-	Model  string `json:"model"`
-}, planID string) bool {
+func findActivityPlan(plans []activityPlanSummaryDTO, planID string) (activityPlanSummaryDTO, bool) {
 	for _, plan := range plans {
 		if plan.ID == planID && plan.Status == "ready" && plan.Model != "" {
+			return plan, true
+		}
+	}
+	return activityPlanSummaryDTO{}, false
+}
+
+func containsEvaluationModel(summary activityPlanEvaluationSummaryDTO, mode, promptVersion string) bool {
+	for _, item := range summary.ByModel {
+		if item.Mode == mode && item.PromptVersion == promptVersion && item.Evaluations >= 1 && item.EvaluatedPlans >= 1 && item.AverageScore >= 1 {
 			return true
 		}
 	}

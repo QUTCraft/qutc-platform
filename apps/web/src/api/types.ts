@@ -342,6 +342,8 @@ export interface ActivityPlanSummary {
   prompt_version: string
   project_id?: string | null
   announcement_content_id?: string | null
+  has_my_evaluation: boolean
+  my_evaluation_score?: number | null
   created_at: string
   updated_at: string
 }
@@ -359,6 +361,29 @@ export interface ActivityPlanEvaluation {
   notes: string
   created_at: string
   updated_at: string
+}
+
+export interface ActivityPlanEvaluationSummary {
+  total_evaluations: number
+  evaluated_plans: number
+  average_score: number
+  dimension_averages: {
+    accuracy: number
+    feasibility: number
+    campus_fit: number
+    clarity: number
+    adoptability: number
+  }
+  by_model: Array<{
+    provider: string
+    mode: 'mock' | 'real' | 'disabled'
+    model: string
+    prompt_version: string
+    evaluations: number
+    evaluated_plans: number
+    average_score: number
+  }>
+  updated_at?: string | null
 }
 
 export interface ActivityPlanApprovalResult extends ActivityPlan {

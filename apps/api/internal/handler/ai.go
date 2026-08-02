@@ -251,7 +251,7 @@ func (h *AIHandler) ListActivityPlans(c *gin.Context) {
 	if !ok {
 		return
 	}
-	plans, total, err := h.agents.ListActivityPlans(principal.OrganizationID, page, pageSize)
+	plans, total, err := h.agents.ListActivityPlans(principal, page, pageSize)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "ai.activity_plan_list_failed", "活动策划历史暂时无法加载。")
 		return
@@ -271,6 +271,20 @@ func (h *AIHandler) GetActivityPlanEvaluation(c *gin.Context) {
 		return
 	}
 	respond(c, http.StatusOK, evaluation)
+}
+
+func (h *AIHandler) GetActivityPlanEvaluationSummary(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	summary, err := h.agents.ActivityPlanEvaluationSummary(principal.OrganizationID)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "ai.activity_plan_evaluation_summary_failed", "活动策划质量汇总暂时无法加载。")
+		return
+	}
+	respond(c, http.StatusOK, summary)
 }
 
 func (h *AIHandler) SaveActivityPlanEvaluation(c *gin.Context) {

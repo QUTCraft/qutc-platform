@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { Check, Clock, MagicStick, Refresh, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/admin'
-import type { ActivityPlan, ActivityPlanEvaluation, ActivityPlanSummary, AIConfiguration, AIKnowledgeResult } from '@/api/types'
+import type { ActivityPlan, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AIConfiguration, AIKnowledgeResult } from '@/api/types'
 import { renderMarkdown } from '@/utils/markdown'
 
 const step = ref(0)
@@ -13,8 +13,10 @@ const generating = ref(false)
 const approving = ref(false)
 const historyLoading = ref(false)
 const historyDrawer = ref(false)
+const historyFilter = ref<'pending' | 'all'>('all')
 const evaluationLoading = ref(false)
 const evaluationSaving = ref(false)
+const qualitySummaryLoading = ref(false)
 const configuration = ref<AIConfiguration | null>(null)
 const query = ref('')
 const knowledgeResults = ref<AIKnowledgeResult[]>([])
@@ -24,6 +26,7 @@ const plan = ref<ActivityPlan | null>(null)
 const selectedActions = ref<string[]>([])
 const historyPlans = ref<ActivityPlanSummary[]>([])
 const evaluation = ref<ActivityPlanEvaluation | null>(null)
+const qualitySummary = ref<ActivityPlanEvaluationSummary | null>(null)
 const evaluationForm = reactive({ accuracy: 0, feasibility: 0, campus_fit: 0, clarity: 0, adoptability: 0, notes: '' })
 const selectedPlanStorageKey = 'qutc:activity-planner:selected-plan'
 let pollGeneration = 0
@@ -54,12 +57,26 @@ const evaluationAverage = computed(() => {
   if (!evaluationComplete.value) return null
   return (evaluationForm.accuracy + evaluationForm.feasibility + evaluationForm.campus_fit + evaluationForm.clarity + evaluationForm.adoptability) / 5
 })
+const qualityDimensions = computed(() => [
+  { key: 'accuracy', label: '准确性', value: qualitySummary.value?.dimension_averages.accuracy ?? 0 },
+  { key: 'feasibility', label: '可执行性', value: qualitySummary.value?.dimension_averages.feasibility ?? 0 },
+  { key: 'campus_fit', label: '校园适配', value: qualitySummary.value?.dimension_averages.campus_fit ?? 0 },
+  { key: 'clarity', label: '表达清晰', value: qualitySummary.value?.dimension_averages.clarity ?? 0 },
+  { key: 'adoptability', label: '可采用性', value: qualitySummary.value?.dimension_averages.adoptability ?? 0 },
+])
+const pendingReviewPlans = computed(() => historyPlans.value.filter((item) => (item.status === 'ready' || item.status === 'applied') && !item.has_my_evaluation))
+const visibleHistoryPlans = computed(() => historyFilter.value === 'pending' ? pendingReviewPlans.value : historyPlans.value)
 
 onMounted(() => void loadFoundation())
 onBeforeUnmount(() => {
   disposed = true
   pollGeneration += 1
 })
+
+function openHistory(filter: 'pending' | 'all' = 'all') {
+  historyFilter.value = filter
+  historyDrawer.value = true
+}
 
 async function loadFoundation() {
   loadingFoundation.value = true
@@ -69,13 +86,24 @@ async function loadFoundation() {
     if (!catalog.agents.some((agent) => agent.key === 'activity-planner')) {
       ElMessage.warning('当前组织尚未初始化活动策划智能体，请重启 API 完成定义初始化。')
     }
-    await loadHistory()
+    await Promise.all([loadHistory(), loadQualitySummary()])
     const selectedPlanID = window.sessionStorage.getItem(selectedPlanStorageKey)
     if (selectedPlanID && historyPlans.value.some((item) => item.id === selectedPlanID)) await openHistoricalPlan(selectedPlanID)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '智能体状态加载失败。')
   } finally {
     loadingFoundation.value = false
+  }
+}
+
+async function loadQualitySummary() {
+  qualitySummaryLoading.value = true
+  try {
+    qualitySummary.value = await adminApi.getActivityPlanEvaluationSummary()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '人工评测汇总加载失败。')
+  } finally {
+    qualitySummaryLoading.value = false
   }
 }
 
@@ -130,6 +158,12 @@ async function saveEvaluation() {
   evaluationSaving.value = true
   try {
     evaluation.value = await adminApi.saveActivityPlanEvaluation(plan.value.id, evaluationForm)
+    const historyItem = historyPlans.value.find((item) => item.id === plan.value?.id)
+    if (historyItem) {
+      historyItem.has_my_evaluation = true
+      historyItem.my_evaluation_score = evaluation.value.overall_score
+    }
+    await loadQualitySummary()
     ElMessage.success('人工评分已保存，并写入审计记录。')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '人工评分保存失败。')
@@ -308,7 +342,6 @@ function statusType(status: ActivityPlanSummary['status']) {
         <p>从组织知识生成带引用的活动方案；所有项目、里程碑和公告草稿必须由人逐项批准。</p>
       </div>
       <div class="heading-actions">
-        <el-button round :icon="Clock" @click="historyDrawer = true">历史方案</el-button>
         <el-tag effect="plain" round>{{ providerLabel }}</el-tag>
       </div>
     </section>
@@ -320,6 +353,44 @@ function statusType(status: ActivityPlanSummary['status']) {
       :closable="false"
       show-icon
     />
+
+    <section class="quality-overview" v-loading="qualitySummaryLoading">
+      <div class="quality-copy">
+        <span class="eyebrow">HUMAN EVALUATION</span>
+        <h3>活动方案质量证据</h3>
+        <p v-if="qualitySummary?.total_evaluations">汇总当前组织 {{ qualitySummary.total_evaluations }} 次人工评价，覆盖 {{ qualitySummary.evaluated_plans }} 个方案；评语正文不会进入汇总。</p>
+        <p v-else>尚无人工评分。生成方案后由真实评审完成五维评价，系统不会用自动分数冒充人工结论。</p>
+        <div v-if="qualitySummary?.by_model.length" class="model-summary-list">
+          <span v-for="item in qualitySummary.by_model" :key="`${item.provider}:${item.model}:${item.prompt_version}`">
+            {{ item.mode === 'real' ? '真实模型' : '开发 Mock' }} · {{ item.model }} · {{ item.prompt_version }} · {{ item.evaluations }} 次
+          </span>
+        </div>
+      </div>
+      <div class="quality-score">
+        <strong>{{ qualitySummary?.total_evaluations ? qualitySummary.average_score.toFixed(1) : '—' }}</strong>
+        <span>组织平均分 / 5</span>
+      </div>
+      <div class="dimension-grid">
+        <div v-for="dimension in qualityDimensions" :key="dimension.key" class="dimension-item">
+          <span>{{ dimension.label }}</span>
+          <el-progress :percentage="(dimension.value / 5) * 100" :show-text="false" :stroke-width="8" />
+          <strong>{{ qualitySummary?.total_evaluations ? dimension.value.toFixed(1) : '—' }}</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="review-queue-panel" :class="{ complete: pendingReviewPlans.length === 0 }">
+      <div class="review-queue-icon"><el-icon><Clock /></el-icon></div>
+      <div>
+        <span class="eyebrow">HUMAN REVIEW QUEUE</span>
+        <h3>{{ pendingReviewPlans.length ? `${pendingReviewPlans.length} 个方案等待你的评分` : '待评分方案已全部完成' }}</h3>
+        <p>{{ pendingReviewPlans.length ? '评分只代表当前评审人；其他成员的评价不会在历史列表中泄露。' : '新方案生成完成后会自动进入这里，历史与评审入口始终保留在活动策划内部。' }}</p>
+      </div>
+      <div class="review-queue-actions">
+        <el-button round :icon="Clock" @click="openHistory('all')">历史方案</el-button>
+        <el-button v-if="pendingReviewPlans.length" type="primary" round @click="openHistory('pending')">开始评审</el-button>
+      </div>
+    </section>
 
     <section class="planner-shell">
       <el-steps :active="step" finish-status="success" align-center class="planner-steps">
@@ -434,14 +505,25 @@ function statusType(status: ActivityPlanSummary['status']) {
         <p>选择历史方案可恢复完整结果、引用、建议操作和你的人工评分。</p>
         <el-button circle :icon="Refresh" :loading="historyLoading" aria-label="刷新历史" @click="loadHistory" />
       </div>
-      <div v-if="historyPlans.length" class="history-list" v-loading="historyLoading">
-        <button v-for="item in historyPlans" :key="item.id" type="button" class="history-card" :class="{ active: plan?.id === item.id }" @click="openHistoricalPlan(item.id)">
-          <span class="history-card-top"><strong>{{ item.title }}</strong><el-tag :type="statusType(item.status)" size="small" effect="plain">{{ statusLabel(item.status) }}</el-tag></span>
+      <el-radio-group v-model="historyFilter" size="small" class="history-filter" aria-label="历史方案筛选">
+        <el-radio-button value="pending">待我评分 {{ pendingReviewPlans.length }}</el-radio-button>
+        <el-radio-button value="all">全部 {{ historyPlans.length }}</el-radio-button>
+      </el-radio-group>
+      <div v-if="visibleHistoryPlans.length" class="history-list" v-loading="historyLoading">
+        <button v-for="item in visibleHistoryPlans" :key="item.id" type="button" class="history-card" :class="{ active: plan?.id === item.id }" @click="openHistoricalPlan(item.id)">
+          <span class="history-card-top">
+            <strong>{{ item.title }}</strong>
+            <span class="history-card-tags">
+              <el-tag v-if="item.has_my_evaluation" type="success" size="small" effect="plain">我的评分 {{ item.my_evaluation_score?.toFixed(1) }}</el-tag>
+              <el-tag v-else-if="item.status === 'ready' || item.status === 'applied'" type="warning" size="small" effect="plain">待我评分</el-tag>
+              <el-tag :type="statusType(item.status)" size="small" effect="plain">{{ statusLabel(item.status) }}</el-tag>
+            </span>
+          </span>
           <span>{{ item.mode === 'real' ? '真实模型' : '开发 Mock' }} · {{ item.model || '模型未记录' }}</span>
           <small>{{ formatDate(item.created_at) }}<template v-if="item.starts_at"> · 活动 {{ formatDate(item.starts_at) }}</template></small>
         </button>
       </div>
-      <el-empty v-else description="尚无活动策划记录" />
+      <el-empty v-else :description="historyFilter === 'pending' ? '当前没有待评分方案' : '尚无活动策划记录'" />
     </el-drawer>
   </div>
 </template>
@@ -450,6 +532,27 @@ function statusType(status: ActivityPlanSummary['status']) {
 .activity-planner-page { display: grid; gap: 20px; }
 .activity-heading { align-items: flex-end; }
 .heading-actions { display: flex; align-items: center; gap: 10px; }
+.quality-overview { display: grid; grid-template-columns: minmax(250px, 1fr) auto minmax(320px, .9fr); gap: 28px; align-items: center; padding: 24px 28px; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 24px; background: var(--md-sys-color-surface-container-low); }
+.quality-copy h3 { margin: 5px 0 8px; font-size: 1.25rem; }
+.quality-copy p { margin: 0; color: var(--md-sys-color-on-surface-variant); line-height: 1.55; }
+.quality-score { display: grid; min-width: 130px; padding: 12px 24px; text-align: center; border-inline: 1px solid var(--md-sys-color-outline-variant); }
+.quality-score strong { color: var(--md-sys-color-primary); font-size: 2.4rem; line-height: 1; }
+.quality-score span { margin-top: 7px; color: var(--md-sys-color-on-surface-variant); font-size: .78rem; }
+.dimension-grid { display: grid; gap: 8px; }
+.dimension-item { display: grid; grid-template-columns: 72px minmax(90px, 1fr) 28px; gap: 10px; align-items: center; font-size: .82rem; }
+.dimension-item > span { color: var(--md-sys-color-on-surface-variant); }
+.dimension-item > strong { text-align: right; }
+.model-summary-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.model-summary-list span { padding: 5px 9px; color: var(--md-sys-color-on-secondary-container); border-radius: 999px; background: var(--md-sys-color-secondary-container); font-size: .72rem; }
+.review-queue-panel { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 20px 24px; border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 35%, var(--md-sys-color-outline-variant)); border-radius: 22px; background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
+.review-queue-panel.complete { border-color: var(--md-sys-color-outline-variant); background: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface); }
+.review-queue-panel h3 { margin: 4px 0 3px; font-size: 1.1rem; }
+.review-queue-panel p { margin: 0; color: inherit; opacity: .78; font-size: .84rem; }
+.review-queue-icon { display: grid; width: 46px; height: 46px; place-items: center; border-radius: 15px; background: color-mix(in srgb, var(--md-sys-color-primary) 15%, transparent); font-size: 1.35rem; }
+.review-queue-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.review-queue-actions .el-button { margin: 0; }
+.history-filter { display: flex; margin: 16px 0; }
+.history-card-tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .eyebrow, .stage-heading span, .block-label { color: var(--md-sys-color-primary); font-size: .74rem; font-weight: 800; letter-spacing: .12em; }
 .planner-shell { overflow: hidden; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 28px; background: var(--md-sys-color-surface-container-low); }
 .planner-steps { padding: 28px 34px; border-bottom: 1px solid var(--md-sys-color-outline-variant); background: var(--md-sys-color-surface-container); }
@@ -505,8 +608,13 @@ function statusType(status: ActivityPlanSummary['status']) {
 .markdown-body :deep(h2) { margin-top: 28px; padding-bottom: 8px; border-bottom: 1px solid var(--md-sys-color-outline-variant); }
 .markdown-body :deep(p), .markdown-body :deep(li) { line-height: 1.8; }
 @media (max-width: 900px) {
+  .quality-overview { grid-template-columns: 1fr; gap: 18px; }
+  .quality-score { border: 0; border-block: 1px solid var(--md-sys-color-outline-variant); }
   .result-grid { grid-template-columns: 1fr; }
   .plan-review { position: static; }
+  .review-queue-panel { grid-template-columns: auto minmax(0, 1fr); }
+  .review-queue-actions { grid-column: 1 / -1; justify-content: stretch; }
+  .review-queue-actions .el-button { flex: 1 1 180px; }
 }
 @media (max-width: 640px) {
   .planner-steps { padding: 20px 10px; }

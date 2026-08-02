@@ -308,6 +308,7 @@ queued/running/waiting_approval ───────────────→
 | `POST` | `/api/v1/admin/ai/runs/{run_id}/cancel` | ✅ 已实现：取消未结束运行。 |
 | `POST` | `/api/v1/admin/ai/activity-plans` | ✅ 服务创新主线：从结构化活动需求与知识引用创建方案。 |
 | `GET` | `/api/v1/admin/ai/activity-plans` | ✅ 当前组织活动策划历史与运行状态摘要。 |
+| `GET` | `/api/v1/admin/ai/activity-plans/evaluation-summary` | ✅ 组织级人工质量指标与模型/Prompt 分组；不暴露评语。 |
 | `GET` | `/api/v1/admin/ai/activity-plans/{plan_id}` | ✅ 查询方案、固定引用和建议操作。 |
 | `GET / PUT` | `/api/v1/admin/ai/activity-plans/{plan_id}/evaluation` | ✅ 按评审人隔离的五维人工质量评分与审计。 |
 | `POST` | `/api/v1/admin/ai/activity-plans/{plan_id}/approve` | ✅ 领域专用人工批准：事务创建项目、里程碑和公告草稿。 |

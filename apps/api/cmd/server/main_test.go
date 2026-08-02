@@ -19,22 +19,28 @@ func TestCORSConfigAllowsConfiguredOriginAndRejectsOthers(t *testing.T) {
 	router.POST("/api/v1/auth/login", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
+	router.PUT("/api/v1/admin/ai/activity-plans/:plan_id/evaluation", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
 
 	tests := []struct {
 		name        string
+		path        string
+		method      string
 		origin      string
 		status      int
 		allowOrigin string
 	}{
-		{name: "allowed", origin: "https://portal.example.test", status: http.StatusNoContent, allowOrigin: "https://portal.example.test"},
-		{name: "rejected", origin: "https://evil.example.test", status: http.StatusForbidden},
+		{name: "allowed post", path: "/api/v1/auth/login", method: http.MethodPost, origin: "https://portal.example.test", status: http.StatusNoContent, allowOrigin: "https://portal.example.test"},
+		{name: "allowed put", path: "/api/v1/admin/ai/activity-plans/test-plan/evaluation", method: http.MethodPut, origin: "https://portal.example.test", status: http.StatusNoContent, allowOrigin: "https://portal.example.test"},
+		{name: "rejected", path: "/api/v1/auth/login", method: http.MethodPost, origin: "https://evil.example.test", status: http.StatusForbidden},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodOptions, "/api/v1/auth/login", nil)
+			request := httptest.NewRequest(http.MethodOptions, test.path, nil)
 			request.Header.Set("Origin", test.origin)
-			request.Header.Set("Access-Control-Request-Method", http.MethodPost)
+			request.Header.Set("Access-Control-Request-Method", test.method)
 			router.ServeHTTP(recorder, request)
 			if recorder.Code != test.status {
 				t.Fatalf("status = %d, want %d", recorder.Code, test.status)

@@ -51,6 +51,7 @@
 | `POST /api/v1/admin/ai/runs/{run_id}/cancel` | `ai:use`，并强制当前组织 |
 | `POST /api/v1/admin/ai/activity-plans` | `ai:use` ∩ `knowledge:read` |
 | `GET /api/v1/admin/ai/activity-plans` | `ai:use`，并强制当前组织 |
+| `GET /api/v1/admin/ai/activity-plans/evaluation-summary` | `ai:use`，只汇总当前组织且不返回评语正文 |
 | `GET /api/v1/admin/ai/activity-plans/{plan_id}` | `ai:use`，并强制当前组织 |
 | `GET /api/v1/admin/ai/activity-plans/{plan_id}/evaluation` | `ai:use`，仅返回当前用户评分 |
 | `PUT /api/v1/admin/ai/activity-plans/{plan_id}/evaluation` | `ai:use`，并强制当前组织 |
@@ -331,7 +332,7 @@ GET /api/v1/admin/ai/activity-plans?page=1&page_size=20
 Authorization: Bearer <access-token>
 ```
 
-摘要包含方案状态、活动时间、模型、Prompt 版本和已经创建的业务对象 ID。管理端用它恢复历史方案；详情、固定引用和正文仍由单条查询返回。
+摘要包含方案状态、活动时间、模型、Prompt 版本、已经创建的业务对象 ID，以及当前登录用户自己的 `has_my_evaluation` / `my_evaluation_score`。这两个评分字段只用于构建“待我评分”队列，不会泄露其他评审人的评分或评语。管理端用摘要恢复历史方案；详情、固定引用和正文仍由单条查询返回。
 
 方案进入 `ready` 或 `applied` 后，具有 `ai:use` 的用户可以保存自己的五维人工评分：
 
@@ -351,6 +352,8 @@ Content-Type: application/json
 ```
 
 五项分数均为 `1..5`，服务端计算 `overall_score`。同一用户对同一方案重复 `PUT` 会更新原记录；`GET /api/v1/admin/ai/activity-plans/{plan_id}/evaluation` 只返回当前用户的记录，尚未评分时返回 `data: null`。评分写入 `ai.activity_plan_evaluate` 审计事件，但不会批准建议、创建对象或调用外部服务。
+
+`GET /api/v1/admin/ai/activity-plans/evaluation-summary` 汇总当前组织的评价次数、已评方案数、总均分、五个维度均分，以及按 `provider + mode + model + prompt_version` 分组的评价数量和均分。该接口不接受组织参数，不返回评审人 ID 或 `notes`，用于管理端展示比赛质量证据，而不是导出成员评价原文。
 
 ## 4. 部署配置与组织策略
 

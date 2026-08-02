@@ -35,6 +35,7 @@ QUTCraft Platform 是“社团智枢 Commons Agent”的工程底座：一套面
 - 组织公开资料：维护名称、简称、标语、介绍、公开邮箱、社交链接和公开状态，修改立即作用于门户并留存审计。
 - 门户 Manifest 设置：真实读取、草稿保存、JSON 导入、同源预览、独立启用与 Portal/Admin 安全边界提示。
 - AI 活动策划：结构化活动需求、组织知识检索、带引用方案、建议操作审查，以及人工批准创建非公开项目、里程碑和公告草稿。
+- 质量证据：活动方案历史恢复、按评审人保存的五维人工评分、组织级模型/Prompt 质量汇总，以及不保存生成正文的真实模型稳定性演练。
 - 内容协作智能体：从选定知识生成 Markdown，支持预览、对比、引用核对和人工确认创建草稿。
 
 > 前端仍保留契约 Mock 供离线演示；Compose 默认使用 remote 模式连接真实 API/MySQL。服务器操作使用明确标识的 Mock ServerAdapter，不会连接真实 Minecraft RCON；邀请邮件使用可选 SMTP Adapter，默认关闭且不会伪报发送成功。
@@ -227,7 +228,7 @@ docker compose up -d --build api
 
 接口或字段变更必须按以下顺序进行：更新 OpenAPI → 更新文档与示例 → 更新后端 DTO/鉴权/测试 → 更新前端 API client 与页面。禁止在前端猜测尚未定义的 URL 或字段。
 
-仓库内置统一质量门禁，覆盖 OpenAPI 结构与安全语义、78 条 Gin 路由、70 个前端请求、25 个 Apifox 核心请求、Go 测试、前端类型检查和生产构建：
+仓库内置统一质量门禁，覆盖 OpenAPI 结构与安全语义、79 条 Gin 路由、71 个前端请求、26 个 Apifox 核心请求、Go 测试、前端类型检查和生产构建：
 
 ```powershell
 .\scripts\run-quality-gate.ps1
@@ -237,6 +238,12 @@ Compose 已启动时，可同时执行 Web/API 路由冒烟和 S1—S6 真实 My
 
 ```powershell
 .\scripts\run-quality-gate.ps1 -Integration
+```
+
+比赛环境可以额外连续执行三轮真实 API 活动策划演练。脚本读取被 Git 忽略的 Compose 环境，只保存延迟、模型、Token、引用/操作计数和失败类别，不保存生成正文，也不会伪造人工评分或批准：
+
+```powershell
+.\scripts\run-ai-activity-demo-rehearsal.ps1 -Rounds 3
 ```
 
 Apifox 集合、环境模板、各检查器的单独运行方式见 [API 协作说明](docs/api/README.md)。`apps/web` 另提供 `pnpm test:e2e`，使用 Playwright 在桌面和移动视口验证 Portal、登录、组织设置、Markdown 编辑器与 AI 活动策划工作台。GitHub Actions 会在 push 与 pull request 上运行基础门禁及 Chromium 关键流程。

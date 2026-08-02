@@ -85,6 +85,8 @@ type ActivityPlanSummary struct {
 	PromptVersion         string     `json:"prompt_version"`
 	ProjectID             *string    `json:"project_id"`
 	AnnouncementContentID *string    `json:"announcement_content_id"`
+	HasMyEvaluation       bool       `json:"has_my_evaluation"`
+	MyEvaluationScore     *float64   `json:"my_evaluation_score"`
 	CreatedAt             time.Time  `json:"created_at"`
 	UpdatedAt             time.Time  `json:"updated_at"`
 }
@@ -111,6 +113,33 @@ type ActivityPlanEvaluationView struct {
 	Notes          string    `json:"notes"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type ActivityPlanEvaluationDimensions struct {
+	Accuracy     float64 `json:"accuracy"`
+	Feasibility  float64 `json:"feasibility"`
+	CampusFit    float64 `json:"campus_fit"`
+	Clarity      float64 `json:"clarity"`
+	Adoptability float64 `json:"adoptability"`
+}
+
+type ActivityPlanEvaluationModelSummary struct {
+	Provider       string  `json:"provider"`
+	Mode           string  `json:"mode"`
+	Model          string  `json:"model"`
+	PromptVersion  string  `json:"prompt_version"`
+	Evaluations    int64   `json:"evaluations"`
+	EvaluatedPlans int64   `json:"evaluated_plans"`
+	AverageScore   float64 `json:"average_score"`
+}
+
+type ActivityPlanEvaluationSummaryView struct {
+	TotalEvaluations  int64                                `json:"total_evaluations"`
+	EvaluatedPlans    int64                                `json:"evaluated_plans"`
+	AverageScore      float64                              `json:"average_score"`
+	DimensionAverages ActivityPlanEvaluationDimensions     `json:"dimension_averages"`
+	ByModel           []ActivityPlanEvaluationModelSummary `json:"by_model"`
+	UpdatedAt         *time.Time                           `json:"updated_at"`
 }
 
 type ActivityPlanApprovalResult struct {
@@ -203,8 +232,8 @@ func (s *AgentService) GetActivityPlan(organizationID, planID string) (ActivityP
 	}, nil
 }
 
-func (s *AgentService) ListActivityPlans(organizationID string, page, pageSize int) ([]ActivityPlanSummary, int64, error) {
-	query := s.db.Model(&model.ActivityPlan{}).Where("organization_id = ?", organizationID)
+func (s *AgentService) ListActivityPlans(principal Principal, page, pageSize int) ([]ActivityPlanSummary, int64, error) {
+	query := s.db.Model(&model.ActivityPlan{}).Where("organization_id = ?", principal.OrganizationID)
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -219,13 +248,27 @@ func (s *AgentService) ListActivityPlans(organizationID string, page, pageSize i
 	}
 	var runs []model.AgentRun
 	if len(runIDs) > 0 {
-		if err := s.db.Where("organization_id = ? AND id IN ?", organizationID, runIDs).Find(&runs).Error; err != nil {
+		if err := s.db.Where("organization_id = ? AND id IN ?", principal.OrganizationID, runIDs).Find(&runs).Error; err != nil {
 			return nil, 0, err
 		}
 	}
 	runByID := make(map[string]model.AgentRun, len(runs))
 	for _, run := range runs {
 		runByID[run.ID] = run
+	}
+	evaluationByPlanID := make(map[string]float64, len(plans))
+	if len(plans) > 0 {
+		planIDs := make([]string, 0, len(plans))
+		for _, plan := range plans {
+			planIDs = append(planIDs, plan.ID)
+		}
+		var evaluations []model.ActivityPlanEvaluation
+		if err := s.db.Where("organization_id = ? AND reviewer_user_id = ? AND plan_id IN ?", principal.OrganizationID, principal.UserID, planIDs).Find(&evaluations).Error; err != nil {
+			return nil, 0, err
+		}
+		for _, evaluation := range evaluations {
+			evaluationByPlanID[evaluation.PlanID] = activityPlanEvaluationView(evaluation).OverallScore
+		}
 	}
 	items := make([]ActivityPlanSummary, 0, len(plans))
 	for index := range plans {
@@ -237,14 +280,19 @@ func (s *AgentService) ListActivityPlans(organizationID string, page, pageSize i
 		status := synchronizedActivityPlanStatus(plan.Status, run.Status)
 		if status != plan.Status {
 			now := time.Now().UTC()
-			_ = s.db.Model(&model.ActivityPlan{}).Where("id = ? AND organization_id = ?", plan.ID, organizationID).Updates(map[string]any{"status": status, "updated_at": now}).Error
+			_ = s.db.Model(&model.ActivityPlan{}).Where("id = ? AND organization_id = ?", plan.ID, principal.OrganizationID).Updates(map[string]any{"status": status, "updated_at": now}).Error
 			plan.Status = status
 			plan.UpdatedAt = now
+		}
+		var myEvaluationScore *float64
+		if score, evaluated := evaluationByPlanID[plan.ID]; evaluated {
+			myEvaluationScore = &score
 		}
 		items = append(items, ActivityPlanSummary{
 			ID: plan.ID, Title: plan.Title, Status: plan.Status, StartsAt: plan.StartsAt, EndsAt: plan.EndsAt,
 			Provider: run.Provider, Mode: run.Mode, Model: run.Model, PromptVersion: run.PromptVersion,
 			ProjectID: plan.ProjectID, AnnouncementContentID: plan.AnnouncementContentID,
+			HasMyEvaluation: myEvaluationScore != nil, MyEvaluationScore: myEvaluationScore,
 			CreatedAt: plan.CreatedAt, UpdatedAt: plan.UpdatedAt,
 		})
 	}
@@ -308,6 +356,57 @@ func (s *AgentService) SaveActivityPlanEvaluation(principal Principal, planID st
 		return ActivityPlanEvaluationView{}, err
 	}
 	return activityPlanEvaluationView(evaluation), nil
+}
+
+func (s *AgentService) ActivityPlanEvaluationSummary(organizationID string) (ActivityPlanEvaluationSummaryView, error) {
+	var aggregate struct {
+		TotalEvaluations int64
+		EvaluatedPlans   int64
+		Accuracy         float64
+		Feasibility      float64
+		CampusFit        float64
+		Clarity          float64
+		Adoptability     float64
+		AverageScore     float64
+		UpdatedAt        *time.Time
+	}
+	if err := s.db.Raw(`
+		SELECT COUNT(*) AS total_evaluations,
+		       COUNT(DISTINCT plan_id) AS evaluated_plans,
+		       COALESCE(AVG(accuracy), 0) AS accuracy,
+		       COALESCE(AVG(feasibility), 0) AS feasibility,
+		       COALESCE(AVG(campus_fit), 0) AS campus_fit,
+		       COALESCE(AVG(clarity), 0) AS clarity,
+		       COALESCE(AVG(adoptability), 0) AS adoptability,
+		       COALESCE(AVG((accuracy + feasibility + campus_fit + clarity + adoptability) / 5.0), 0) AS average_score,
+		       MAX(updated_at) AS updated_at
+		FROM activity_plan_evaluations
+		WHERE organization_id = ?`, organizationID).Scan(&aggregate).Error; err != nil {
+		return ActivityPlanEvaluationSummaryView{}, err
+	}
+	byModel := make([]ActivityPlanEvaluationModelSummary, 0)
+	if err := s.db.Raw(`
+		SELECT runs.provider, runs.mode, runs.model, runs.prompt_version,
+		       COUNT(*) AS evaluations,
+		       COUNT(DISTINCT evaluations.plan_id) AS evaluated_plans,
+		       COALESCE(AVG((evaluations.accuracy + evaluations.feasibility + evaluations.campus_fit + evaluations.clarity + evaluations.adoptability) / 5.0), 0) AS average_score
+		FROM activity_plan_evaluations evaluations
+		JOIN activity_plans plans ON BINARY evaluations.plan_id = BINARY plans.id
+		JOIN agent_runs runs ON BINARY plans.agent_run_id = BINARY runs.id
+		WHERE evaluations.organization_id = ?
+		GROUP BY runs.provider, runs.mode, runs.model, runs.prompt_version
+		ORDER BY COUNT(*) DESC, average_score DESC, runs.model ASC`, organizationID).Scan(&byModel).Error; err != nil {
+		return ActivityPlanEvaluationSummaryView{}, err
+	}
+	return ActivityPlanEvaluationSummaryView{
+		TotalEvaluations: aggregate.TotalEvaluations, EvaluatedPlans: aggregate.EvaluatedPlans,
+		AverageScore: aggregate.AverageScore,
+		DimensionAverages: ActivityPlanEvaluationDimensions{
+			Accuracy: aggregate.Accuracy, Feasibility: aggregate.Feasibility, CampusFit: aggregate.CampusFit,
+			Clarity: aggregate.Clarity, Adoptability: aggregate.Adoptability,
+		},
+		ByModel: byModel, UpdatedAt: aggregate.UpdatedAt,
+	}, nil
 }
 
 func (s *AgentService) ApproveActivityPlan(principal Principal, planID string, actions []string, requestID string) (ActivityPlanApprovalResult, error) {

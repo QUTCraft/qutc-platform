@@ -78,7 +78,7 @@ docs/product              # 产品文档与页面演示
 
 - 基础路径：`/api/v1`。
 - 资源使用复数名词：`/users`、`/projects`、`/pages`、`/assets`。
-- 使用 HTTP 方法表达语义：`GET` 查询、`POST` 创建/动作、`PATCH` 局部更新、`DELETE` 软删除或撤销。
+- 使用 HTTP 方法表达语义：`GET` 查询、`POST` 创建/动作、`PUT` 完整替换或幂等写入、`PATCH` 局部更新、`DELETE` 软删除或撤销；CORS 预检必须同步允许契约中实际使用的方法。
 - 管理 API 与 Portal API 分离：`/api/v1/admin/*`、`/api/v1/portal/*`。
 - 需要动作语义时使用明确的子路径，例如 `POST /applications/{id}/approve`，不要用含糊的 `POST /update`。
 

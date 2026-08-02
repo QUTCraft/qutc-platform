@@ -180,6 +180,7 @@ func main() {
 	admin.POST("/ai/runs/:run_id/cancel", middleware.RequirePermission(authService, "ai:use"), aiHandler.CancelRun)
 	admin.POST("/ai/activity-plans", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "ai:use"), middleware.RequirePermission(authService, "knowledge:read"), aiHandler.CreateActivityPlan)
 	admin.GET("/ai/activity-plans", middleware.RequirePermission(authService, "ai:use"), aiHandler.ListActivityPlans)
+	admin.GET("/ai/activity-plans/evaluation-summary", middleware.RequirePermission(authService, "ai:use"), aiHandler.GetActivityPlanEvaluationSummary)
 	admin.GET("/ai/activity-plans/:plan_id", middleware.RequirePermission(authService, "ai:use"), aiHandler.GetActivityPlan)
 	admin.GET("/ai/activity-plans/:plan_id/evaluation", middleware.RequirePermission(authService, "ai:use"), aiHandler.GetActivityPlanEvaluation)
 	admin.PUT("/ai/activity-plans/:plan_id/evaluation", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "ai:use"), aiHandler.SaveActivityPlanEvaluation)
@@ -221,7 +222,7 @@ func checkReadiness(target string) error {
 func corsConfig(cfg config.Config) cors.Config {
 	return cors.Config{
 		AllowOrigins:     cfg.CORSAllowedOrigins,
-		AllowMethods:     []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"},
 		ExposeHeaders:    []string{"X-Request-ID"},
 		AllowCredentials: true,

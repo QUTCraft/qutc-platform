@@ -752,7 +752,31 @@
       }]
     },
     {
-      "name": "25 - Approve safe AI activity actions",
+      "name": "25 - Read AI activity evaluation summary",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/ai/activity-plans/evaluation-summary",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "ai", "activity-plans", "evaluation-summary"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('activity evaluation summary is readable', () => pm.response.to.have.status(200));",
+            "const summary = pm.response.json().data;",
+            "pm.expect(summary.total_evaluations).to.be.at.least(1);",
+            "pm.expect(summary.average_score).to.be.within(1, 5);"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "26 - Approve safe AI activity actions",
       "request": {
         "method": "POST",
         "header": [
