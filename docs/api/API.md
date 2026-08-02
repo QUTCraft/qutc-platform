@@ -767,7 +767,7 @@ Operation ID：`listAdminAuditEvents`
 
 ### 7.11 组织运营智能体
 
-当前 AI-0 后端基础与组织配置页提供 7 条管理接口：
+当前智能体基础、内容协作与活动策划闭环提供 13 条管理接口：
 
 | 方法 | 路径 | 权限 | 作用 |
 | --- | --- | --- | --- |
@@ -778,8 +778,16 @@ Operation ID：`listAdminAuditEvents`
 | `POST` | `/api/v1/admin/ai/runs` | `ai:use` ∩ `knowledge:read` | 创建异步 Markdown 提案运行。 |
 | `GET` | `/api/v1/admin/ai/runs/{run_id}` | `ai:use` | 查询状态、输出、引用、模型版本与用量。 |
 | `POST` | `/api/v1/admin/ai/runs/{run_id}/cancel` | `ai:use` | 取消 queued/running 运行。 |
+| `GET` | `/api/v1/admin/ai/activity-plans` | `ai:use` | 分页读取当前组织的活动策划历史摘要。 |
+| `POST` | `/api/v1/admin/ai/activity-plans` | `ai:use` ∩ `knowledge:read` | 从结构化活动简报和固定知识引用创建策划运行。 |
+| `GET` | `/api/v1/admin/ai/activity-plans/{plan_id}` | `ai:use` | 读取方案、引用、建议操作与执行状态。 |
+| `GET` | `/api/v1/admin/ai/activity-plans/{plan_id}/evaluation` | `ai:use` | 读取当前用户的五维人工评分；未评分时返回 `null`。 |
+| `PUT` | `/api/v1/admin/ai/activity-plans/{plan_id}/evaluation` | `ai:use` | 保存或更新当前用户评分并写入审计，不触发业务操作。 |
+| `POST` | `/api/v1/admin/ai/activity-plans/{plan_id}/approve` | `ai:use` ∩ `project:manage` ∩ `content:create` | 人工批准固定建议，事务创建非公开项目、里程碑和公告草稿。 |
 
 创建运行只读取用户显式选择、属于当前组织的 `knowledge` 内容，输出不会自动保存或发布。开发 Mock 始终返回 `provider=mock`、`mode=mock`；真实兼容模型返回 `mode=real`。模型 Key、上游地址和错误原文不会进入 API 响应。
+
+活动策划页使用历史接口恢复方案，并把准确性、可执行性、校园适配、表达清晰度和可采用性五项 `1..5` 分评价按“方案 + 当前评审人”保存。评分与建议批准是两条独立状态线，不能替代 RBAC 或人工批准。
 
 完整请求、响应、状态机、配置、错误码、审计和测试方式见 [组织运营智能体 API 规范](ai-agent.md)。
 

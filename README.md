@@ -221,12 +221,13 @@ docker compose up -d --build api
 - [已知限制与延期项](docs/operations/known-issues.md)：RCON、AI 任务、邮件、限流和赛后能力的真实边界。
 - [API 协作说明](docs/api/README.md)：Apifox、Swagger 与契约变更流程。
 - [AI 智能体集成设计](docs/architecture/ai-agent-integration.md)：组织运营智能体的能力边界、架构、权限、工具与分阶段落地方案。
+- [AI 活动策划评测基线](docs/product/ai-activity-evaluation.md)：10 组校园场景、Prompt Injection、引用与真实模型质量门禁。
 - Portal API 前缀：`/api/v1/portal/organizations/{organization_slug}`，无认证、仅返回公开已发布数据。
 - Admin API 前缀：`/api/v1/admin`，要求 Bearer JWT 与服务端 RBAC 授权。
 
 接口或字段变更必须按以下顺序进行：更新 OpenAPI → 更新文档与示例 → 更新后端 DTO/鉴权/测试 → 更新前端 API client 与页面。禁止在前端猜测尚未定义的 URL 或字段。
 
-仓库内置统一质量门禁，覆盖 OpenAPI 结构与安全语义、75 条 Gin 路由、68 个前端请求、22 个 Apifox 核心请求、Go 测试、前端类型检查和生产构建：
+仓库内置统一质量门禁，覆盖 OpenAPI 结构与安全语义、78 条 Gin 路由、70 个前端请求、25 个 Apifox 核心请求、Go 测试、前端类型检查和生产构建：
 
 ```powershell
 .\scripts\run-quality-gate.ps1

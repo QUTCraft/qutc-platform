@@ -671,7 +671,88 @@
       }]
     },
     {
-      "name": "22 - Approve safe AI activity actions",
+      "name": "22 - List AI activity plan history",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/ai/activity-plans?page=1&page_size=20",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "ai", "activity-plans"],
+          "query": [
+            { "key": "page", "value": "1" },
+            { "key": "page_size", "value": "20" }
+          ]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('activity plan history is paged', () => pm.response.to.have.status(200));",
+            "const payload = pm.response.json();",
+            "pm.expect(payload.data.some((plan) => plan.id === pm.environment.get('activityPlanId'))).to.eql(true);",
+            "pm.expect(payload.meta.total).to.be.at.least(1);"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "23 - Save AI activity plan evaluation",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"accuracy\": 5,\n  \"feasibility\": 4,\n  \"campus_fit\": 5,\n  \"clarity\": 4,\n  \"adoptability\": 4,\n  \"notes\": \"Apifox 人工评分闭环\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/ai/activity-plans/{{activityPlanId}}/evaluation",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "ai", "activity-plans", "{{activityPlanId}}", "evaluation"]
+        },
+        "description": "仅在活动方案进入 ready 后执行。五维评分只记录人工评价，不触发业务操作。"
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('activity plan evaluation is saved', () => pm.response.to.have.status(200));",
+            "const evaluation = pm.response.json().data;",
+            "pm.expect(evaluation.overall_score).to.eql(4.4);"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "24 - Read AI activity plan evaluation",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/ai/activity-plans/{{activityPlanId}}/evaluation",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "ai", "activity-plans", "{{activityPlanId}}", "evaluation"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('activity plan evaluation is readable', () => pm.response.to.have.status(200));",
+            "pm.expect(pm.response.json().data.plan_id).to.eql(pm.environment.get('activityPlanId'));"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "25 - Approve safe AI activity actions",
       "request": {
         "method": "POST",
         "header": [

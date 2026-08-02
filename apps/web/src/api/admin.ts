@@ -1,5 +1,5 @@
-import { del, get, getPage, patch, post, upload } from '@/api/client'
-import type { ActivityPlan, ActivityPlanApprovalResult, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, EmailAdapterStatus, InvitationRole, MediaAsset, Organization, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
+import { del, get, getPage, patch, post, put, upload } from '@/api/client'
+import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, EmailAdapterStatus, InvitationRole, MediaAsset, Organization, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
 
 const adminBase = '/api/v1/admin'
 
@@ -61,7 +61,10 @@ export const adminApi = {
     constraints: string
     context_refs: AISourceReference[]
   }) => post<ActivityPlan>(`${adminBase}/ai/activity-plans`, payload),
+  getActivityPlans: (params: PageQuery = {}) => getPage<ActivityPlanSummary>(withQuery(`${adminBase}/ai/activity-plans`, params)),
   getActivityPlan: (id: string) => get<ActivityPlan>(`${adminBase}/ai/activity-plans/${id}`),
+  getActivityPlanEvaluation: (id: string) => get<ActivityPlanEvaluation | null>(`${adminBase}/ai/activity-plans/${id}/evaluation`),
+  saveActivityPlanEvaluation: (id: string, payload: Pick<ActivityPlanEvaluation, 'accuracy' | 'feasibility' | 'campus_fit' | 'clarity' | 'adoptability' | 'notes'>) => put<ActivityPlanEvaluation>(`${adminBase}/ai/activity-plans/${id}/evaluation`, payload),
   approveActivityPlan: (id: string, actions: string[]) => post<ActivityPlanApprovalResult>(`${adminBase}/ai/activity-plans/${id}/approve`, { actions }),
   getProjects: (params: PageQuery = {}) => getPage<AdminProject>(withQuery(`${adminBase}/projects`, params)),
   createProject: (payload: Pick<AdminProject, 'title' | 'summary' | 'status' | 'tags' | 'is_public'>) => post<AdminProject>(`${adminBase}/projects`, payload),

@@ -50,7 +50,10 @@
 | `GET /api/v1/admin/ai/runs/{run_id}` | `ai:use`，并强制当前组织 |
 | `POST /api/v1/admin/ai/runs/{run_id}/cancel` | `ai:use`，并强制当前组织 |
 | `POST /api/v1/admin/ai/activity-plans` | `ai:use` ∩ `knowledge:read` |
+| `GET /api/v1/admin/ai/activity-plans` | `ai:use`，并强制当前组织 |
 | `GET /api/v1/admin/ai/activity-plans/{plan_id}` | `ai:use`，并强制当前组织 |
+| `GET /api/v1/admin/ai/activity-plans/{plan_id}/evaluation` | `ai:use`，仅返回当前用户评分 |
+| `PUT /api/v1/admin/ai/activity-plans/{plan_id}/evaluation` | `ai:use`，并强制当前组织 |
 | `POST /api/v1/admin/ai/activity-plans/{plan_id}/approve` | `ai:use` ∩ `project:manage` ∩ `content:create` |
 
 `editor`、`administrator`、`owner` 默认具有 `ai:use`；`member` 默认没有。服务端从 Bearer JWT 对应的活动成员关系取得 `organization_id`，请求体和查询参数不能覆盖组织范围。
@@ -321,6 +324,34 @@ Content-Type: application/json
 
 服务端只接受上述固定键，拒绝重复键、未知键和缺少 `create_project` 的里程碑操作。批准必须满足 `ai:use`、`project:manage` 和 `content:create`，并且只能执行一次。所有选中对象在同一事务中创建：项目固定为非公开，里程碑固定为 `planned`，公告固定为 `draft`；任一创建或审计失败都会整体回滚。接口没有发布、审批、邮件或 ServerAdapter/RCON 能力。
 
+活动策划历史按组织分页返回：
+
+```http
+GET /api/v1/admin/ai/activity-plans?page=1&page_size=20
+Authorization: Bearer <access-token>
+```
+
+摘要包含方案状态、活动时间、模型、Prompt 版本和已经创建的业务对象 ID。管理端用它恢复历史方案；详情、固定引用和正文仍由单条查询返回。
+
+方案进入 `ready` 或 `applied` 后，具有 `ai:use` 的用户可以保存自己的五维人工评分：
+
+```http
+PUT /api/v1/admin/ai/activity-plans/{plan_id}/evaluation
+Authorization: Bearer <access-token>
+Content-Type: application/json
+
+{
+  "accuracy": 5,
+  "feasibility": 4,
+  "campus_fit": 5,
+  "clarity": 4,
+  "adoptability": 3,
+  "notes": "场地容量仍需线下确认"
+}
+```
+
+五项分数均为 `1..5`，服务端计算 `overall_score`。同一用户对同一方案重复 `PUT` 会更新原记录；`GET /api/v1/admin/ai/activity-plans/{plan_id}/evaluation` 只返回当前用户的记录，尚未评分时返回 `data: null`。评分写入 `ai.activity_plan_evaluate` 审计事件，但不会批准建议、创建对象或调用外部服务。
+
 ## 4. 部署配置与组织策略
 
 | 变量 | 默认值 | 说明 |
@@ -388,4 +419,4 @@ docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.y
 .\scripts\run-s6-agent-integration.ps1
 ```
 
-S6 集成测试验证登录与 RBAC、配置读取与持久化、停用后拒绝运行、重新启用、智能体目录、知识检索、跨组织引用拒绝、Prompt Injection 隔离、异步 Mock 终态、引用快照和审计。测试还连续三轮验证“生成本身不创建内容 → 人工确认创建 draft → Portal 仍不可见 → 人工发布后可见且保留来源 ID → 下线后不可见”。
+S6 集成测试验证登录与 RBAC、配置读取与持久化、停用后拒绝运行、重新启用、智能体目录、知识检索、跨组织引用拒绝、Prompt Injection 隔离、异步 Mock 终态、引用快照和审计。活动策划专项还验证 `activity-planner/v2`、Editor 可读但无权批准、里程碑依赖校验、部分批准、重复批准、审批 Request ID 逐对象审计，以及真实 MySQL 外键故障下项目/草稿/审计整体回滚。测试同时连续三轮验证“生成本身不创建内容 → 人工确认创建 draft → Portal 仍不可见 → 人工发布后可见且保留来源 ID → 下线后不可见”。

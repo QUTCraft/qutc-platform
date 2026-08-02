@@ -184,7 +184,7 @@ func seedAgentDefinitions(db *gorm.DB, organization model.Organization) error {
 		{
 			ID: uuid.NewString(), OrganizationID: organization.ID, Key: "activity-planner",
 			Name: "校园活动策划智能体", Purpose: "根据活动约束与组织知识生成带引用的可执行活动方案，并提出须由人工批准的项目、里程碑和公告草稿。",
-			SystemPolicyVersion: "activity-planner/v1", AllowedToolKeys: `["knowledge.search","knowledge.read","project.create_proposal","milestone.create_proposal","content.create_draft_proposal"]`,
+			SystemPolicyVersion: "activity-planner/v2", AllowedToolKeys: `["knowledge.search","knowledge.read","project.create_proposal","milestone.create_proposal","content.create_draft_proposal"]`,
 			ModelProfile: "activity-planning", Enabled: true,
 		},
 	}
@@ -192,6 +192,13 @@ func seedAgentDefinitions(db *gorm.DB, organization model.Organization) error {
 		var existing model.AgentDefinition
 		err := db.Where("organization_id = ? AND `key` = ?", organization.ID, definition.Key).First(&existing).Error
 		if err == nil {
+			if err := db.Model(&model.AgentDefinition{}).Where("id = ?", existing.ID).Updates(map[string]any{
+				"name": definition.Name, "purpose": definition.Purpose,
+				"system_policy_version": definition.SystemPolicyVersion,
+				"allowed_tool_keys":     definition.AllowedToolKeys, "model_profile": definition.ModelProfile,
+			}).Error; err != nil {
+				return fmt.Errorf("update agent definition %s: %w", definition.Key, err)
+			}
 			continue
 		}
 		if err != gorm.ErrRecordNotFound {

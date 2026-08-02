@@ -73,6 +73,46 @@ type ActivityPlanView struct {
 	UpdatedAt             time.Time                `json:"updated_at"`
 }
 
+type ActivityPlanSummary struct {
+	ID                    string     `json:"id"`
+	Title                 string     `json:"title"`
+	Status                string     `json:"status"`
+	StartsAt              *time.Time `json:"starts_at"`
+	EndsAt                *time.Time `json:"ends_at"`
+	Provider              string     `json:"provider"`
+	Mode                  string     `json:"mode"`
+	Model                 string     `json:"model"`
+	PromptVersion         string     `json:"prompt_version"`
+	ProjectID             *string    `json:"project_id"`
+	AnnouncementContentID *string    `json:"announcement_content_id"`
+	CreatedAt             time.Time  `json:"created_at"`
+	UpdatedAt             time.Time  `json:"updated_at"`
+}
+
+type ActivityPlanEvaluationInput struct {
+	Accuracy     int
+	Feasibility  int
+	CampusFit    int
+	Clarity      int
+	Adoptability int
+	Notes        string
+}
+
+type ActivityPlanEvaluationView struct {
+	ID             string    `json:"id"`
+	PlanID         string    `json:"plan_id"`
+	ReviewerUserID string    `json:"reviewer_user_id"`
+	Accuracy       int       `json:"accuracy"`
+	Feasibility    int       `json:"feasibility"`
+	CampusFit      int       `json:"campus_fit"`
+	Clarity        int       `json:"clarity"`
+	Adoptability   int       `json:"adoptability"`
+	OverallScore   float64   `json:"overall_score"`
+	Notes          string    `json:"notes"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
 type ActivityPlanApprovalResult struct {
 	ActivityPlanView
 	CreatedProjectID    *string  `json:"created_project_id"`
@@ -161,6 +201,113 @@ func (s *AgentService) GetActivityPlan(organizationID, planID string) (ActivityP
 		ProjectID: plan.ProjectID, AnnouncementContentID: plan.AnnouncementContentID,
 		ApprovedBy: plan.ApprovedBy, ApprovedAt: plan.ApprovedAt, CreatedAt: plan.CreatedAt, UpdatedAt: plan.UpdatedAt,
 	}, nil
+}
+
+func (s *AgentService) ListActivityPlans(organizationID string, page, pageSize int) ([]ActivityPlanSummary, int64, error) {
+	query := s.db.Model(&model.ActivityPlan{}).Where("organization_id = ?", organizationID)
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var plans []model.ActivityPlan
+	if err := query.Order("created_at DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&plans).Error; err != nil {
+		return nil, 0, err
+	}
+	runIDs := make([]string, 0, len(plans))
+	for _, plan := range plans {
+		runIDs = append(runIDs, plan.AgentRunID)
+	}
+	var runs []model.AgentRun
+	if len(runIDs) > 0 {
+		if err := s.db.Where("organization_id = ? AND id IN ?", organizationID, runIDs).Find(&runs).Error; err != nil {
+			return nil, 0, err
+		}
+	}
+	runByID := make(map[string]model.AgentRun, len(runs))
+	for _, run := range runs {
+		runByID[run.ID] = run
+	}
+	items := make([]ActivityPlanSummary, 0, len(plans))
+	for index := range plans {
+		plan := &plans[index]
+		run, exists := runByID[plan.AgentRunID]
+		if !exists {
+			return nil, 0, fmt.Errorf("activity plan %s references missing agent run", plan.ID)
+		}
+		status := synchronizedActivityPlanStatus(plan.Status, run.Status)
+		if status != plan.Status {
+			now := time.Now().UTC()
+			_ = s.db.Model(&model.ActivityPlan{}).Where("id = ? AND organization_id = ?", plan.ID, organizationID).Updates(map[string]any{"status": status, "updated_at": now}).Error
+			plan.Status = status
+			plan.UpdatedAt = now
+		}
+		items = append(items, ActivityPlanSummary{
+			ID: plan.ID, Title: plan.Title, Status: plan.Status, StartsAt: plan.StartsAt, EndsAt: plan.EndsAt,
+			Provider: run.Provider, Mode: run.Mode, Model: run.Model, PromptVersion: run.PromptVersion,
+			ProjectID: plan.ProjectID, AnnouncementContentID: plan.AnnouncementContentID,
+			CreatedAt: plan.CreatedAt, UpdatedAt: plan.UpdatedAt,
+		})
+	}
+	return items, total, nil
+}
+
+func (s *AgentService) GetActivityPlanEvaluation(principal Principal, planID string) (*ActivityPlanEvaluationView, error) {
+	if _, err := s.GetActivityPlan(principal.OrganizationID, planID); err != nil {
+		return nil, err
+	}
+	var evaluation model.ActivityPlanEvaluation
+	err := s.db.Where("organization_id = ? AND plan_id = ? AND reviewer_user_id = ?", principal.OrganizationID, strings.TrimSpace(planID), principal.UserID).First(&evaluation).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	view := activityPlanEvaluationView(evaluation)
+	return &view, nil
+}
+
+func (s *AgentService) SaveActivityPlanEvaluation(principal Principal, planID string, input ActivityPlanEvaluationInput, requestID string) (ActivityPlanEvaluationView, error) {
+	planID = strings.TrimSpace(planID)
+	plan, err := s.GetActivityPlan(principal.OrganizationID, planID)
+	if err != nil {
+		return ActivityPlanEvaluationView{}, err
+	}
+	if plan.Status != "ready" && plan.Status != "applied" {
+		return ActivityPlanEvaluationView{}, ErrActivityPlanNotReady
+	}
+	input.Notes = strings.TrimSpace(input.Notes)
+	if !validActivityPlanEvaluation(input) {
+		return ActivityPlanEvaluationView{}, ErrActivityPlanValidation
+	}
+	now := time.Now().UTC()
+	var evaluation model.ActivityPlanEvaluation
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		lookup := tx.Where("organization_id = ? AND plan_id = ? AND reviewer_user_id = ?", principal.OrganizationID, planID, principal.UserID).First(&evaluation).Error
+		if errors.Is(lookup, gorm.ErrRecordNotFound) {
+			evaluation = model.ActivityPlanEvaluation{
+				ID: uuid.NewString(), OrganizationID: principal.OrganizationID, PlanID: planID, ReviewerUserID: principal.UserID,
+				CreatedAt: now,
+			}
+		} else if lookup != nil {
+			return lookup
+		}
+		evaluation.Accuracy = input.Accuracy
+		evaluation.Feasibility = input.Feasibility
+		evaluation.CampusFit = input.CampusFit
+		evaluation.Clarity = input.Clarity
+		evaluation.Adoptability = input.Adoptability
+		evaluation.Notes = input.Notes
+		evaluation.UpdatedAt = now
+		if err := tx.Save(&evaluation).Error; err != nil {
+			return err
+		}
+		return createActivityAudit(tx, principal, requestID, "ai.activity_plan_evaluate", "activity_plan", planID)
+	})
+	if err != nil {
+		return ActivityPlanEvaluationView{}, err
+	}
+	return activityPlanEvaluationView(evaluation), nil
 }
 
 func (s *AgentService) ApproveActivityPlan(principal Principal, planID string, actions []string, requestID string) (ActivityPlanApprovalResult, error) {
@@ -331,6 +478,42 @@ func containsAction(actions []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func synchronizedActivityPlanStatus(planStatus, runStatus string) string {
+	if planStatus == "applied" || planStatus == "applying" {
+		return planStatus
+	}
+	switch runStatus {
+	case AgentRunSucceeded:
+		return "ready"
+	case AgentRunFailed:
+		return "failed"
+	case AgentRunCanceled:
+		return "canceled"
+	default:
+		return "generating"
+	}
+}
+
+func validActivityPlanEvaluation(input ActivityPlanEvaluationInput) bool {
+	scores := []int{input.Accuracy, input.Feasibility, input.CampusFit, input.Clarity, input.Adoptability}
+	for _, score := range scores {
+		if score < 1 || score > 5 {
+			return false
+		}
+	}
+	return len([]rune(input.Notes)) <= 1000
+}
+
+func activityPlanEvaluationView(evaluation model.ActivityPlanEvaluation) ActivityPlanEvaluationView {
+	overall := float64(evaluation.Accuracy+evaluation.Feasibility+evaluation.CampusFit+evaluation.Clarity+evaluation.Adoptability) / 5
+	return ActivityPlanEvaluationView{
+		ID: evaluation.ID, PlanID: evaluation.PlanID, ReviewerUserID: evaluation.ReviewerUserID,
+		Accuracy: evaluation.Accuracy, Feasibility: evaluation.Feasibility, CampusFit: evaluation.CampusFit,
+		Clarity: evaluation.Clarity, Adoptability: evaluation.Adoptability, OverallScore: overall,
+		Notes: evaluation.Notes, CreatedAt: evaluation.CreatedAt, UpdatedAt: evaluation.UpdatedAt,
+	}
 }
 
 func createActivityAudit(tx *gorm.DB, principal Principal, requestID, action, targetType, targetID string) error {

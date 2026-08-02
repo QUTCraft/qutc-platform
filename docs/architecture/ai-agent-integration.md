@@ -307,7 +307,9 @@ queued/running/waiting_approval ───────────────→
 | `GET` | `/api/v1/admin/ai/runs/{run_id}` | ✅ 已实现：查询状态、引用和输出。 |
 | `POST` | `/api/v1/admin/ai/runs/{run_id}/cancel` | ✅ 已实现：取消未结束运行。 |
 | `POST` | `/api/v1/admin/ai/activity-plans` | ✅ 服务创新主线：从结构化活动需求与知识引用创建方案。 |
+| `GET` | `/api/v1/admin/ai/activity-plans` | ✅ 当前组织活动策划历史与运行状态摘要。 |
 | `GET` | `/api/v1/admin/ai/activity-plans/{plan_id}` | ✅ 查询方案、固定引用和建议操作。 |
+| `GET / PUT` | `/api/v1/admin/ai/activity-plans/{plan_id}/evaluation` | ✅ 按评审人隔离的五维人工质量评分与审计。 |
 | `POST` | `/api/v1/admin/ai/activity-plans/{plan_id}/approve` | ✅ 领域专用人工批准：事务创建项目、里程碑和公告草稿。 |
 | `POST` | `/api/v1/admin/ai/tool-calls/{tool_call_id}/approve` | ⏳ AI-4：面向任意智能体的通用工具批准。 |
 | `POST` | `/api/v1/admin/ai/tool-calls/{tool_call_id}/reject` | ⏳ AI-4：面向任意智能体的通用工具拒绝。 |
@@ -351,7 +353,7 @@ queued/running/waiting_approval ───────────────→
 
 必须做到：
 
-1. 检索内容只作为引用数据，不能覆盖系统策略。
+1. 活动简报、用户任务和检索内容统一视为不可信数据，以 JSON 数据载荷传给模型，不能覆盖系统策略。
 2. 工具调用由服务端 Schema 和权限校验决定，不能相信模型生成的权限声明。
 3. URL 获取使用域名白名单、大小限制、内容类型限制和 SSRF 防护。
 4. 上传文档先病毒检查、文本抽取和安全分块，不执行宏、脚本或嵌入代码。
@@ -410,7 +412,8 @@ Object Storage
 - ✅ 提供组织隔离的内部知识读取和异步 Markdown 生成；
 - ✅ 提供 `/admin/ai` 配置页、组织级策略持久化、所有者保存权限和配置审计；
 - ✅ 建立跨组织、无认证、终态取消和“不自动创建内容”的集成测试；
-- ⏳ Prompt Injection 对抗数据集与输出质量评测继续在 AI-1 完善。
+- ✅ Prompt v2 已覆盖活动简报与知识资料的 JSON 隔离、越权指令忽略和人工批准边界，并由单测与真实 Compose 用例验证；
+- ⏳ 更大规模 Prompt Injection 对抗数据集与真实模型输出质量评测继续在 AI-2 完善。
 
 ### AI-1 · 内容协作
 

@@ -52,6 +52,15 @@ type approveActivityPlanRequest struct {
 	Actions []string `json:"actions"`
 }
 
+type activityPlanEvaluationRequest struct {
+	Accuracy     int    `json:"accuracy"`
+	Feasibility  int    `json:"feasibility"`
+	CampusFit    int    `json:"campus_fit"`
+	Clarity      int    `json:"clarity"`
+	Adoptability int    `json:"adoptability"`
+	Notes        string `json:"notes"`
+}
+
 func NewAIHandler(agents *service.AgentService) *AIHandler {
 	return &AIHandler{agents: agents}
 }
@@ -230,6 +239,60 @@ func (h *AIHandler) GetActivityPlan(c *gin.Context) {
 		return
 	}
 	respond(c, http.StatusOK, plan)
+}
+
+func (h *AIHandler) ListActivityPlans(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	page, pageSize, ok := listMeta(c, 0)
+	if !ok {
+		return
+	}
+	plans, total, err := h.agents.ListActivityPlans(principal.OrganizationID, page, pageSize)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "ai.activity_plan_list_failed", "活动策划历史暂时无法加载。")
+		return
+	}
+	respondWithMeta(c, http.StatusOK, plans, gin.H{"page": page, "page_size": pageSize, "total": total})
+}
+
+func (h *AIHandler) GetActivityPlanEvaluation(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	evaluation, err := h.agents.GetActivityPlanEvaluation(principal, strings.TrimSpace(c.Param("plan_id")))
+	if err != nil {
+		h.failActivityPlan(c, err)
+		return
+	}
+	respond(c, http.StatusOK, evaluation)
+}
+
+func (h *AIHandler) SaveActivityPlanEvaluation(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var request activityPlanEvaluationRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		fail(c, http.StatusBadRequest, "ai.activity_plan_evaluation_validation_failed", "请提供完整、有效的五维评分。")
+		return
+	}
+	evaluation, err := h.agents.SaveActivityPlanEvaluation(principal, strings.TrimSpace(c.Param("plan_id")), service.ActivityPlanEvaluationInput{
+		Accuracy: request.Accuracy, Feasibility: request.Feasibility, CampusFit: request.CampusFit,
+		Clarity: request.Clarity, Adoptability: request.Adoptability, Notes: request.Notes,
+	}, ensureRequestID(c))
+	if err != nil {
+		h.failActivityPlan(c, err)
+		return
+	}
+	respond(c, http.StatusOK, evaluation)
 }
 
 func (h *AIHandler) ApproveActivityPlan(c *gin.Context) {

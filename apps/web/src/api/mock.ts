@@ -1,5 +1,7 @@
 import type {
   ActivityPlan,
+  ActivityPlanEvaluation,
+  ActivityPlanSummary,
   AdminApplication,
   AdminContent,
   AdminDashboard,
@@ -133,7 +135,7 @@ const aiAgentCatalog: AIAgentCatalog = {
     {
       id: 'agent_activity_planner', key: 'activity-planner', name: '校园活动策划智能体',
       purpose: '生成带引用的活动方案，并提出须由人工批准的项目、里程碑和公告草稿。',
-      system_policy_version: 'activity-planner/v1',
+        system_policy_version: 'activity-planner/v2',
       allowed_tool_keys: ['knowledge.search', 'knowledge.read', 'project.create_proposal', 'milestone.create_proposal', 'content.create_draft_proposal'],
       model_profile: 'activity-planning', enabled: true,
     },
@@ -156,6 +158,7 @@ let aiConfiguration: AIConfiguration = {
 }
 const aiRuns: Record<string, AIAgentRun> = {}
 const activityPlans: Record<string, ActivityPlan> = {}
+const activityPlanEvaluations: Record<string, ActivityPlanEvaluation> = {}
 
 let adminInvitations: AdminInvitation[] = []
 
@@ -261,6 +264,25 @@ export async function mockGet<T>(path: string): Promise<T> {
   }
   if (path.endsWith('/admin/ai/config')) return structuredClone(aiConfiguration) as T
   if (path.endsWith('/admin/ai/agents')) return structuredClone(aiAgentCatalog) as T
+  if (requestUrl.pathname.endsWith('/admin/ai/activity-plans')) {
+    const pageNumber = Math.max(1, Number(requestUrl.searchParams.get('page') ?? 1))
+    const pageSize = Math.min(100, Math.max(1, Number(requestUrl.searchParams.get('page_size') ?? 20)))
+    const items: ActivityPlanSummary[] = Object.values(activityPlans)
+      .sort((left, right) => right.created_at.localeCompare(left.created_at))
+      .map((plan) => ({
+        id: plan.id, title: plan.title, status: plan.status, starts_at: plan.starts_at, ends_at: plan.ends_at,
+        provider: plan.run.provider, mode: plan.run.mode, model: plan.run.model, prompt_version: plan.run.prompt_version,
+        project_id: plan.project_id, announcement_content_id: plan.announcement_content_id,
+        created_at: plan.created_at, updated_at: plan.updated_at,
+      }))
+    const start = (pageNumber - 1) * pageSize
+    return { items: items.slice(start, start + pageSize), page: pageNumber, page_size: pageSize, total: items.length } as T
+  }
+  const activityEvaluationMatch = path.match(/\/admin\/ai\/activity-plans\/([^/]+)\/evaluation$/)
+  if (activityEvaluationMatch) {
+    if (!activityPlans[activityEvaluationMatch[1]]) throw new Error('活动策划不存在。')
+    return structuredClone(activityPlanEvaluations[activityEvaluationMatch[1]] ?? null) as T
+  }
   const activityPlanMatch = path.match(/\/admin\/ai\/activity-plans\/([^/]+)$/)
   if (activityPlanMatch) {
     const plan = activityPlans[activityPlanMatch[1]]
@@ -387,7 +409,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     const run: AIAgentRun = {
       id: runID, agent_key: 'activity-planner', agent_name: '校园活动策划智能体', status: 'succeeded', task: payload.title,
       output_title: payload.title, output_excerpt: payload.objective.slice(0, 180), output_markdown: markdown,
-      provider: 'mock', mode: 'mock', model: 'mock-content-v1', prompt_version: 'activity-planner/v1', input_tokens: 64, output_tokens: 128,
+      provider: 'mock', mode: 'mock', model: 'mock-content-v1', prompt_version: 'activity-planner/v2', input_tokens: 64, output_tokens: 128,
       failure_code: '', failure_message: '', request_id: `mock-request-${runID}`, citations, started_at: now, completed_at: now,
       expires_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(), created_at: now, updated_at: now,
     }
@@ -728,6 +750,31 @@ export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
 	if (payload.knowledge_directory_id && !adminKnowledgeDirectories.some((directory) => directory.id === payload.knowledge_directory_id)) throw new Error('知识库目录不存在。')
   Object.assign(item, payload, { updated_at: new Date().toISOString() })
   return item as T
+}
+
+export async function mockPut<T>(path: string, body: unknown): Promise<T> {
+  await wait()
+  requireMockAdmin()
+  const activityEvaluationMatch = path.match(/\/admin\/ai\/activity-plans\/([^/]+)\/evaluation$/)
+  if (activityEvaluationMatch) {
+    const plan = activityPlans[activityEvaluationMatch[1]]
+    if (!plan) throw new Error('活动策划不存在。')
+    if (plan.status !== 'ready' && plan.status !== 'applied') throw new Error('活动方案尚未生成完成。')
+    const payload = body as Pick<ActivityPlanEvaluation, 'accuracy' | 'feasibility' | 'campus_fit' | 'clarity' | 'adoptability' | 'notes'>
+    const scores = [payload.accuracy, payload.feasibility, payload.campus_fit, payload.clarity, payload.adoptability]
+    if (scores.some((score) => !Number.isInteger(score) || score < 1 || score > 5) || payload.notes.length > 1000) throw new Error('请完成全部五维评分。')
+    const existing = activityPlanEvaluations[plan.id]
+    const now = new Date().toISOString()
+    const evaluation: ActivityPlanEvaluation = {
+      id: existing?.id ?? `activity_plan_evaluation_${Date.now()}`, plan_id: plan.id,
+      reviewer_user_id: mockUser?.id ?? 'user_bk', ...payload,
+      overall_score: scores.reduce((sum, score) => sum + score, 0) / scores.length,
+      created_at: existing?.created_at ?? now, updated_at: now,
+    }
+    activityPlanEvaluations[plan.id] = evaluation
+    return structuredClone(evaluation) as T
+  }
+  throw new Error(`Mock endpoint not implemented: ${path}`)
 }
 
 export async function mockDelete<T>(path: string): Promise<T> {

@@ -330,6 +330,37 @@ export interface ActivityPlan {
   updated_at: string
 }
 
+export interface ActivityPlanSummary {
+  id: string
+  title: string
+  status: ActivityPlanStatus
+  starts_at?: string | null
+  ends_at?: string | null
+  provider: string
+  mode: 'mock' | 'real' | 'disabled'
+  model: string
+  prompt_version: string
+  project_id?: string | null
+  announcement_content_id?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ActivityPlanEvaluation {
+  id: string
+  plan_id: string
+  reviewer_user_id: string
+  accuracy: number
+  feasibility: number
+  campus_fit: number
+  clarity: number
+  adoptability: number
+  overall_score: number
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
 export interface ActivityPlanApprovalResult extends ActivityPlan {
   created_project_id?: string | null
   created_milestone_ids: string[]

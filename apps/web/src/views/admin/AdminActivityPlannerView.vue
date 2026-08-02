@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { Check, MagicStick, Refresh, Search } from '@element-plus/icons-vue'
+import { Check, Clock, MagicStick, Refresh, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/admin'
-import type { ActivityPlan, AIConfiguration, AIKnowledgeResult } from '@/api/types'
+import type { ActivityPlan, ActivityPlanEvaluation, ActivityPlanSummary, AIConfiguration, AIKnowledgeResult } from '@/api/types'
 import { renderMarkdown } from '@/utils/markdown'
 
 const step = ref(0)
@@ -11,6 +11,10 @@ const loadingFoundation = ref(false)
 const searching = ref(false)
 const generating = ref(false)
 const approving = ref(false)
+const historyLoading = ref(false)
+const historyDrawer = ref(false)
+const evaluationLoading = ref(false)
+const evaluationSaving = ref(false)
 const configuration = ref<AIConfiguration | null>(null)
 const query = ref('')
 const knowledgeResults = ref<AIKnowledgeResult[]>([])
@@ -18,6 +22,10 @@ const selectedSourceIds = ref<string[]>([])
 const sourceRegistry = ref<Record<string, AIKnowledgeResult>>({})
 const plan = ref<ActivityPlan | null>(null)
 const selectedActions = ref<string[]>([])
+const historyPlans = ref<ActivityPlanSummary[]>([])
+const evaluation = ref<ActivityPlanEvaluation | null>(null)
+const evaluationForm = reactive({ accuracy: 0, feasibility: 0, campus_fit: 0, clarity: 0, adoptability: 0, notes: '' })
+const selectedPlanStorageKey = 'qutc:activity-planner:selected-plan'
 let pollGeneration = 0
 let disposed = false
 
@@ -41,6 +49,11 @@ const providerLabel = computed(() => {
 })
 const planHtml = computed(() => renderMarkdown(plan.value?.run.output_markdown ?? ''))
 const activityAgentAvailable = computed(() => configuration.value?.enabled && configuration.value.provider.enabled)
+const evaluationComplete = computed(() => [evaluationForm.accuracy, evaluationForm.feasibility, evaluationForm.campus_fit, evaluationForm.clarity, evaluationForm.adoptability].every((score) => score >= 1 && score <= 5))
+const evaluationAverage = computed(() => {
+  if (!evaluationComplete.value) return null
+  return (evaluationForm.accuracy + evaluationForm.feasibility + evaluationForm.campus_fit + evaluationForm.clarity + evaluationForm.adoptability) / 5
+})
 
 onMounted(() => void loadFoundation())
 onBeforeUnmount(() => {
@@ -56,10 +69,72 @@ async function loadFoundation() {
     if (!catalog.agents.some((agent) => agent.key === 'activity-planner')) {
       ElMessage.warning('当前组织尚未初始化活动策划智能体，请重启 API 完成定义初始化。')
     }
+    await loadHistory()
+    const selectedPlanID = window.sessionStorage.getItem(selectedPlanStorageKey)
+    if (selectedPlanID && historyPlans.value.some((item) => item.id === selectedPlanID)) await openHistoricalPlan(selectedPlanID)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '智能体状态加载失败。')
   } finally {
     loadingFoundation.value = false
+  }
+}
+
+async function loadHistory() {
+  historyLoading.value = true
+  try {
+    historyPlans.value = (await adminApi.getActivityPlans({ page: 1, page_size: 30 })).items
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '活动策划历史加载失败。')
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+async function openHistoricalPlan(id: string) {
+  pollGeneration += 1
+  generating.value = false
+  historyDrawer.value = false
+  try {
+    plan.value = await adminApi.getActivityPlan(id)
+    step.value = 2
+    selectedActions.value = plan.value.status === 'applied' ? [...plan.value.approved_actions] : plan.value.proposed_actions.map((action) => action.key)
+    window.sessionStorage.setItem(selectedPlanStorageKey, id)
+    await loadEvaluation(id)
+  } catch (error) {
+    window.sessionStorage.removeItem(selectedPlanStorageKey)
+    ElMessage.error(error instanceof Error ? error.message : '活动方案加载失败。')
+  }
+}
+
+async function loadEvaluation(planID: string) {
+  evaluationLoading.value = true
+  evaluation.value = null
+  Object.assign(evaluationForm, { accuracy: 0, feasibility: 0, campus_fit: 0, clarity: 0, adoptability: 0, notes: '' })
+  try {
+    evaluation.value = await adminApi.getActivityPlanEvaluation(planID)
+    Object.assign(evaluationForm, evaluation.value
+      ? { accuracy: evaluation.value.accuracy, feasibility: evaluation.value.feasibility, campus_fit: evaluation.value.campus_fit, clarity: evaluation.value.clarity, adoptability: evaluation.value.adoptability, notes: evaluation.value.notes }
+      : { accuracy: 0, feasibility: 0, campus_fit: 0, clarity: 0, adoptability: 0, notes: '' })
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '人工评分加载失败。')
+  } finally {
+    evaluationLoading.value = false
+  }
+}
+
+async function saveEvaluation() {
+  if (!plan.value || !evaluationComplete.value) {
+    ElMessage.warning('请完成全部五个维度的评分。')
+    return
+  }
+  evaluationSaving.value = true
+  try {
+    evaluation.value = await adminApi.saveActivityPlanEvaluation(plan.value.id, evaluationForm)
+    ElMessage.success('人工评分已保存，并写入审计记录。')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '人工评分保存失败。')
+  } finally {
+    evaluationSaving.value = false
   }
 }
 
@@ -131,9 +206,12 @@ async function generatePlan() {
       constraints: form.constraints.trim(),
       context_refs: selectedSourceIds.value.map((id) => ({ type: 'content', id })),
     })
+    window.sessionStorage.setItem(selectedPlanStorageKey, plan.value.id)
     await pollPlan(plan.value.id, generation)
+    await loadHistory()
     if (plan.value?.status === 'ready') {
       selectedActions.value = plan.value.proposed_actions.map((action) => action.key)
+      await loadEvaluation(plan.value.id)
       ElMessage.success('活动方案已生成，请核对引用并逐项批准建议操作。')
     } else if (plan.value?.status === 'failed') {
       ElMessage.error(plan.value.run.failure_message || '活动方案生成失败。')
@@ -180,6 +258,7 @@ async function approveActions() {
   approving.value = true
   try {
     plan.value = await adminApi.approveActivityPlan(plan.value.id, selectedActions.value)
+    await loadHistory()
     ElMessage.success('批准完成，所选业务对象已创建并写入审计。')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '建议操作执行失败。')
@@ -194,6 +273,9 @@ function resetPlanner() {
   plan.value = null
   selectedActions.value = []
   selectedSourceIds.value = []
+  evaluation.value = null
+  Object.assign(evaluationForm, { accuracy: 0, feasibility: 0, campus_fit: 0, clarity: 0, adoptability: 0, notes: '' })
+  window.sessionStorage.removeItem(selectedPlanStorageKey)
   Object.assign(form, { title: '', objective: '', audience: '', venue: '', dateRange: [], expectedParticipants: 0, budget: '', constraints: '' })
 }
 
@@ -203,6 +285,17 @@ function actionKindLabel(kind: string) {
 
 function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleString('zh-CN') : '日期待定'
+}
+
+function statusLabel(status: ActivityPlanSummary['status']) {
+  return ({ generating: '生成中', ready: '待批准', failed: '生成失败', canceled: '已取消', applied: '已批准' } as Record<string, string>)[status] ?? status
+}
+
+function statusType(status: ActivityPlanSummary['status']) {
+  if (status === 'applied') return 'success'
+  if (status === 'failed' || status === 'canceled') return 'danger'
+  if (status === 'ready') return 'warning'
+  return 'info'
 }
 </script>
 
@@ -214,7 +307,10 @@ function formatDate(value?: string | null) {
         <h2>AI 校园活动策划</h2>
         <p>从组织知识生成带引用的活动方案；所有项目、里程碑和公告草稿必须由人逐项批准。</p>
       </div>
-      <el-tag effect="plain" round>{{ providerLabel }}</el-tag>
+      <div class="heading-actions">
+        <el-button round :icon="Clock" @click="historyDrawer = true">历史方案</el-button>
+        <el-tag effect="plain" round>{{ providerLabel }}</el-tag>
+      </div>
     </section>
 
     <el-alert
@@ -302,6 +398,20 @@ function formatDate(value?: string | null) {
                   </el-checkbox>
                 </el-checkbox-group>
               </section>
+              <section class="review-block evaluation-block" v-loading="evaluationLoading">
+                <div class="evaluation-heading">
+                  <span class="block-label">人工质量评分</span>
+                  <strong v-if="evaluationAverage !== null">{{ evaluationAverage.toFixed(1) }} / 5</strong>
+                </div>
+                <p class="evaluation-help">评分只用于评估方案质量，不会触发项目、内容或审批操作。</p>
+                <label class="score-row"><span>准确性</span><el-rate v-model="evaluationForm.accuracy" /></label>
+                <label class="score-row"><span>可执行性</span><el-rate v-model="evaluationForm.feasibility" /></label>
+                <label class="score-row"><span>校园适配</span><el-rate v-model="evaluationForm.campus_fit" /></label>
+                <label class="score-row"><span>表达清晰</span><el-rate v-model="evaluationForm.clarity" /></label>
+                <label class="score-row"><span>可采用性</span><el-rate v-model="evaluationForm.adoptability" /></label>
+                <el-input v-model="evaluationForm.notes" type="textarea" :rows="3" maxlength="1000" show-word-limit placeholder="记录仍需人工修改的地方（可选）" />
+                <el-button type="primary" plain round :disabled="!evaluationComplete" :loading="evaluationSaving" @click="saveEvaluation">{{ evaluation ? '更新评分' : '保存评分' }}</el-button>
+              </section>
               <el-alert title="批准只会创建非公开项目、里程碑和 CMS 草稿；不会自动发布，也不会执行审批或外部命令。" type="info" :closable="false" show-icon />
               <el-button v-if="plan.status === 'ready'" type="primary" size="large" round :loading="approving" style="width: 100%" @click="approveActions">批准所选操作</el-button>
               <div v-else class="created-links">
@@ -318,12 +428,28 @@ function formatDate(value?: string | null) {
         </div>
       </div>
     </section>
+
+    <el-drawer v-model="historyDrawer" title="活动策划历史" size="min(440px, 92vw)" class="activity-history-drawer">
+      <div class="history-toolbar">
+        <p>选择历史方案可恢复完整结果、引用、建议操作和你的人工评分。</p>
+        <el-button circle :icon="Refresh" :loading="historyLoading" aria-label="刷新历史" @click="loadHistory" />
+      </div>
+      <div v-if="historyPlans.length" class="history-list" v-loading="historyLoading">
+        <button v-for="item in historyPlans" :key="item.id" type="button" class="history-card" :class="{ active: plan?.id === item.id }" @click="openHistoricalPlan(item.id)">
+          <span class="history-card-top"><strong>{{ item.title }}</strong><el-tag :type="statusType(item.status)" size="small" effect="plain">{{ statusLabel(item.status) }}</el-tag></span>
+          <span>{{ item.mode === 'real' ? '真实模型' : '开发 Mock' }} · {{ item.model || '模型未记录' }}</span>
+          <small>{{ formatDate(item.created_at) }}<template v-if="item.starts_at"> · 活动 {{ formatDate(item.starts_at) }}</template></small>
+        </button>
+      </div>
+      <el-empty v-else description="尚无活动策划记录" />
+    </el-drawer>
   </div>
 </template>
 
 <style scoped>
 .activity-planner-page { display: grid; gap: 20px; }
 .activity-heading { align-items: flex-end; }
+.heading-actions { display: flex; align-items: center; gap: 10px; }
 .eyebrow, .stage-heading span, .block-label { color: var(--md-sys-color-primary); font-size: .74rem; font-weight: 800; letter-spacing: .12em; }
 .planner-shell { overflow: hidden; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 28px; background: var(--md-sys-color-surface-container-low); }
 .planner-steps { padding: 28px 34px; border-bottom: 1px solid var(--md-sys-color-outline-variant); background: var(--md-sys-color-surface-container); }
@@ -350,6 +476,19 @@ function formatDate(value?: string | null) {
 .plan-preview { min-height: 600px; padding: 30px; }
 .plan-review { position: sticky; top: 92px; display: grid; gap: 16px; padding: 22px; }
 .review-block { display: grid; gap: 10px; }
+.evaluation-block { padding-top: 16px; border-top: 1px solid var(--md-sys-color-outline-variant); }
+.evaluation-heading, .score-row, .history-card-top, .history-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.evaluation-heading strong { color: var(--md-sys-color-primary); font-size: 1.1rem; }
+.evaluation-help { margin: 0 0 4px; color: var(--md-sys-color-on-surface-variant); font-size: .82rem; line-height: 1.5; }
+.score-row { min-height: 30px; color: var(--md-sys-color-on-surface-variant); font-size: .9rem; }
+.score-row :deep(.el-rate) { height: auto; }
+.history-toolbar { align-items: flex-start; margin-bottom: 16px; }
+.history-toolbar p { margin: 0; color: var(--md-sys-color-on-surface-variant); line-height: 1.55; }
+.history-list { display: grid; gap: 10px; }
+.history-card { display: grid; gap: 8px; width: 100%; padding: 16px; color: inherit; text-align: left; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 18px; background: var(--md-sys-color-surface-container-low); cursor: pointer; transition: border-color .2s ease, background .2s ease; }
+.history-card:hover, .history-card.active { border-color: var(--md-sys-color-primary); background: var(--md-sys-color-primary-container); }
+.history-card-top strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-card > span:not(.history-card-top), .history-card small { color: var(--md-sys-color-on-surface-variant); font-size: .82rem; }
 .citation-item { padding: 12px; border-radius: 14px; background: var(--md-sys-color-surface-container-high); }
 .citation-item p { margin: 6px 0; color: var(--md-sys-color-on-surface-variant); font-size: .88rem; }
 .citation-item small { color: var(--md-sys-color-on-surface-variant); }
@@ -376,6 +515,8 @@ function formatDate(value?: string | null) {
   .brief-grid, .knowledge-grid { grid-template-columns: 1fr; }
   .brief-grid .wide { grid-column: auto; }
   .stage-heading { flex-direction: column; }
+  .activity-heading { align-items: flex-start; }
+  .heading-actions { flex-wrap: wrap; }
   .knowledge-search { grid-template-columns: 1fr; }
   .stage-actions.spread { align-items: stretch; flex-direction: column-reverse; gap: 10px; }
   .stage-actions.spread .el-button { width: 100%; margin: 0; }

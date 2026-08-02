@@ -1012,6 +1012,24 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/admin/ai/activity-plans:
+    get:
+      tags: [AI]
+      operationId: listAdminAIActivityPlans
+      summary: 分页查询当前组织的活动策划历史
+      description: 需要 `ai:use`。结果按创建时间倒序，仅返回当前组织的方案摘要；运行终态会同步到方案状态。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: 活动策划历史
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivityPlanListResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [AI]
       operationId: createAdminAIActivityPlan
@@ -1057,6 +1075,55 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/ai/activity-plans/{plan_id}/evaluation:
+    get:
+      tags: [AI]
+      operationId: getAdminAIActivityPlanEvaluation
+      summary: 获取当前用户对活动方案的人工评分
+      description: 需要 `ai:use`。评分按当前组织、方案和当前用户隔离；尚未评分时 data 为 null。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 36 }
+      responses:
+        '200':
+          description: 当前用户的评分或 null
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivityPlanEvaluationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [AI]
+      operationId: putAdminAIActivityPlanEvaluation
+      summary: 保存当前用户对活动方案的五维人工评分
+      description: 需要 `ai:use`。同一用户对同一方案重复提交时覆盖原评分并记录审计；仅 ready 或 applied 方案可评分，且不会触发任何业务操作。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 36 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActivityPlanEvaluationRequest' }
+      responses:
+        '200':
+          description: 评分已保存
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivityPlanEvaluationResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /api/v1/admin/ai/activity-plans/{plan_id}/approve:
     post:
       tags: [AI]
@@ -2268,6 +2335,46 @@ components:
         approved_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    ActivityPlanSummary:
+      type: object
+      required: [id, title, status, provider, mode, model, prompt_version, created_at, updated_at]
+      properties:
+        id: { type: string, maxLength: 36 }
+        title: { type: string, maxLength: 160 }
+        status: { $ref: '#/components/schemas/ActivityPlanStatus' }
+        starts_at: { type: [string, 'null'], format: date-time }
+        ends_at: { type: [string, 'null'], format: date-time }
+        provider: { type: string, maxLength: 32 }
+        mode: { type: string, enum: [mock, real, disabled] }
+        model: { type: string, maxLength: 120 }
+        prompt_version: { type: string, maxLength: 64 }
+        project_id: { type: [string, 'null'], maxLength: 36 }
+        announcement_content_id: { type: [string, 'null'], maxLength: 36 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ActivityPlanEvaluationRequest:
+      type: object
+      required: [accuracy, feasibility, campus_fit, clarity, adoptability]
+      additionalProperties: false
+      properties:
+        accuracy: { type: integer, minimum: 1, maximum: 5, description: 事实与引用准确性。 }
+        feasibility: { type: integer, minimum: 1, maximum: 5, description: 方案在组织资源约束下的可执行性。 }
+        campus_fit: { type: integer, minimum: 1, maximum: 5, description: 对校园组织场景、流程和风险的适配程度。 }
+        clarity: { type: integer, minimum: 1, maximum: 5, description: 结构与表达清晰度。 }
+        adoptability: { type: integer, minimum: 1, maximum: 5, description: 经人工审查后可直接采用的程度。 }
+        notes: { type: string, maxLength: 1000 }
+    ActivityPlanEvaluation:
+      allOf:
+        - $ref: '#/components/schemas/ActivityPlanEvaluationRequest'
+        - type: object
+          required: [id, plan_id, reviewer_user_id, overall_score, created_at, updated_at]
+          properties:
+            id: { type: string, maxLength: 36 }
+            plan_id: { type: string, maxLength: 36 }
+            reviewer_user_id: { type: string, maxLength: 36 }
+            overall_score: { type: number, minimum: 1, maximum: 5 }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
     ActivityPlanApprovalRequest:
       type: object
       required: [actions]
@@ -2813,6 +2920,23 @@ components:
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/ActivityPlan' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    ActivityPlanListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityPlanSummary' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    ActivityPlanEvaluationResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          oneOf:
+            - { $ref: '#/components/schemas/ActivityPlanEvaluation' }
+            - { type: 'null' }
         meta: { $ref: '#/components/schemas/Meta' }
     ActivityPlanApprovalResponse:
       type: object

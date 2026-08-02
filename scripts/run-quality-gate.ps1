@@ -37,6 +37,8 @@ try {
         Pop-Location
     }
 
+    Invoke-Checked "AI activity evaluation (Mock baseline)" { & scripts/run-ai-activity-evaluation.ps1 -Provider mock }
+
     Push-Location "apps/web"
     try {
         Invoke-Checked "Web typecheck and production build" { pnpm check }

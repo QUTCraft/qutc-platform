@@ -331,3 +331,18 @@ type ActivityPlan struct {
 	CreatedAt             time.Time  `gorm:"index"`
 	UpdatedAt             time.Time
 }
+
+type ActivityPlanEvaluation struct {
+	ID             string    `gorm:"primaryKey;type:char(36)"`
+	OrganizationID string    `gorm:"index;type:char(36);not null"`
+	PlanID         string    `gorm:"uniqueIndex:idx_activity_plan_evaluation_reviewer;index;type:char(36);not null"`
+	ReviewerUserID string    `gorm:"uniqueIndex:idx_activity_plan_evaluation_reviewer;index;type:char(36);not null"`
+	Accuracy       int       `gorm:"not null"`
+	Feasibility    int       `gorm:"not null"`
+	CampusFit      int       `gorm:"not null"`
+	Clarity        int       `gorm:"not null"`
+	Adoptability   int       `gorm:"not null"`
+	Notes          string    `gorm:"size:1000;not null;default:''"`
+	CreatedAt      time.Time `gorm:"index"`
+	UpdatedAt      time.Time
+}

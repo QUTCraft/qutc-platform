@@ -52,3 +52,30 @@ func TestActivityPlanInputRejectsInvalidDates(t *testing.T) {
 		t.Fatal("valid activity plan input was rejected")
 	}
 }
+
+func TestActivityPlanEvaluationValidationAndAverage(t *testing.T) {
+	valid := ActivityPlanEvaluationInput{Accuracy: 5, Feasibility: 4, CampusFit: 5, Clarity: 4, Adoptability: 3, Notes: "仍需确认场地"}
+	if !validActivityPlanEvaluation(valid) {
+		t.Fatal("valid evaluation was rejected")
+	}
+	invalid := valid
+	invalid.CampusFit = 0
+	if validActivityPlanEvaluation(invalid) {
+		t.Fatal("evaluation with a zero score was accepted")
+	}
+	view := activityPlanEvaluationView(model.ActivityPlanEvaluation{
+		Accuracy: 5, Feasibility: 4, CampusFit: 5, Clarity: 4, Adoptability: 3,
+	})
+	if view.OverallScore != 4.2 {
+		t.Fatalf("overall score = %v", view.OverallScore)
+	}
+}
+
+func TestSynchronizedActivityPlanStatusPreservesAppliedPlan(t *testing.T) {
+	if status := synchronizedActivityPlanStatus("applied", AgentRunFailed); status != "applied" {
+		t.Fatalf("applied plan status = %s", status)
+	}
+	if status := synchronizedActivityPlanStatus("generating", AgentRunSucceeded); status != "ready" {
+		t.Fatalf("succeeded run status = %s", status)
+	}
+}
