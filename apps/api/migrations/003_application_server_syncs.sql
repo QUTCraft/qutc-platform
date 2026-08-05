@@ -1,5 +1,5 @@
 -- Application decisions and external server synchronization are separate facts.
--- Ordered migration; legacy AutoMigrate volumes are registered as the 001-008 baseline.
+-- Ordered migration. Legacy AutoMigrate volumes are registered as the 001-008 baseline.
 CREATE TABLE IF NOT EXISTS application_server_syncs (
   id CHAR(36) PRIMARY KEY,
   organization_id CHAR(36) NOT NULL,

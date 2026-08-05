@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS agent_definitions (
   UNIQUE KEY idx_agent_definition_org_key (organization_id, `key`),
   KEY idx_agent_definitions_enabled (enabled),
   CONSTRAINT fk_agent_definitions_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
-);
+)
+ ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS agent_runs (
   id CHAR(36) PRIMARY KEY,
@@ -49,7 +50,8 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   CONSTRAINT fk_agent_runs_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_agent_runs_actor FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE RESTRICT,
   CONSTRAINT fk_agent_runs_definition FOREIGN KEY (agent_definition_id) REFERENCES agent_definitions(id) ON DELETE RESTRICT
-);
+)
+ ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS agent_citations (
   id CHAR(36) PRIMARY KEY,
@@ -65,4 +67,5 @@ CREATE TABLE IF NOT EXISTS agent_citations (
   KEY idx_agent_citations_organization_id (organization_id),
   CONSTRAINT fk_agent_citations_run FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE CASCADE,
   CONSTRAINT fk_agent_citations_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
-);
+)
+ ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -32,4 +32,5 @@ CREATE TABLE IF NOT EXISTS activity_plans (
   KEY idx_activity_plans_project_id (project_id),
   KEY idx_activity_plans_announcement_content_id (announcement_content_id),
   KEY idx_activity_plans_created_at (created_at)
-);
+)
+ ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

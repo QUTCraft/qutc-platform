@@ -17,7 +17,7 @@ ALTER TABLE agent_citations
 CREATE TABLE IF NOT EXISTS content_revisions (
   id CHAR(36) PRIMARY KEY,
   organization_id CHAR(36) COLLATE utf8mb4_unicode_ci NOT NULL,
-  content_id CHAR(36) COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  content_id CHAR(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   version INT NOT NULL,
   created_by CHAR(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   reason VARCHAR(32) NOT NULL,

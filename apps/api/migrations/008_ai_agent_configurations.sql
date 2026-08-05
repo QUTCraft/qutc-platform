@@ -14,4 +14,5 @@ CREATE TABLE IF NOT EXISTS agent_configurations (
   KEY idx_agent_configurations_updated_by (updated_by),
   CONSTRAINT fk_agent_configurations_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_agent_configurations_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE RESTRICT
-);
+)
+ ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

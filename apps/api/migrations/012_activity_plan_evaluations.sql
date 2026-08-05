@@ -16,4 +16,5 @@ CREATE TABLE IF NOT EXISTS activity_plan_evaluations (
   KEY idx_activity_plan_evaluations_plan_id (plan_id),
   KEY idx_activity_plan_evaluations_reviewer_user_id (reviewer_user_id),
   KEY idx_activity_plan_evaluations_created_at (created_at)
-);
+)
+ ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
