@@ -333,12 +333,16 @@ func (h *InvitationHandler) deliverInvitation(ctx context.Context, invitation se
 		LastAttemptAt:  &now,
 	}
 	delivery = h.persistDelivery(delivery, true)
+	var organization model.Organization
+	_ = h.db.Select("name, invitation_subject_template, invitation_body_template").Where("id = ?", invitation.OrganizationID).First(&organization).Error
 	err := h.mail.SendInvitation(ctx, mailadapter.InvitationMessage{
-		RecipientEmail: invitation.Email,
-		Organization:   invitation.Organization,
-		Role:           invitation.Role,
-		InvitationURL:  h.publicWebBaseURL + "/invite/" + invitation.Token,
-		ExpiresAt:      invitation.ExpiresAt,
+		RecipientEmail:  invitation.Email,
+		Organization:    invitation.Organization,
+		Role:            invitation.Role,
+		InvitationURL:   h.publicWebBaseURL + "/invite/" + invitation.Token,
+		ExpiresAt:       invitation.ExpiresAt,
+		SubjectTemplate: organization.InvitationSubjectTemplate,
+		BodyTemplate:    organization.InvitationBodyTemplate,
 	})
 	if err != nil {
 		delivery.Status = "failed"

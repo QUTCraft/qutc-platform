@@ -2,9 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Check, EditPen, Link, MagicStick, Paperclip, Picture, Upload, View } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/admin'
-import type { AdminContent } from '@/api/types'
+import type { AdminContent, ContentRevision } from '@/api/types'
 import AIContentAssistant from '@/components/admin/AIContentAssistant.vue'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { renderMarkdown } from '@/utils/markdown'
@@ -27,6 +27,10 @@ const imageFileInput = ref<HTMLInputElement>()
 const attachmentFileInput = ref<HTMLInputElement>()
 const assetPreviewUrls = ref<Record<string, string>>({})
 const aiAssistantOpen = ref(false)
+const revisions = ref<ContentRevision[]>([])
+const revisionsLoading = ref(false)
+const selectedRevision = ref<ContentRevision | null>(null)
+const revisionDialogOpen = ref(false)
 
 const form = reactive({
   title: '',
@@ -77,10 +81,51 @@ async function loadContent() {
     }
     const item = await adminApi.getContentById(contentId.value)
     loadItem(item)
+    await loadRevisions()
   } catch (error) {
     loadError.value = error instanceof Error ? error : new Error('内容暂时无法加载。')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadRevisions() {
+  if (!contentId.value) {
+    revisions.value = []
+    return
+  }
+  revisionsLoading.value = true
+  try {
+    revisions.value = (await adminApi.getContentRevisions(contentId.value, { page: 1, page_size: 12 })).items
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '内容修订历史加载失败。')
+  } finally {
+    revisionsLoading.value = false
+  }
+}
+
+async function inspectRevision(revision: ContentRevision) {
+  try {
+    selectedRevision.value = await adminApi.getContentRevision(contentId.value, revision.id)
+    revisionDialogOpen.value = true
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '修订版本加载失败。')
+  }
+}
+
+async function restoreRevision(revision: ContentRevision) {
+  try {
+    await ElMessageBox.confirm(`恢复到 v${revision.version} 会生成新的草稿修订版本，当前内容不会直接发布。`, '恢复内容版本', { confirmButtonText: '恢复为草稿', cancelButtonText: '取消', type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    const restored = await adminApi.restoreContentRevision(contentId.value, revision.id)
+    loadItem(restored)
+    await loadRevisions()
+    ElMessage.success('已恢复为新的草稿版本。')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '修订版本恢复失败。')
   }
 }
 
@@ -387,6 +432,36 @@ onBeforeUnmount(() => {
       </article>
     </section>
 
+    <section class="editor-surface revision-history-panel">
+      <div class="editor-pane-heading">
+        <div>
+          <span class="editor-pane-kicker"><View /> VERSION HISTORY</span>
+          <h3>修订历史</h3>
+        </div>
+        <el-button text :loading="revisionsLoading" @click="loadRevisions">刷新</el-button>
+      </div>
+      <el-empty v-if="!revisionsLoading && revisions.length === 0" description="保存后会在这里生成版本快照" :image-size="72" />
+      <div v-else class="revision-list">
+        <div v-for="revision in revisions" :key="revision.id" class="revision-row">
+          <div>
+            <strong>v{{ revision.version }} · {{ revision.title }}</strong>
+            <span>{{ revision.reason }} · {{ new Date(revision.created_at).toLocaleString('zh-CN') }}</span>
+          </div>
+          <div class="revision-actions">
+            <el-button text @click="inspectRevision(revision)">查看</el-button>
+            <el-button v-if="!isPublished" text type="primary" @click="restoreRevision(revision)">恢复</el-button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <el-dialog v-model="revisionDialogOpen" :title="selectedRevision ? `修订 v${selectedRevision.version}` : '修订详情'" width="min(860px, 92vw)">
+      <div v-if="selectedRevision" class="revision-dialog-content">
+        <p>{{ selectedRevision.excerpt || '无摘要' }}</p>
+        <pre>{{ selectedRevision.body }}</pre>
+      </div>
+    </el-dialog>
+
     <AIContentAssistant
       v-model="aiAssistantOpen"
       :current-title="form.title"
@@ -555,6 +630,57 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 22px;
   align-items: stretch;
+}
+
+.revision-history-panel {
+  margin-top: 20px;
+  padding: 20px;
+}
+
+.revision-list {
+  display: grid;
+  gap: 8px;
+}
+
+.revision-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-md);
+  background: var(--md-sys-color-surface-container-low);
+}
+
+.revision-row strong,
+.revision-row span {
+  display: block;
+}
+
+.revision-row span {
+  margin-top: 4px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+}
+
+.revision-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.revision-dialog-content p {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.revision-dialog-content pre {
+  max-height: 55vh;
+  overflow: auto;
+  padding: 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container-low);
 }
 
 .editor-pane {

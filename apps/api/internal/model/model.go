@@ -3,29 +3,32 @@ package model
 import "time"
 
 type Organization struct {
-	ID              string `gorm:"primaryKey;type:char(36)"`
-	Slug            string `gorm:"uniqueIndex;size:64;not null"`
-	Name            string `gorm:"size:160;not null"`
-	ShortName       string `gorm:"size:40;not null;default:''"`
-	Tagline         string `gorm:"size:160;not null;default:''"`
-	Introduction    string `gorm:"size:2000;not null;default:''"`
-	ContactEmail    string `gorm:"size:254;not null;default:''"`
-	SocialLinksJSON string `gorm:"type:text;not null;default:'[]'"`
-	IsPublic        bool   `gorm:"index;not null;default:true"`
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                        string `gorm:"primaryKey;type:char(36)"`
+	Slug                      string `gorm:"uniqueIndex;size:64;not null"`
+	Name                      string `gorm:"size:160;not null"`
+	ShortName                 string `gorm:"size:40;not null;default:''"`
+	Tagline                   string `gorm:"size:160;not null;default:''"`
+	Introduction              string `gorm:"size:2000;not null;default:''"`
+	ContactEmail              string `gorm:"size:254;not null;default:''"`
+	SocialLinksJSON           string `gorm:"type:text;not null;default:'[]'"`
+	IsPublic                  bool   `gorm:"index;not null;default:true"`
+	InvitationSubjectTemplate string `gorm:"size:255;not null;default:''"`
+	InvitationBodyTemplate    string `gorm:"type:text;not null"`
+	CreatedAt                 time.Time
+	UpdatedAt                 time.Time
 }
 
 type User struct {
-	ID           string `gorm:"primaryKey;type:char(36)"`
-	Email        string `gorm:"uniqueIndex;size:254;not null"`
-	DisplayName  string `gorm:"size:80;not null"`
-	Bio          string `gorm:"size:500;not null;default:''"`
-	AvatarURL    string `gorm:"size:500;not null;default:''"`
-	PasswordHash string `gorm:"size:255;not null"`
-	State        string `gorm:"size:24;not null;default:active"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                    string `gorm:"primaryKey;type:char(36)"`
+	Email                 string `gorm:"uniqueIndex;size:254;not null"`
+	DisplayName           string `gorm:"size:80;not null"`
+	Bio                   string `gorm:"size:500;not null;default:''"`
+	AvatarURL             string `gorm:"size:500;not null;default:''"`
+	PasswordHash          string `gorm:"size:255;not null"`
+	State                 string `gorm:"size:24;not null;default:active"`
+	DefaultOrganizationID string `gorm:"index;type:char(36);not null;default:''"`
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 type Role struct {
@@ -183,17 +186,54 @@ type ProjectMilestone struct {
 }
 
 type MediaAsset struct {
-	ID             string `gorm:"primaryKey;type:char(36)"`
-	OrganizationID string `gorm:"index;type:char(36);not null"`
-	ContentID      string `gorm:"index;type:char(36)"`
-	UploadedBy     string `gorm:"index;type:char(36);not null"`
-	OriginalName   string `gorm:"size:255;not null"`
-	StoredName     string `gorm:"size:255;not null"`
-	MimeType       string `gorm:"size:120;not null"`
-	SizeBytes      int64  `gorm:"not null"`
-	StorageDriver  string `gorm:"size:16;not null;default:local"`
-	StoragePath    string `gorm:"size:500;not null"`
-	CreatedAt      time.Time
+	ID               string     `gorm:"primaryKey;type:char(36)"`
+	OrganizationID   string     `gorm:"index;type:char(36);not null"`
+	ContentID        string     `gorm:"index;type:char(36)"`
+	UploadedBy       string     `gorm:"index;type:char(36);not null"`
+	OriginalName     string     `gorm:"size:255;not null"`
+	StoredName       string     `gorm:"size:255;not null"`
+	MimeType         string     `gorm:"size:120;not null"`
+	SizeBytes        int64      `gorm:"not null"`
+	StorageDriver    string     `gorm:"size:16;not null;default:local"`
+	StoragePath      string     `gorm:"size:500;not null"`
+	DownloadCount    int64      `gorm:"not null;default:0"`
+	LastDownloadedAt *time.Time `gorm:"index"`
+	CreatedAt        time.Time
+}
+
+type ContentRevision struct {
+	ID                   string     `gorm:"primaryKey;type:char(36)"`
+	OrganizationID       string     `gorm:"index;type:char(36);not null"`
+	ContentID            string     `gorm:"index;type:char(36);not null"`
+	Version              int        `gorm:"uniqueIndex:idx_content_revision_version;not null"`
+	CreatedBy            string     `gorm:"index;type:char(36);not null"`
+	Reason               string     `gorm:"size:32;not null"`
+	Title                string     `gorm:"size:160;not null"`
+	Type                 string     `gorm:"size:24;not null"`
+	Category             string     `gorm:"size:64;not null;default:''"`
+	KnowledgeDirectoryID string     `gorm:"type:char(36);not null;default:''"`
+	Status               string     `gorm:"size:24;not null"`
+	Excerpt              string     `gorm:"size:500;not null;default:''"`
+	Body                 string     `gorm:"type:longtext;not null"`
+	PublishedAt          *time.Time `gorm:"index"`
+	CreatedAt            time.Time  `gorm:"index"`
+}
+
+type NotificationOutbox struct {
+	ID             string     `gorm:"primaryKey;type:char(36)"`
+	OrganizationID string     `gorm:"index;type:char(36);not null"`
+	EventType      string     `gorm:"size:64;not null"`
+	TargetType     string     `gorm:"size:64;not null"`
+	TargetID       string     `gorm:"index;type:char(36);not null"`
+	RecipientEmail string     `gorm:"size:254;not null"`
+	Status         string     `gorm:"index;size:24;not null;default:pending"`
+	Attempts       int        `gorm:"not null;default:0"`
+	LastError      string     `gorm:"size:500;not null;default:''"`
+	AvailableAt    time.Time  `gorm:"index"`
+	LastAttemptAt  *time.Time `gorm:"index"`
+	SentAt         *time.Time `gorm:"index"`
+	CreatedAt      time.Time  `gorm:"index"`
+	UpdatedAt      time.Time
 }
 
 type Application struct {
@@ -304,6 +344,7 @@ type AgentCitation struct {
 	SourceID        string    `gorm:"uniqueIndex:idx_agent_citation_run_source;size:64;not null"`
 	Title           string    `gorm:"size:160;not null"`
 	Excerpt         string    `gorm:"size:500;not null"`
+	SourceBody      string    `gorm:"type:longtext;not null"`
 	SourceUpdatedAt time.Time `gorm:"not null"`
 	CreatedAt       time.Time
 }

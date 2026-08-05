@@ -1,7 +1,7 @@
 # 组织运营智能体 API 规范
 
 > 实施状态：内容协作闭环与服务创新类活动策划首片已实现
-> 更新日期：2026-08-01
+> 更新日期：2026-08-05
 > 事实来源：[OpenAPI 3.1](openapi.yaml)
 > 架构与长期边界：[AI 智能体集成设计](../architecture/ai-agent-integration.md)
 
@@ -25,6 +25,7 @@
 - `ModelProvider` 供应商中立接口；
 - `disabled`、明确标识的 deterministic `mock`、`openai_compatible` 三种驱动；
 - `agent_definitions`、`agent_configurations`、`agent_runs`、`agent_citations` 数据模型；
+- 基于 `AgentRun` 的单机持久化 worker：运行先写入 `queued`，worker 原子领取；重启保留 queued 任务、将已运行任务安全收口并恢复固定引用正文；
 - 组织级启停、超时、引用/上下文上限、每用户小时配额和配置审计；
 - 异步运行与取消；
 - `ai:use` RBAC、`knowledge:read` 权限交集和组织隔离；
@@ -237,7 +238,7 @@ queued → running → succeeded
 queued/running ───→ canceled
 ```
 
-API 进程重启时，启动恢复会把上一个进程遗留的 `queued/running` 收口为 `failed`，并写入 `failure_code=ai.run_interrupted`，避免运行永久悬挂。
+API 进程重启时，启动恢复只把上一个进程遗留的 `running` 收口为 `failed` 并写入 `failure_code=ai.run_interrupted`；`queued` 任务保留，由单机 worker 重新领取。该实现不承诺多实例公平调度或独立消息队列。
 
 终态响应包含：
 

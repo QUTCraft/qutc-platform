@@ -158,13 +158,13 @@ func NewAgentService(db *gorm.DB, provider modelprovider.Provider, runLimit int,
 func (s *AgentService) RecoverInterruptedRuns() error {
 	now := time.Now().UTC()
 	var runs []model.AgentRun
-	if err := s.db.Where("status IN ?", []string{AgentRunQueued, AgentRunRunning}).Find(&runs).Error; err != nil {
+	if err := s.db.Where("status = ?", AgentRunRunning).Find(&runs).Error; err != nil {
 		return err
 	}
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		for _, run := range runs {
 			result := tx.Model(&model.AgentRun{}).
-				Where("id = ? AND status IN ?", run.ID, []string{AgentRunQueued, AgentRunRunning}).
+				Where("id = ? AND status = ?", run.ID, AgentRunRunning).
 				Updates(map[string]any{
 					"status":          AgentRunFailed,
 					"failure_code":    "ai.run_interrupted",
@@ -187,6 +187,93 @@ func (s *AgentService) RecoverInterruptedRuns() error {
 		}
 		return nil
 	})
+}
+
+func (s *AgentService) StartWorker(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 200 * time.Millisecond
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				execution, ok, err := s.claimQueuedRun()
+				if err != nil || !ok {
+					continue
+				}
+				go s.execute(execution)
+			}
+		}
+	}()
+}
+
+func (s *AgentService) claimQueuedRun() (agentExecution, bool, error) {
+	now := time.Now().UTC()
+	var run model.AgentRun
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("status = ? AND expires_at > ?", AgentRunQueued, now).Order("created_at ASC, id ASC").Limit(1).Find(&run)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return nil
+		}
+		claim := tx.Model(&model.AgentRun{}).Where("id = ? AND status = ?", run.ID, AgentRunQueued).Updates(map[string]any{"status": AgentRunRunning, "started_at": now, "updated_at": now})
+		if claim.Error != nil {
+			return claim.Error
+		}
+		if claim.RowsAffected == 0 {
+			run = model.AgentRun{}
+			return nil
+		}
+		run.Status = AgentRunRunning
+		run.StartedAt = &now
+		return nil
+	})
+	if err != nil || run.ID == "" {
+		return agentExecution{}, false, err
+	}
+	execution, err := s.executionForRun(run)
+	if err != nil {
+		_ = s.db.Model(&model.AgentRun{}).Where("id = ? AND status = ?", run.ID, AgentRunRunning).Updates(map[string]any{
+			"status": AgentRunFailed, "failure_code": "ai.run_rehydrate_failed", "failure_message": "队列任务上下文无法恢复，请重新创建。", "completed_at": time.Now().UTC(),
+		})
+		s.audit(run.OrganizationID, run.ActorUserID, "ai.run_result", "agent_run", run.ID, "failed", run.RequestID)
+		return agentExecution{}, false, nil
+	}
+	return execution, true, nil
+}
+
+func (s *AgentService) executionForRun(run model.AgentRun) (agentExecution, error) {
+	var definition model.AgentDefinition
+	if err := s.db.Where("id = ? AND organization_id = ?", run.AgentDefinitionID, run.OrganizationID).First(&definition).Error; err != nil {
+		return agentExecution{}, err
+	}
+	var citations []model.AgentCitation
+	if err := s.db.Where("run_id = ? AND organization_id = ?", run.ID, run.OrganizationID).Order("created_at ASC, id ASC").Find(&citations).Error; err != nil {
+		return agentExecution{}, err
+	}
+	sources := make([]modelprovider.Source, 0, len(citations))
+	for _, citation := range citations {
+		body := citation.SourceBody
+		if body == "" {
+			var content model.Content
+			if err := s.db.Where("id = ? AND organization_id = ?", citation.SourceID, run.OrganizationID).First(&content).Error; err != nil {
+				return agentExecution{}, err
+			}
+			body = boundedText(content.Body, 12000)
+		}
+		sources = append(sources, modelprovider.Source{ID: citation.SourceID, Title: citation.Title, Excerpt: citation.Excerpt, Body: body})
+	}
+	timeout := s.timeout
+	if configuration, err := s.Configuration(run.OrganizationID); err == nil && configuration.RequestTimeoutSeconds > 0 {
+		timeout = time.Duration(configuration.RequestTimeoutSeconds) * time.Second
+	}
+	return agentExecution{runID: run.ID, organizationID: run.OrganizationID, actorUserID: run.ActorUserID, requestID: run.RequestID, agentKey: definition.Key, promptVersion: definition.SystemPolicyVersion, task: run.Task, sources: sources, timeout: timeout}, nil
 }
 
 func (s *AgentService) ProviderStatus() modelprovider.Status {
@@ -405,7 +492,7 @@ func (s *AgentService) CreateRun(principal Principal, input AgentRunCreateInput,
 		citations = append(citations, model.AgentCitation{
 			ID: uuid.NewString(), RunID: runID, OrganizationID: principal.OrganizationID,
 			SourceType: "content", SourceID: content.ID, Title: content.Title, Excerpt: excerpt,
-			SourceUpdatedAt: content.UpdatedAt,
+			SourceBody: body, SourceUpdatedAt: content.UpdatedAt,
 		})
 	}
 
@@ -433,13 +520,6 @@ func (s *AgentService) CreateRun(principal Principal, input AgentRunCreateInput,
 		return AgentRunView{}, err
 	}
 
-	execution := agentExecution{
-		runID: run.ID, organizationID: principal.OrganizationID, actorUserID: principal.UserID,
-		requestID: requestID, agentKey: definition.Key, promptVersion: definition.SystemPolicyVersion,
-		task: input.Task, sources: sources,
-		timeout: time.Duration(configuration.RequestTimeoutSeconds) * time.Second,
-	}
-	go s.execute(execution)
 	return s.GetRun(principal.OrganizationID, run.ID)
 }
 
@@ -512,13 +592,6 @@ func (s *AgentService) CancelRun(principal Principal, runID, requestID string) (
 }
 
 func (s *AgentService) execute(execution agentExecution) {
-	startedAt := time.Now().UTC()
-	result := s.db.Model(&model.AgentRun{}).
-		Where("id = ? AND organization_id = ? AND status = ?", execution.runID, execution.organizationID, AgentRunQueued).
-		Updates(map[string]any{"status": AgentRunRunning, "started_at": startedAt})
-	if result.Error != nil || result.RowsAffected == 0 {
-		return
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), execution.timeout)
 	s.cancelMu.Lock()
 	s.cancelRuns[execution.runID] = cancel

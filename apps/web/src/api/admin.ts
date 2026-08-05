@@ -1,5 +1,5 @@
 import { del, get, getPage, patch, post, put, upload } from '@/api/client'
-import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminInvitationSummary, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, BatchInvitationResponse, EmailAdapterStatus, Invitation, InvitationRole, InvitationStatus, MediaAsset, Organization, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
+import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminInvitationSummary, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, BatchInvitationResponse, ContentRevision, EmailAdapterStatus, Invitation, InvitationRole, InvitationStatus, InvitationTemplate, MediaAsset, NotificationOutbox, Organization, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
 
 const adminBase = '/api/v1/admin'
 
@@ -23,6 +23,9 @@ export const adminApi = {
 	updateOrganization: (payload: Pick<Organization, 'name' | 'short_name' | 'tagline' | 'introduction' | 'contact_email' | 'social_links' | 'is_public'>) => patch<Organization>(`${adminBase}/organization`, payload),
   getContent: (params: PageQuery = {}) => getPage<AdminContent>(withQuery(`${adminBase}/content`, params)),
   getContentById: (id: string) => get<AdminContent>(`${adminBase}/content/${id}`),
+  getContentRevisions: (id: string, params: PageQuery = {}) => getPage<ContentRevision>(withQuery(`${adminBase}/content/${id}/revisions`, params)),
+  getContentRevision: (contentId: string, revisionId: string) => get<ContentRevision>(`${adminBase}/content/${contentId}/revisions/${revisionId}`),
+  restoreContentRevision: (contentId: string, revisionId: string) => post<AdminContent>(`${adminBase}/content/${contentId}/revisions/${revisionId}/restore`),
   createContent: (payload: Pick<AdminContent, 'title' | 'type' | 'category' | 'knowledge_directory_id' | 'excerpt' | 'body'>) => post<AdminContent>(`${adminBase}/content`, payload),
   updateContent: (id: string, payload: Pick<AdminContent, 'title' | 'type' | 'category' | 'knowledge_directory_id' | 'excerpt' | 'body'>) => patch<AdminContent>(`${adminBase}/content/${id}`, payload),
   publishContent: (id: string) => post<AdminContent>(`${adminBase}/content/${id}/publish`),
@@ -43,6 +46,11 @@ export const adminApi = {
   revokeInvitation: (id: string) => del<Invitation>(`${adminBase}/invitations/${id}`),
   retryInvitationEmail: (id: string) => post<AdminInvitation>(`${adminBase}/invitations/${id}/email/retry`),
   getEmailAdapterStatus: () => get<EmailAdapterStatus>(`${adminBase}/notifications/email/status`),
+  getInvitationTemplate: () => get<InvitationTemplate>(`${adminBase}/notifications/invitation-template`),
+  updateInvitationTemplate: (payload: Pick<InvitationTemplate, 'subject_template' | 'body_template'>) => patch<InvitationTemplate>(`${adminBase}/notifications/invitation-template`, payload),
+  getNotificationOutbox: (params: PageQuery & { status?: NotificationOutbox['status'] | '' } = {}) => getPage<NotificationOutbox>(withQuery(`${adminBase}/notifications/outbox`, params)),
+  retryNotification: (id: string) => post<NotificationOutbox>(`${adminBase}/notifications/outbox/${id}/retry`),
+  getAssetDownloadStats: (id: string) => get<{ id: string; content_id?: string; download_count: number; last_downloaded_at?: string | null }>(`${adminBase}/assets/${id}/stats`),
   updateUser: (id: string, payload: { state: AdminMembershipWriteState; role: AdminUser['role'] }) => patch<AdminUser>(`${adminBase}/users/${id}`, payload),
   getAuditEvents: (params: AuditEventFilters = {}) => getPage<AuditEvent>(withQuery(`${adminBase}/audit`, params)),
   getAIConfiguration: () => get<AIConfiguration>(`${adminBase}/ai/config`),

@@ -59,6 +59,10 @@ func NewWorkspaceHandlerWithServerAdapterTimeout(db *gorm.DB, publicCache *cache
 }
 
 func NewWorkspaceHandlerWithDependencies(db *gorm.DB, publicCache *cache.Cache, environment string, adapter serveradapter.Adapter, timeout time.Duration, mediaStorage storage.Store) *WorkspaceHandler {
+	return NewWorkspaceHandlerWithDependenciesAndNotifications(db, publicCache, environment, adapter, timeout, mediaStorage, nil)
+}
+
+func NewWorkspaceHandlerWithDependenciesAndNotifications(db *gorm.DB, publicCache *cache.Cache, environment string, adapter serveradapter.Adapter, timeout time.Duration, mediaStorage storage.Store, notifications *service.NotificationService) *WorkspaceHandler {
 	if strings.TrimSpace(environment) == "" {
 		environment = "development"
 	}
@@ -79,7 +83,7 @@ func NewWorkspaceHandlerWithDependencies(db *gorm.DB, publicCache *cache.Cache, 
 		cacheNamespace: environment,
 		serverAdapter:  adapter,
 		mediaStorage:   mediaStorage,
-		applications:   service.NewApplicationDecisionService(db, adapter),
+		applications:   service.NewApplicationDecisionServiceWithNotifications(db, adapter, notifications),
 	}
 }
 
@@ -682,6 +686,9 @@ func (h *WorkspaceHandler) AdminCreateContent(c *gin.Context) {
 		if err := tx.Create(&content).Error; err != nil {
 			return err
 		}
+		if err := createContentRevision(tx, content, principal.UserID, "create"); err != nil {
+			return err
+		}
 		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "content.create", "content", content.ID)
 	}); err != nil {
 		fail(c, http.StatusInternalServerError, "content.create_failed", "内容草稿创建失败。")
@@ -722,6 +729,9 @@ func (h *WorkspaceHandler) AdminUpdateContent(c *gin.Context) {
 			return err
 		}
 		if err := bindMarkdownAssets(tx, principal.OrganizationID, content.ID, content.Body); err != nil {
+			return err
+		}
+		if err := createContentRevision(tx, content, principal.UserID, "update"); err != nil {
 			return err
 		}
 		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "content.update", "content", content.ID)
@@ -768,6 +778,9 @@ func (h *WorkspaceHandler) changeContentStatus(c *gin.Context, status string) {
 			}
 		}
 		if err := tx.Save(&content).Error; err != nil {
+			return err
+		}
+		if err := createContentRevision(tx, content, principal.UserID, status); err != nil {
 			return err
 		}
 		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "content."+status, "content", content.ID)
@@ -817,6 +830,124 @@ func bindMarkdownAssets(db *gorm.DB, organizationID, contentID, body string) err
 		}
 	}
 	return nil
+}
+
+func createContentRevision(tx *gorm.DB, content model.Content, actorUserID, reason string) error {
+	var version int
+	if err := tx.Model(&model.ContentRevision{}).Where("content_id = ?", content.ID).Select("COALESCE(MAX(version), 0)").Scan(&version).Error; err != nil {
+		return err
+	}
+	directoryID := ""
+	if content.KnowledgeDirectoryID != nil {
+		directoryID = *content.KnowledgeDirectoryID
+	}
+	return tx.Create(&model.ContentRevision{
+		ID: uuid.NewString(), OrganizationID: content.OrganizationID, ContentID: content.ID, Version: version + 1,
+		CreatedBy: actorUserID, Reason: reason, Title: content.Title, Type: content.Type, Category: content.Category,
+		KnowledgeDirectoryID: directoryID, Status: content.Status, Excerpt: content.Excerpt, Body: content.Body,
+		PublishedAt: content.PublishedAt, CreatedAt: time.Now().UTC(),
+	}).Error
+}
+
+func (h *WorkspaceHandler) AdminContentRevisions(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	page, pageSize, ok := listMeta(c, 0)
+	if !ok {
+		return
+	}
+	query := h.db.Model(&model.ContentRevision{}).Where("organization_id = ? AND content_id = ?", principal.OrganizationID, c.Param("id"))
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "content.revision_list_failed", "内容修订历史暂时无法加载。")
+		return
+	}
+	var revisions []model.ContentRevision
+	if err := query.Order("version DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&revisions).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "content.revision_list_failed", "内容修订历史暂时无法加载。")
+		return
+	}
+	items := make([]gin.H, 0, len(revisions))
+	for _, revision := range revisions {
+		items = append(items, contentRevisionItem(revision, false))
+	}
+	respondWithMeta(c, http.StatusOK, items, gin.H{"page": page, "page_size": pageSize, "total": total})
+}
+
+func (h *WorkspaceHandler) AdminContentRevisionDetail(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var revision model.ContentRevision
+	if err := h.db.Where("id = ? AND content_id = ? AND organization_id = ?", c.Param("revision_id"), c.Param("id"), principal.OrganizationID).First(&revision).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fail(c, http.StatusNotFound, "content.revision_not_found", "内容修订版本不存在。")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "content.revision_detail_failed", "内容修订版本暂时无法加载。")
+		return
+	}
+	respond(c, http.StatusOK, contentRevisionItem(revision, true))
+}
+
+func (h *WorkspaceHandler) RestoreContentRevision(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var revision model.ContentRevision
+	var content model.Content
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("id = ? AND content_id = ? AND organization_id = ?", c.Param("revision_id"), c.Param("id"), principal.OrganizationID).First(&revision).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&content).Error; err != nil {
+			return err
+		}
+		var directoryID *string
+		if revision.KnowledgeDirectoryID != "" {
+			directoryID = &revision.KnowledgeDirectoryID
+		}
+		content.Title, content.Type, content.Category, content.KnowledgeDirectoryID = revision.Title, revision.Type, revision.Category, directoryID
+		content.Status, content.Excerpt, content.Body, content.PublishedAt = service.ContentStatusDraft, revision.Excerpt, revision.Body, nil
+		if err := tx.Save(&content).Error; err != nil {
+			return err
+		}
+		if err := bindMarkdownAssets(tx, principal.OrganizationID, content.ID, content.Body); err != nil {
+			return err
+		}
+		if err := createContentRevision(tx, content, principal.UserID, "restore"); err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "content.revision_restore", "content", content.ID)
+	})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fail(c, http.StatusNotFound, "content.revision_not_found", "内容或修订版本不存在。")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "content.revision_restore_failed", "内容修订版本恢复失败。")
+		return
+	}
+	h.invalidatePortalCache(principal.OrganizationID)
+	respond(c, http.StatusOK, contentAdminItem(content, h.db))
+}
+
+func contentRevisionItem(revision model.ContentRevision, includeBody bool) gin.H {
+	item := gin.H{"id": revision.ID, "content_id": revision.ContentID, "version": revision.Version, "created_by": revision.CreatedBy, "reason": revision.Reason, "title": revision.Title, "type": revision.Type, "category": revision.Category, "knowledge_directory_id": nil, "status": revision.Status, "excerpt": revision.Excerpt, "published_at": revision.PublishedAt, "created_at": revision.CreatedAt}
+	if revision.KnowledgeDirectoryID != "" {
+		item["knowledge_directory_id"] = revision.KnowledgeDirectoryID
+	}
+	if includeBody {
+		item["body"] = revision.Body
+	}
+	return item
 }
 
 func canTransitionContentStatus(current, target string) bool {
@@ -889,11 +1020,18 @@ func (h *WorkspaceHandler) resourcePublicItem(slug string, content model.Content
 func contentAdminItem(content model.Content, db *gorm.DB) gin.H {
 	var author model.User
 	_ = db.First(&author, "id = ?", content.AuthorUserID).Error
+	var revisionCount int64
+	_ = db.Model(&model.ContentRevision{}).Where("content_id = ? AND organization_id = ?", content.ID, content.OrganizationID).Count(&revisionCount).Error
+	var asset model.MediaAsset
+	assetItem := interface{}(nil)
+	if db.Where("content_id = ? AND organization_id = ?", content.ID, content.OrganizationID).Order("created_at ASC").First(&asset).Error == nil {
+		assetItem = gin.H{"id": asset.ID, "original_name": asset.OriginalName, "mime_type": asset.MimeType, "size_bytes": asset.SizeBytes, "download_count": asset.DownloadCount, "last_downloaded_at": asset.LastDownloadedAt, "download_url": "/api/v1/admin/assets/" + asset.ID + "/download"}
+	}
 	var directoryID interface{} = nil
 	if content.KnowledgeDirectoryID != nil && *content.KnowledgeDirectoryID != "" {
 		directoryID = *content.KnowledgeDirectoryID
 	}
-	return gin.H{"id": content.ID, "title": content.Title, "type": content.Type, "category": content.Category, "knowledge_directory_id": directoryID, "status": content.Status, "author": author.DisplayName, "excerpt": content.Excerpt, "body": content.Body, "published_at": content.PublishedAt, "updated_at": content.UpdatedAt}
+	return gin.H{"id": content.ID, "title": content.Title, "type": content.Type, "category": content.Category, "knowledge_directory_id": directoryID, "status": content.Status, "author": author.DisplayName, "excerpt": content.Excerpt, "body": content.Body, "published_at": content.PublishedAt, "updated_at": content.UpdatedAt, "revision_count": revisionCount, "asset": assetItem}
 }
 
 func maxInt(a, b int) int {
@@ -1572,12 +1710,18 @@ func validApplicationRequest(body applicationRequest) bool {
 	if err != nil || parsedEmail.Address != email {
 		return false
 	}
-	return (body.Type == "whitelist" || body.Type == "membership") &&
-		strings.TrimSpace(body.ClassName) != "" && len([]rune(body.ClassName)) <= 120 &&
-		strings.TrimSpace(body.Name) != "" && len([]rune(body.Name)) <= 80 &&
+	if body.Type != "whitelist" && body.Type != "membership" {
+		return false
+	}
+	if strings.TrimSpace(body.Name) == "" || len([]rune(body.Name)) > 80 || len([]rune(body.Note)) > 500 {
+		return false
+	}
+	if body.Type == "membership" {
+		return len([]rune(body.ClassName)) <= 120 && len([]rune(body.GameID)) <= 80 && len([]rune(body.QQNumber)) <= 32
+	}
+	return strings.TrimSpace(body.ClassName) != "" && len([]rune(body.ClassName)) <= 120 &&
 		strings.TrimSpace(body.GameID) != "" && len([]rune(body.GameID)) <= 80 &&
-		qqNumberPattern.MatchString(strings.TrimSpace(body.QQNumber)) &&
-		len([]rune(body.Note)) <= 500
+		qqNumberPattern.MatchString(strings.TrimSpace(body.QQNumber))
 }
 
 func (h *WorkspaceHandler) SubmitApplication(c *gin.Context) {
@@ -1597,7 +1741,7 @@ func (h *WorkspaceHandler) SubmitApplication(c *gin.Context) {
 	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
 	body.Note = strings.TrimSpace(body.Note)
 	if !validApplicationRequest(body) {
-		fail(c, http.StatusBadRequest, "application.validation_failed", "班级、姓名、游戏 ID、QQ 号码或邮箱不符合规范。")
+		fail(c, http.StatusBadRequest, "application.validation_failed", "申请人姓名、邮箱或当前申请类型所需字段不符合规范。")
 		return
 	}
 
@@ -1608,9 +1752,12 @@ func (h *WorkspaceHandler) SubmitApplication(c *gin.Context) {
 	}
 
 	var existing model.Application
-	duplicateQuery := h.db.Where("organization_id = ? AND status = ? AND (LOWER(email) = ? OR game_id = ?)", organization.ID, "pending", body.Email, body.GameID)
+	duplicateQuery := h.db.Where("organization_id = ? AND status = ? AND LOWER(email) = ?", organization.ID, "pending", body.Email)
+	if body.Type == "whitelist" {
+		duplicateQuery = h.db.Where("organization_id = ? AND status = ? AND (LOWER(email) = ? OR game_id = ?)", organization.ID, "pending", body.Email, body.GameID)
+	}
 	if err := duplicateQuery.First(&existing).Error; err == nil {
-		fail(c, http.StatusConflict, "application.duplicate_pending", "相同邮箱或游戏 ID 已有待处理申请。")
+		fail(c, http.StatusConflict, "application.duplicate_pending", "相同邮箱或申请标识已有待处理申请。")
 		return
 	} else if err != gorm.ErrRecordNotFound {
 		fail(c, http.StatusInternalServerError, "application.lookup_failed", "申请暂时无法提交。")
@@ -1618,7 +1765,7 @@ func (h *WorkspaceHandler) SubmitApplication(c *gin.Context) {
 	}
 
 	note := body.Note
-	if note == "" {
+	if note == "" && body.Type == "whitelist" {
 		note = strings.Join([]string{"班级/专业：" + body.ClassName, "游戏 ID：" + body.GameID}, "；")
 	}
 	application := model.Application{

@@ -213,7 +213,7 @@ Portal 通过 `organization_slug` 定位组织。Admin 是“当前 token 所属
 | `POST /logout` | HttpOnly Cookie | 撤销 Cookie 对应 Refresh Token 并清除 Cookie；重复调用保持安全。 |
 | `GET /me` | Bearer JWT | 返回当前用户、当前组织和角色。 |
 | `GET /organizations` | Bearer JWT | 返回当前账户具有 active 成员关系的组织、组织内角色和当前组织标记。 |
-| `POST /switch-organization` | Bearer JWT + HttpOnly Cookie | 验证目标成员关系，轮换会话并返回绑定目标组织的新 Access Token。 |
+| `POST /switch-organization` | Bearer JWT + HttpOnly Cookie | 验证目标成员关系，轮换会话、保存默认组织偏好并返回绑定目标组织的新 Access Token。 |
 
 ### 5.1 当前用户资料
 
@@ -246,6 +246,7 @@ Portal 通过 `organization_slug` 定位组织。Admin 是“当前 token 所属
       "email": "member@example.com",
       "display_name": "Member",
       "organization_id": "org_...",
+      "default_organization_id": "org_...",
       "roles": ["member"]
     }
   },
@@ -258,6 +259,8 @@ Portal 通过 `organization_slug` 定位组织。Admin 是“当前 token 所属
 ### 5.2 多组织会话切换
 
 `GET /api/v1/auth/organizations` 返回当前账户可进入的组织。每项包含 `id`、`slug`、`name`、`short_name`、该组织内独立计算的 `roles`，以及是否与当前 Access Token 一致的 `current`。停用、退出或不存在的成员关系不会出现在列表中。
+
+用户显式切换组织后，服务端将目标组织写入 `users.default_organization_id`。下次登录优先进入该组织；若偏好组织已失去 active 成员关系，则自动回退到最早的有效成员关系。该偏好不允许跨组织读取或由 Portal 修改。
 
 切换请求：
 
@@ -404,7 +407,14 @@ Operation ID：`listPortalKnowledgeArticles`
 | `category` | string，最多 64 字符 | 可选分类。 |
 | `q` | string，最多 128 字符 | 可选公开检索词。 |
 
-每项 `KnowledgeArticle`：`id`、`title`（最多 160）、`summary`（最多 500）、`category`（最多 64）、`updated_at`、`reading_minutes`（≥1）。当前只定义文章列表；**文章详情正文接口尚未定义**，前端不得自行猜测诸如 `/articles/{id}` 的路径。
+每项 `KnowledgeArticle`：`id`、`title`（最多 160）、`summary`（最多 500）、`category`（最多 64）、`updated_at`、`reading_minutes`（≥1）。列表支持 `category` 与 `q`（标题、摘要或 Markdown 正文的基础匹配）筛选。
+
+知识文章正文统一使用通用内容详情接口，不另造 `/knowledge/articles/{id}`：
+
+`GET /api/v1/portal/organizations/{organization_slug}/content/{content_id}`
+Operation ID：`getPortalContentDetail`
+
+当 `content_id` 对应已发布且公开的 `knowledge` 内容时，响应返回 `PortalContentDetail`：`id`、`title`、`type`、`category`、`excerpt`、标准 Markdown `body`、`published_at`、`updated_at`、`reading_minutes`、可选 `asset` 与受控 `download_url`。草稿、下线内容、未公开目录文章和跨组织 ID 统一返回 `404`。正文中的 CMS 媒体必须使用服务端返回的 `/assets/{asset_id}/download` 地址；客户端不得自行拼接对象存储路径。
 
 `GET /api/v1/portal/organizations/{organization_slug}/knowledge/directories` 返回已公开的知识库目录及其已发布文章数量。目录字段为 `id`、`name`、`slug`、`description`、`article_count`、`updated_at`；目录不是文章正文，文章仍通过上面的文章列表接口读取。
 
@@ -441,14 +451,14 @@ Operation ID：`submitPortalApplication`
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `type` | enum，可选 | `whitelist` 或 `membership`，默认 `whitelist`。 |
-| `class_name` | string，1–120 字符 | 班级/专业或组织身份信息。 |
+| `class_name` | string，可选 | `whitelist` 类型必填；`membership` 类型可省略，最长 120 字符。 |
 | `name` | string，1–80 字符 | 申请人姓名。 |
-| `game_id` | string，1–80 字符 | Minecraft 游戏 ID 或外部平台标识。 |
-| `qq_number` | string | 5–15 位数字。 |
+| `game_id` | string，可选 | `whitelist` 类型必填；`membership` 类型可省略，最长 80 字符。 |
+| `qq_number` | string，可选 | `whitelist` 类型必填且为 5–15 位数字；`membership` 类型可省略。 |
 | `email` | email | 用于后续联系的邮箱。 |
 | `note` | string，可选，最多 500 字符 | 申请补充说明。 |
 
-成功返回 `201`，数据为 `id`、`status=pending`、`submitted_at`。同一组织中相同邮箱或游戏 ID 存在待审批申请时返回 `409 application.duplicate_pending`；请求字段不合法返回 `400`。申请列表、姓名详情、QQ 和邮箱只在受保护 Admin API 中提供。
+`membership` 申请只要求姓名和邮箱，可用 `note` 描述申请方向；`whitelist` 申请仍要求班级/专业、Minecraft 游戏 ID 和 QQ。成功返回 `201`，数据为 `id`、`status=pending`、`submitted_at`。同一组织中 membership 按邮箱、whitelist 按邮箱或游戏 ID检测待审批重复时返回 `409 application.duplicate_pending`；请求字段不合法返回 `400`。申请列表、姓名详情、QQ 和邮箱只在受保护 Admin API 中提供。
 
 ## 7. Admin API（受认证后台）
 
@@ -529,14 +539,19 @@ Operation ID：`createAdminContent`
 - `PATCH /api/v1/admin/content/{content_id}`：更新草稿标题、类型、分类、摘要和正文，需要 `content:update`；已发布内容必须先下线。
 - `POST /api/v1/admin/content/{content_id}/publish`：将草稿发布到 Portal，需要 `content:publish`。只有 `published` 内容会出现在公开动态接口。
 - `POST /api/v1/admin/content/{content_id}/archive`：下线内容，需要 `content:archive`；下线使用 `archived` 状态，不物理删除。
+- `GET /api/v1/admin/content/{content_id}/revisions` 与 `GET /api/v1/admin/content/{content_id}/revisions/{revision_id}`：读取当前组织的不可变修订摘要或完整 Markdown，需要 `content:read`。
+- `POST /api/v1/admin/content/{content_id}/revisions/{revision_id}/restore`：把指定快照恢复为新的 `draft`，不会直接发布，需要 `content:update`，并写入 `content.revision_restore` 审计。
+
+草稿创建、草稿更新、发布、下线和恢复都会生成版本号递增的快照；恢复操作保留当前内容 ID，并通过新版本记录恢复事实。当前版本接口提供完整快照，不承诺行级 diff。
 
 #### 媒体资源
 
 - `POST /api/v1/admin/assets`：以 `multipart/form-data` 上传字段 `file`，可选 `content_id` 建立引用，需要 `asset:upload`；单文件上限 10 MiB、整个 multipart 请求上限 11 MiB，仅允许 PNG/JPEG/WebP/PDF/ZIP/MP4。
 - `GET /api/v1/admin/assets/{asset_id}/download`：管理端受权限保护的下载，需要 `asset:read`。
+- `GET /api/v1/admin/assets/{asset_id}/stats`：读取当前组织资产的 `download_count` 与 `last_downloaded_at`，需要 `asset:read`。
 - `GET /api/v1/portal/organizations/{organization_slug}/assets/{asset_id}/download`：仅当资产关联的内容已发布时允许下载，不返回草稿或管理字段。
 
-上传响应只返回资产元数据和服务端生成的下载地址。客户端不得根据原始文件名、对象存储 bucket 或资产 ID 自行拼接下载 URL。API 可通过 `STORAGE_DRIVER=local|s3` 使用本地目录或 MinIO/S3；存储凭据、驱动和对象键不进入公开响应。存储暂不可用时上传/下载返回 `503`，详细配置、迁移与补偿边界见 [媒体存储适配规范](storage-adapter.md)。
+上传响应只返回资产元数据和服务端生成的下载地址，并包含下载计数。客户端不得根据原始文件名、对象存储 bucket 或资产 ID 自行拼接下载 URL。每次管理端或已公开 Portal 受控下载成功后递增计数，不记录访客身份。API 可通过 `STORAGE_DRIVER=local|s3` 使用本地目录或 MinIO/S3；存储凭据、驱动和对象键不进入公开响应。存储暂不可用时上传/下载返回 `503`，详细配置、迁移与补偿边界见 [媒体存储适配规范](storage-adapter.md)。
 
 ### 7.3 成员与角色
 
@@ -737,6 +752,8 @@ Operation ID：`executeRestrictedServerCommand`
 - **投递边界**：邀请先提交，邮件在事务外同步尝试；失败单独记录为 `failed`，不会回滚邀请。
 - **失败恢复**：Admin 可轮换邀请链接并重试；服务端不保存明文 token，旧链接在重试时立即失效。
 - **配置状态**：`GET /api/v1/admin/notifications/email/status` 只返回驱动、发件人和安全模式，不返回连接与认证凭据。
+- **邀请模板**：`GET/PATCH /api/v1/admin/notifications/invitation-template` 读取或更新当前组织模板；允许变量只有 `{{organization}}`、`{{role}}`、`{{invite_url}}`、`{{expires_at}}`，主题最长 255、正文最长 4000 字符，留空恢复默认模板。
+- **审批通知**：审批成功/拒绝在审批事务内写入唯一 `notification_outboxes` 事件；`GET /api/v1/admin/notifications/outbox` 查看队列，`POST /api/v1/admin/notifications/outbox/{notification_id}/retry` 重新排队失败或禁用通知。通知 worker 失败不会回滚审批决定，最多 5 次自动尝试并使用退避。
 - **安全约束**：SMTP 授权码严格保存在后端受控环境变量中，绝不可暴露或持久化到前端静态代码或 UI 中。完整配置、模型和错误语义见 [邀请邮件适配器规范](email-adapter.md)。
 
 #### 2. Minecraft RCON 隔离与审计规范
@@ -840,7 +857,7 @@ Operation ID：`listAdminAuditEvents`
 | `/admin/reviews` | 申请审核与可选服务器适配 | 所有组织可处理成员申请；仅 QUTCraft 场景展示服务器状态、同步记录与受限命令。 |
 | `/admin/audit` | 审计记录 | `GET /admin/audit-events`，按组织、权限和筛选条件查询。 |
 | `/admin/ai` | 智能体配置 | 读取脱敏供应商状态；组织所有者保存启停、配额、超时和上下文策略。 |
-| `/admin/settings` | 门户与通知设置 | 门户 Manifest 管理；只读检查服务端邮件适配器状态，不接收 SMTP 密码。 |
+| `/admin/settings` | 门户与通知设置 | 门户 Manifest、邮件适配器状态、邀请模板和审批通知队列；不接收 SMTP 密码。 |
 
 ## 9. 自定义门户接入规范
 
@@ -865,15 +882,15 @@ Operation ID：`listAdminAuditEvents`
 
 ## 11. 当前未定义能力清单
 
-以下能力可能是后续平台所需功能，但**不是当前 API**：
+以下能力可能是后续平台所需功能，但**不是当前 API**。活动策划已经有领域专用的人工批准接口；这里未实现的是通用化工作流能力：
 
-- 密码重置、邮箱验证、2FA、SSO 与多组织主动切换。
-- 内容删除、定时发布、复杂审核流与版本历史。
+- 密码重置、邮箱验证、2FA、SSO，以及组织搜索和跨组织聚合（默认组织偏好已实现）。
+- 内容删除、定时发布、复杂审核流、行级 diff 与版本导出（内容版本快照与恢复已实现）。
 - 分片上传、病毒扫描回调与跨存储后端在线迁移。
-- 邀请模板和成员资料编辑。
-- 申请人状态查询、撤回、补充材料与审批通知。
+- 成员资料编辑和多语言邀请模板。
+- 申请人状态查询、撤回、补充材料；审批通知与持久化 Outbox 已实现，Webhook/企业微信仍未实现。
 - RCON 命令白名单配置、命令历史查询、服务器监控明细。
 - 门户历史版本回滚、资源包上传/审核与运行时健康查询。
-- AI 工具调用批准/拒绝、公开知识问答与多智能体工作流。
+- 通用 AI 工具调用批准/拒绝、公开知识问答与多智能体工作流。
 
 开发上述任一能力时，必须先将端点、权限、幂等性、审计字段、错误码和敏感信息处理加入 OpenAPI，而不是仅在前端页面中临时约定。

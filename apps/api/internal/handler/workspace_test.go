@@ -74,6 +74,17 @@ func TestValidApplicationRequestDefaultsToWhitelist(t *testing.T) {
 	}
 }
 
+func TestValidMembershipApplicationDoesNotRequireMinecraftFields(t *testing.T) {
+	value := applicationRequest{Type: "membership", Name: "Campus Maker", Email: "maker@example.com", Note: "希望参与内容运营。"}
+	if !validApplicationRequest(value) {
+		t.Fatal("expected a generic membership application without Minecraft fields to be valid")
+	}
+	value.Email = "invalid"
+	if validApplicationRequest(value) {
+		t.Fatal("expected invalid membership email to be rejected")
+	}
+}
+
 func TestNormalizeOrganizationProfile(t *testing.T) {
 	value, valid := normalizeOrganizationProfile(organizationProfileRequest{
 		Name: "  Campus Makers  ", ShortName: " Makers ", ContactEmail: "TEAM@EXAMPLE.ORG",

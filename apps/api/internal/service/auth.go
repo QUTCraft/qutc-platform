@@ -34,13 +34,14 @@ type Principal struct {
 }
 
 type Profile struct {
-	ID             string   `json:"id"`
-	Email          string   `json:"email"`
-	DisplayName    string   `json:"display_name"`
-	Bio            string   `json:"bio"`
-	AvatarURL      string   `json:"avatar_url"`
-	OrganizationID string   `json:"organization_id"`
-	Roles          []string `json:"roles"`
+	ID                    string   `json:"id"`
+	Email                 string   `json:"email"`
+	DisplayName           string   `json:"display_name"`
+	Bio                   string   `json:"bio"`
+	AvatarURL             string   `json:"avatar_url"`
+	OrganizationID        string   `json:"organization_id"`
+	DefaultOrganizationID string   `json:"default_organization_id"`
+	Roles                 []string `json:"roles"`
 }
 
 type OrganizationMembershipView struct {
@@ -129,7 +130,7 @@ func (s *AuthService) register(email, displayName, password, invitationToken str
 			roleKey = invitation.Role
 			reason = "invitation_accepted"
 		}
-		user := model.User{ID: uuid.NewString(), Email: email, DisplayName: displayName, PasswordHash: string(hash), State: "active"}
+		user := model.User{ID: uuid.NewString(), Email: email, DisplayName: displayName, PasswordHash: string(hash), State: "active", DefaultOrganizationID: organizationID}
 		if err := tx.Create(&user).Error; err != nil {
 			return err
 		}
@@ -217,6 +218,10 @@ func (s *AuthService) Refresh(refreshToken string) (TokenPair, error) {
 		if result.RowsAffected != 1 {
 			return ErrInvalidRefresh
 		}
+		if err := tx.Model(&model.User{}).Where("id = ?", user.ID).Update("default_organization_id", organizationID).Error; err != nil {
+			return err
+		}
+		user.DefaultOrganizationID = organizationID
 		var issueErr error
 		pair, issueErr = s.issueTokenPair(tx, user, organizationID)
 		return issueErr
@@ -357,7 +362,7 @@ func (s *AuthService) ProfileFor(principal Principal) (Profile, error) {
 	if err != nil {
 		return Profile{}, err
 	}
-	return Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Bio: user.Bio, AvatarURL: user.AvatarURL, OrganizationID: principal.OrganizationID, Roles: roles}, nil
+	return Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Bio: user.Bio, AvatarURL: user.AvatarURL, OrganizationID: principal.OrganizationID, DefaultOrganizationID: user.DefaultOrganizationID, Roles: roles}, nil
 }
 
 func (s *AuthService) UpdateProfile(principal Principal, displayName, bio, avatarURL string) (Profile, error) {
@@ -409,7 +414,7 @@ func (s *AuthService) issueTokenPair(db *gorm.DB, user model.User, organizationI
 	if err != nil {
 		return TokenPair{}, err
 	}
-	return TokenPair{AccessToken: accessToken, RefreshToken: refreshToken, TokenType: "Bearer", ExpiresIn: int64(s.cfg.JWTAccessTTL.Seconds()), User: Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Bio: user.Bio, AvatarURL: user.AvatarURL, OrganizationID: organizationID, Roles: roles}}, nil
+	return TokenPair{AccessToken: accessToken, RefreshToken: refreshToken, TokenType: "Bearer", ExpiresIn: int64(s.cfg.JWTAccessTTL.Seconds()), User: Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Bio: user.Bio, AvatarURL: user.AvatarURL, OrganizationID: organizationID, DefaultOrganizationID: user.DefaultOrganizationID, Roles: roles}}, nil
 }
 
 func (s *AuthService) hasActiveMembership(db *gorm.DB, userID, organizationID string) (bool, error) {
@@ -423,6 +428,22 @@ func (s *AuthService) hasActiveMembership(db *gorm.DB, userID, organizationID st
 }
 
 func (s *AuthService) activeOrganizationID(userID string) (string, error) {
+	var user model.User
+	if err := s.db.Where("id = ? AND state = ?", userID, "active").First(&user).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return "", ErrInvalidCredentials
+		}
+		return "", err
+	}
+	if user.DefaultOrganizationID != "" {
+		active, err := s.hasActiveMembership(s.db, userID, user.DefaultOrganizationID)
+		if err != nil {
+			return "", err
+		}
+		if active {
+			return user.DefaultOrganizationID, nil
+		}
+	}
 	var membership model.Membership
 	if err := s.db.Where("user_id = ? AND state = ?", userID, "active").Order("created_at ASC").First(&membership).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {

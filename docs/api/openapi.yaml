@@ -741,6 +741,26 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/admin/assets/{asset_id}/stats:
+    get:
+      tags: [Admin]
+      operationId: getAdminAssetDownloadStats
+      summary: 获取媒体资源下载统计
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: asset_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: 当前组织范围内的下载次数和最近下载时间
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetDownloadStatsResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/portal/organizations/{organization_slug}/assets/{asset_id}/download:
     get:
       tags: [Portal]
@@ -845,6 +865,77 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/content/{content_id}/revisions:
+    get:
+      tags: [Admin]
+      operationId: listAdminContentRevisions
+      summary: 获取内容修订历史
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: content_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 当前组织范围内的内容修订快照
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentRevisionListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/content/{content_id}/revisions/{revision_id}:
+    get:
+      tags: [Admin]
+      operationId: getAdminContentRevision
+      summary: 获取内容修订详情
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: content_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+        - name: revision_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: 含 Markdown 正文的修订快照
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentRevisionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/content/{content_id}/revisions/{revision_id}/restore:
+    post:
+      tags: [Admin]
+      operationId: restoreAdminContentRevision
+      summary: 将内容修订恢复为新草稿
+      description: 恢复操作不会直接发布内容，而是将当前内容写成新的 draft 修订。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: content_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+        - name: revision_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: 已恢复为草稿
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminContentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/admin/invitations/{invitation_id}:
     delete:
@@ -1685,6 +1776,81 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/notifications/invitation-template:
+    get:
+      tags: [Admin]
+      operationId: getAdminInvitationTemplate
+      summary: 获取组织邀请邮件模板
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 组织级邀请模板和可用变量
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitationTemplateResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      tags: [Admin]
+      operationId: updateAdminInvitationTemplate
+      summary: 更新组织邀请邮件模板
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InvitationTemplateRequest' }
+      responses:
+        '200':
+          description: 邀请模板已保存
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitationTemplateResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/notifications/outbox:
+    get:
+      tags: [Admin]
+      operationId: listAdminNotificationOutbox
+      summary: 获取异步通知队列
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, sending, sent, failed, disabled] }
+      responses:
+        '200':
+          description: 当前组织的审批通知队列
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationOutboxListResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/notifications/outbox/{notification_id}/retry:
+    post:
+      tags: [Admin]
+      operationId: retryAdminNotification
+      summary: 重新排队失败通知
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: notification_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: 通知已重新排队
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationOutboxResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/admin/organization:
     get:
       tags: [Admin]
@@ -2109,13 +2275,13 @@ components:
         meta: { $ref: '#/components/schemas/Meta' }
     PortalApplicationRequest:
       type: object
-      required: [class_name, name, game_id, qq_number, email]
+      required: [name, email]
       properties:
         type: { $ref: '#/components/schemas/ApplicationType', default: whitelist }
-        class_name: { type: string, minLength: 1, maxLength: 120 }
+        class_name: { type: [string, 'null'], maxLength: 120, description: 'whitelist 类型必填；membership 类型可选。' }
         name: { type: string, minLength: 1, maxLength: 80 }
-        game_id: { type: string, minLength: 1, maxLength: 80 }
-        qq_number: { type: string, pattern: '^[0-9]{5,15}$' }
+        game_id: { type: [string, 'null'], maxLength: 80, description: 'whitelist 类型必填；membership 类型可选。' }
+        qq_number: { type: [string, 'null'], maxLength: 32, pattern: '^[0-9]{5,15}$', description: 'whitelist 类型必填；membership 类型可选。' }
         email: { type: string, format: email, maxLength: 254 }
         note: { type: string, maxLength: 500 }
     PortalApplicationReceipt:
@@ -2152,6 +2318,11 @@ components:
         body: { type: [string, 'null'] }
         published_at: { type: [string, 'null'], format: date-time }
         updated_at: { type: string, format: date-time }
+        revision_count: { type: integer, minimum: 0 }
+        asset:
+          oneOf:
+            - $ref: '#/components/schemas/AdminAssetSummary'
+            - type: 'null'
     CreateAdminContentRequest:
       type: object
       required: [title, type]
@@ -2174,13 +2345,26 @@ components:
         body: { type: string, description: '标准 Markdown 正文；发布后门户客户端会将 CMS 媒体链接转换为公开媒体地址。' }
     MediaAsset:
       type: object
-      required: [id, original_name, mime_type, size_bytes, download_url]
+      required: [id, original_name, mime_type, size_bytes, download_count, download_url]
       properties:
         id: { type: string }
         content_id: { type: [string, 'null'] }
         original_name: { type: string, maxLength: 255 }
         mime_type: { type: string }
         size_bytes: { type: integer, format: int64, minimum: 0 }
+        download_count: { type: integer, format: int64, minimum: 0 }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+        download_url: { type: string, format: uri-reference }
+    AdminAssetSummary:
+      type: object
+      required: [id, original_name, mime_type, size_bytes, download_count, download_url]
+      properties:
+        id: { type: string }
+        original_name: { type: string, maxLength: 255 }
+        mime_type: { type: string }
+        size_bytes: { type: integer, format: int64, minimum: 0 }
+        download_count: { type: integer, format: int64, minimum: 0 }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
         download_url: { type: string, format: uri-reference }
     AdminRole:
       type: string
@@ -2634,6 +2818,55 @@ components:
       properties:
         data: { $ref: '#/components/schemas/EmailAdapterStatus' }
         meta: { $ref: '#/components/schemas/Meta' }
+    InvitationTemplate:
+      type: object
+      required: [subject_template, body_template, variables]
+      properties:
+        subject_template: { type: string, maxLength: 255 }
+        body_template: { type: string, maxLength: 4000 }
+        variables: { type: array, items: { type: string, enum: [organization, role, invite_url, expires_at] } }
+    InvitationTemplateRequest:
+      type: object
+      required: [subject_template, body_template]
+      properties:
+        subject_template: { type: string, maxLength: 255 }
+        body_template: { type: string, maxLength: 4000 }
+    InvitationTemplateResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/InvitationTemplate' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    NotificationOutbox:
+      type: object
+      required: [id, organization_id, event_type, target_type, target_id, recipient_email, status, attempts, available_at, created_at, updated_at]
+      properties:
+        id: { type: string }
+        organization_id: { type: string }
+        event_type: { type: string, maxLength: 64 }
+        target_type: { type: string, maxLength: 64 }
+        target_id: { type: string }
+        recipient_email: { type: string, format: email }
+        status: { type: string, enum: [pending, sending, sent, failed, disabled] }
+        attempts: { type: integer, minimum: 0 }
+        last_error: { type: string, maxLength: 500 }
+        available_at: { type: string, format: date-time }
+        last_attempt_at: { type: [string, 'null'], format: date-time }
+        sent_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    NotificationOutboxListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/NotificationOutbox' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    NotificationOutboxResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/NotificationOutbox' }
+        meta: { $ref: '#/components/schemas/Meta' }
     InvitationResponse:
       type: object
       required: [data, meta]
@@ -2915,7 +3148,7 @@ components:
       enum: [owner, administrator, editor, member]
     AuthUser:
       type: object
-      required: [id, email, display_name, organization_id, roles]
+      required: [id, email, display_name, organization_id, default_organization_id, roles]
       properties:
         id: { type: string }
         email: { type: string, format: email }
@@ -2923,6 +3156,7 @@ components:
         bio: { type: string, maxLength: 500 }
         avatar_url: { type: string, maxLength: 500, format: uri-reference }
         organization_id: { type: string }
+        default_organization_id: { type: string, description: 登录时优先选择的组织；显式切换组织后更新。 }
         roles:
           type: array
           items: { $ref: '#/components/schemas/AuthRole' }
@@ -3010,6 +3244,67 @@ components:
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/AdminContent' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    ContentRevision:
+      type: object
+      required: [id, content_id, version, created_by, reason, title, type, category, status, excerpt, published_at, created_at]
+      properties:
+        id: { type: string }
+        content_id: { type: string }
+        version: { type: integer, minimum: 1 }
+        created_by: { type: string }
+        reason: { type: string, enum: [create, update, published, archived, restore] }
+        title: { type: string, maxLength: 160 }
+        type: { $ref: '#/components/schemas/AdminContentType' }
+        category: { type: string, maxLength: 64 }
+        knowledge_directory_id: { type: [string, 'null'], maxLength: 64 }
+        status: { $ref: '#/components/schemas/AdminContentStatus' }
+        excerpt: { type: string, maxLength: 500 }
+        body: { type: string }
+        published_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+    ContentRevisionListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/ContentRevisionSummary' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    ContentRevisionResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/ContentRevision' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    ContentRevisionSummary:
+      type: object
+      required: [id, content_id, version, created_by, reason, title, type, category, status, excerpt, published_at, created_at]
+      properties:
+        id: { type: string }
+        content_id: { type: string }
+        version: { type: integer, minimum: 1 }
+        created_by: { type: string }
+        reason: { type: string, enum: [create, update, published, archived, restore] }
+        title: { type: string, maxLength: 160 }
+        type: { $ref: '#/components/schemas/AdminContentType' }
+        category: { type: string, maxLength: 64 }
+        knowledge_directory_id: { type: [string, 'null'], maxLength: 64 }
+        status: { $ref: '#/components/schemas/AdminContentStatus' }
+        excerpt: { type: string, maxLength: 500 }
+        published_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+    AssetDownloadStats:
+      type: object
+      required: [id, download_count, last_downloaded_at]
+      properties:
+        id: { type: string }
+        content_id: { type: [string, 'null'] }
+        download_count: { type: integer, format: int64, minimum: 0 }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+    AssetDownloadStatsResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AssetDownloadStats' }
         meta: { $ref: '#/components/schemas/Meta' }
     MediaAssetResponse:
       type: object

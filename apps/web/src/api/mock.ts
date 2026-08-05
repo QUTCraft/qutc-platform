@@ -20,6 +20,7 @@ import type {
   AuditEvent,
   AuthUser,
   BatchInvitationResponse,
+  ContentRevision,
   EmailAdapterStatus,
   KnowledgeArticle,
   KnowledgeDirectory,
@@ -36,6 +37,8 @@ import type {
   ServerStatus,
   TokenPair,
   Invitation,
+  InvitationTemplate,
+  NotificationOutbox,
 } from '@/api/types'
 
 const organization: Organization = {
@@ -131,6 +134,43 @@ let adminContent: AdminContent[] = [
   { id: 'content_002', title: '暑期建筑活动资源包', type: 'resource', status: 'review', author: 'Lin', updated_at: '2026-07-16T08:00:00Z' },
   { id: 'content_003', title: '自定义门户接入约定', type: 'knowledge', status: 'draft', author: 'Mori', updated_at: '2026-07-15T03:00:00Z' },
 ]
+
+const contentRevisions: Record<string, ContentRevision[]> = {}
+const invitationTemplate: InvitationTemplate = {
+  subject_template: '【{{organization}}】邀请加入组织',
+  body_template: '你好，\n\n你收到了加入 {{organization}} 的邀请。\n角色：{{role}}\n邀请链接：{{invite_url}}\n有效期至：{{expires_at}}\n',
+  variables: ['organization', 'role', 'invite_url', 'expires_at'],
+}
+let notificationOutbox: NotificationOutbox[] = []
+const assetDownloadStats: Record<string, { download_count: number; last_downloaded_at: string | null }> = {}
+
+function recordContentRevision(content: AdminContent, reason: ContentRevision['reason']) {
+  const revisions = contentRevisions[content.id] ?? []
+  const revision: ContentRevision = {
+    id: `revision_${content.id}_${Date.now()}_${revisions.length + 1}`,
+    content_id: content.id,
+    version: revisions.length + 1,
+    created_by: mockUser?.id ?? 'user_bk',
+    reason,
+    title: content.title,
+    type: content.type,
+    category: content.category ?? '',
+    knowledge_directory_id: content.knowledge_directory_id ?? null,
+    status: content.status,
+    excerpt: content.excerpt ?? '',
+    body: content.body ?? '',
+    published_at: content.published_at ?? null,
+    created_at: new Date().toISOString(),
+  }
+  contentRevisions[content.id] = [revision, ...revisions]
+  content.revision_count = contentRevisions[content.id].length
+  return revision
+}
+
+function ensureContentRevisions(content: AdminContent) {
+  if (!contentRevisions[content.id]?.length) recordContentRevision(content, 'create')
+  else content.revision_count = contentRevisions[content.id].length
+}
 
 const adminUsers: AdminUser[] = [
   { id: 'user_bk', name: 'BBKarasu', email: 'gdd233@qq.com', role: 'owner', state: 'active', joined_at: '2026-07-14T01:00:00Z' },
@@ -265,6 +305,33 @@ export async function mockGet<T>(path: string): Promise<T> {
     }
     return dashboard as T
   }
+  const revisionDetailMatch = path.match(/\/admin\/content\/([^/]+)\/revisions\/([^/]+)$/)
+  if (revisionDetailMatch) {
+    const content = adminContent.find((item) => item.id === revisionDetailMatch[1])
+    if (!content) throw new Error('内容不存在。')
+    ensureContentRevisions(content)
+    const revision = contentRevisions[revisionDetailMatch[1]]?.find((item) => item.id === revisionDetailMatch[2])
+    if (!revision) throw new Error('修订版本不存在。')
+    return structuredClone(revision) as T
+  }
+  const revisionListMatch = path.match(/\/admin\/content\/([^/]+)\/revisions(?:\?.*)?$/)
+  if (revisionListMatch) {
+    const content = adminContent.find((item) => item.id === revisionListMatch[1])
+    if (!content) throw new Error('内容不存在。')
+    ensureContentRevisions(content)
+    const pageNumber = Math.max(1, Number(requestUrl.searchParams.get('page') ?? 1))
+    const pageSize = Math.min(100, Math.max(1, Number(requestUrl.searchParams.get('page_size') ?? 20)))
+    const items = contentRevisions[content.id] ?? []
+    const start = (pageNumber - 1) * pageSize
+    return { items: structuredClone(items.slice(start, start + pageSize)), page: pageNumber, page_size: pageSize, total: items.length } as T
+  }
+  const contentDetailMatch = path.match(/\/admin\/content\/([^/]+)$/)
+  if (contentDetailMatch) {
+    const content = adminContent.find((item) => item.id === contentDetailMatch[1])
+    if (!content) throw new Error('内容不存在。')
+    ensureContentRevisions(content)
+    return structuredClone(content) as T
+  }
   if (requestUrl.pathname.endsWith('/admin/content')) return page(adminContent) as T
   if (requestUrl.pathname.endsWith('/admin/knowledge/directories')) return page(adminKnowledgeDirectories) as T
   if (requestUrl.pathname.endsWith('/admin/users')) return page(adminUsers) as T
@@ -393,6 +460,20 @@ export async function mockGet<T>(path: string): Promise<T> {
   if (path.endsWith('/admin/notifications/email/status')) {
     return { driver: 'disabled', enabled: false, configured: false } as EmailAdapterStatus as T
   }
+	if (path.endsWith('/admin/notifications/invitation-template')) return structuredClone(invitationTemplate) as T
+	if (requestUrl.pathname.endsWith('/admin/notifications/outbox')) {
+		const status = requestUrl.searchParams.get('status')
+		const pageNumber = Math.max(1, Number(requestUrl.searchParams.get('page') ?? 1))
+		const pageSize = Math.min(100, Math.max(1, Number(requestUrl.searchParams.get('page_size') ?? 20)))
+		const items = status ? notificationOutbox.filter((item) => item.status === status) : notificationOutbox
+		const start = (pageNumber - 1) * pageSize
+		return { items: structuredClone(items.slice(start, start + pageSize)), page: pageNumber, page_size: pageSize, total: items.length } as T
+	}
+	const assetStatsMatch = path.match(/\/admin\/assets\/([^/]+)\/stats$/)
+	if (assetStatsMatch) {
+		const stats = assetDownloadStats[assetStatsMatch[1]] ?? { download_count: 0, last_downloaded_at: null }
+		return { id: assetStatsMatch[1], content_id: null, ...stats } as T
+	}
 	if (path.endsWith('/admin/organization')) return structuredClone(mockUser?.organization_id === campusOrganization.id ? campusOrganization : organization) as T
   if (path.endsWith('/admin/portal/config')) return structuredClone(portalConfiguration) as T
   if (path.endsWith('/configuration')) {
@@ -449,9 +530,38 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     saveMockUser(user)
     return authPair(user) as T
   }
-  if (path.endsWith('/apply')) return { id: `application_${Date.now()}`, status: 'pending', submitted_at: new Date().toISOString() } as T
+	if (path.endsWith('/apply')) return { id: `application_${Date.now()}`, status: 'pending', submitted_at: new Date().toISOString() } as T
 	if (path.includes('/admin/')) requireMockAdmin()
-  if (path.endsWith('/admin/ai/knowledge/search')) {
+	const notificationRetryMatch = path.match(/\/admin\/notifications\/outbox\/([^/]+)\/retry$/)
+	if (notificationRetryMatch) {
+		const item = notificationOutbox.find((notification) => notification.id === notificationRetryMatch[1])
+		if (!item) throw new Error('通知记录不存在。')
+		if (!['failed', 'disabled'].includes(item.status)) throw new Error('当前通知状态不可重试。')
+		Object.assign(item, { status: 'pending', attempts: 0, last_error: '', sent_at: null, available_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+		return structuredClone(item) as T
+	}
+	const restoreRevisionMatch = path.match(/\/admin\/content\/([^/]+)\/revisions\/([^/]+)\/restore$/)
+	if (restoreRevisionMatch) {
+		const content = adminContent.find((item) => item.id === restoreRevisionMatch[1])
+		if (!content) throw new Error('内容不存在。')
+		ensureContentRevisions(content)
+		const revision = contentRevisions[content.id]?.find((item) => item.id === restoreRevisionMatch[2])
+		if (!revision) throw new Error('修订版本不存在。')
+		Object.assign(content, {
+			title: revision.title,
+			type: revision.type,
+			category: revision.category,
+			knowledge_directory_id: revision.knowledge_directory_id ?? null,
+			excerpt: revision.excerpt,
+			body: revision.body ?? '',
+			status: 'draft',
+			published_at: null,
+			updated_at: new Date().toISOString(),
+		})
+		recordContentRevision(content, 'restore')
+		return structuredClone(content) as T
+	}
+	if (path.endsWith('/admin/ai/knowledge/search')) {
     const payload = body as { query: string; limit?: number }
     const query = payload.query.trim().toLowerCase()
     const limit = Math.min(20, Math.max(1, payload.limit ?? 10))
@@ -619,6 +729,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
 		if (payload.knowledge_directory_id && !adminKnowledgeDirectories.some((directory) => directory.id === payload.knowledge_directory_id)) throw new Error('知识库目录不存在。')
 		const content: AdminContent = { id: `content_${Date.now()}`, title: payload.title, type: payload.type, category: payload.category, knowledge_directory_id: payload.knowledge_directory_id ?? null, excerpt: payload.excerpt, body: payload.body, status: 'draft', author: mockUser?.display_name ?? 'BBKarasu', updated_at: new Date().toISOString() }
     adminContent = [content, ...adminContent]
+		recordContentRevision(content, 'create')
     return content as T
   }
   if (path.endsWith('/admin/invitation-batches')) {
@@ -693,7 +804,9 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     return { ...invitation, membership_id: `membership_${Date.now()}` } as T
   }
   if (path.endsWith('/admin/assets')) {
-    return { id: `asset_${Date.now()}`, original_name: 'mock-upload.bin', mime_type: 'application/octet-stream', size_bytes: 0, download_url: '#' } as T
+    const assetID = `asset_${Date.now()}`
+    assetDownloadStats[assetID] = { download_count: 0, last_downloaded_at: null }
+    return { id: assetID, original_name: 'mock-upload.bin', mime_type: 'application/octet-stream', size_bytes: 0, download_count: 0, last_downloaded_at: null, download_url: '#' } as T
   }
   if (path.endsWith('/admin/knowledge/directories')) {
     const payload = body as Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>
@@ -736,7 +849,9 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     const content = adminContent.find((item) => item.id === contentDecision[1])
     if (!content) throw new Error('内容不存在。')
     content.status = contentDecision[2] === 'publish' ? 'published' : 'archived'
+    content.published_at = contentDecision[2] === 'publish' ? new Date().toISOString() : null
     content.updated_at = new Date().toISOString()
+    recordContentRevision(content, contentDecision[2] === 'publish' ? 'published' : 'archived')
     return content as T
   }
   if (path.endsWith('/admin/projects')) {
@@ -786,6 +901,10 @@ export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
 		const currentOrganization = mockUser?.organization_id === campusOrganization.id ? campusOrganization : organization
 		Object.assign(currentOrganization, body as Partial<Organization>, { updated_at: new Date().toISOString() })
 		return structuredClone(currentOrganization) as T
+	}
+	if (path.endsWith('/admin/notifications/invitation-template')) {
+		Object.assign(invitationTemplate, body as Pick<InvitationTemplate, 'subject_template' | 'body_template'>)
+		return structuredClone(invitationTemplate) as T
 	}
   if (path.endsWith('/admin/ai/config')) {
     const payload = body as Pick<AIConfiguration, 'enabled' | 'run_limit_per_hour' | 'request_timeout_seconds' | 'max_sources' | 'max_context_characters'>
@@ -853,8 +972,9 @@ export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
   if (!item) throw new Error('内容不存在。')
 	const payload = body as Pick<AdminContent, 'title' | 'type' | 'category' | 'knowledge_directory_id' | 'excerpt' | 'body'>
 	if (payload.type === 'knowledge' && !payload.knowledge_directory_id) throw new Error('知识库文章必须关联目录。')
-	if (payload.knowledge_directory_id && !adminKnowledgeDirectories.some((directory) => directory.id === payload.knowledge_directory_id)) throw new Error('知识库目录不存在。')
+  if (payload.knowledge_directory_id && !adminKnowledgeDirectories.some((directory) => directory.id === payload.knowledge_directory_id)) throw new Error('知识库目录不存在。')
   Object.assign(item, payload, { updated_at: new Date().toISOString() })
+  recordContentRevision(item, 'update')
   return item as T
 }
 

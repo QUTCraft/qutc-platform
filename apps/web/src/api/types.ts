@@ -80,6 +80,8 @@ export interface MediaAsset {
   original_name: string
   mime_type: string
   size_bytes: number
+  download_count: number
+  last_downloaded_at?: string | null
   download_url: string
 }
 
@@ -133,6 +135,8 @@ export interface AdminContent {
   body?: string
   published_at?: string | null
   updated_at: string
+  revision_count?: number
+  asset?: MediaAsset | null
 }
 
 export interface AdminKnowledgeDirectory {
@@ -330,6 +334,23 @@ export interface ActivityPlan {
   updated_at: string
 }
 
+export interface ContentRevision {
+  id: string
+  content_id: string
+  version: number
+  created_by: string
+  reason: 'create' | 'update' | 'published' | 'archived' | 'restore'
+  title: string
+  type: AdminContent['type']
+  category: string
+  knowledge_directory_id?: string | null
+  status: AdminContent['status']
+  excerpt: string
+  body?: string
+  published_at?: string | null
+  created_at: string
+}
+
 export interface ActivityPlanSummary {
   id: string
   title: string
@@ -428,6 +449,29 @@ export interface Invitation {
 
 export interface AdminInvitationSummary extends Invitation {
   delivery: EmailDelivery
+}
+
+export interface InvitationTemplate {
+  subject_template: string
+  body_template: string
+  variables: string[]
+}
+
+export interface NotificationOutbox {
+  id: string
+  organization_id: string
+  event_type: string
+  target_type: string
+  target_id: string
+  recipient_email: string
+  status: 'pending' | 'sending' | 'sent' | 'failed' | 'disabled'
+  attempts: number
+  last_error?: string
+  available_at: string
+  last_attempt_at?: string | null
+  sent_at?: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface AdminInvitation extends AdminInvitationSummary {
@@ -555,6 +599,7 @@ export interface AuthUser {
   bio?: string
   avatar_url?: string
   organization_id: string
+  default_organization_id?: string
   roles: Array<'owner' | 'administrator' | 'editor' | 'member'>
 }
 
@@ -576,10 +621,10 @@ export interface TokenPair {
 
 export interface ApplicationPayload {
   type?: 'whitelist' | 'membership'
-  class_name: string
+  class_name?: string
   name: string
-  game_id: string
-  qq_number: string
+  game_id?: string
+  qq_number?: string
   email: string
   note?: string
 }

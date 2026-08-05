@@ -39,16 +39,28 @@ type Status struct {
 }
 
 type InvitationMessage struct {
-	RecipientEmail string
-	Organization   string
-	Role           string
-	InvitationURL  string
-	ExpiresAt      time.Time
+	RecipientEmail  string
+	Organization    string
+	Role            string
+	InvitationURL   string
+	ExpiresAt       time.Time
+	SubjectTemplate string
+	BodyTemplate    string
+}
+
+type ApplicationDecisionMessage struct {
+	RecipientEmail  string
+	Organization    string
+	ApplicantName   string
+	ApplicationType string
+	Decision        string
+	Reason          string
 }
 
 type Sender interface {
 	Status() Status
 	SendInvitation(context.Context, InvitationMessage) error
+	SendApplicationDecision(context.Context, ApplicationDecisionMessage) error
 }
 
 func New(cfg Config) (Sender, error) {
@@ -92,6 +104,10 @@ func (disabledSender) SendInvitation(context.Context, InvitationMessage) error {
 	return ErrDisabled
 }
 
+func (disabledSender) SendApplicationDecision(context.Context, ApplicationDecisionMessage) error {
+	return ErrDisabled
+}
+
 type smtpSender struct {
 	cfg Config
 }
@@ -116,6 +132,27 @@ func (s *smtpSender) SendInvitation(ctx context.Context, message InvitationMessa
 		return errors.New("invitation URL is required")
 	}
 
+	body := invitationBody(message)
+	subject := invitationSubject(message)
+	return s.sendText(ctx, recipient.Address, subject, body)
+}
+
+func (s *smtpSender) SendApplicationDecision(ctx context.Context, message ApplicationDecisionMessage) error {
+	recipient, err := mail.ParseAddress(strings.TrimSpace(message.RecipientEmail))
+	if err != nil || recipient.Address == "" {
+		return errors.New("recipient address is invalid")
+	}
+	decision := "申请状态已更新"
+	if message.Decision == "approved" {
+		decision = "申请已通过"
+	} else if message.Decision == "rejected" {
+		decision = "申请未通过"
+	}
+	body := fmt.Sprintf("你好 %s：\r\n\r\n你提交给 %s 的%s已更新为：%s。\r\n\r\n处理说明：%s\r\n", cleanText(message.ApplicantName), cleanText(message.Organization), applicationTypeLabel(message.ApplicationType), decision, cleanText(message.Reason))
+	return s.sendText(ctx, recipient.Address, cleanText(message.Organization)+" 的申请处理结果", body)
+}
+
+func (s *smtpSender) sendText(ctx context.Context, recipient, subject, body string) error {
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.Timeout)
 	defer cancel()
 	address := net.JoinHostPort(s.cfg.Host, fmt.Sprintf("%d", s.cfg.Port))
@@ -157,14 +194,14 @@ func (s *smtpSender) SendInvitation(ctx context.Context, message InvitationMessa
 	if err := client.Mail(s.cfg.FromAddress); err != nil {
 		return fmt.Errorf("set SMTP sender: %w", err)
 	}
-	if err := client.Rcpt(recipient.Address); err != nil {
+	if err := client.Rcpt(recipient); err != nil {
 		return fmt.Errorf("set SMTP recipient: %w", err)
 	}
 	writer, err := client.Data()
 	if err != nil {
 		return fmt.Errorf("start SMTP message: %w", err)
 	}
-	if _, err := io.Copy(writer, strings.NewReader(buildInvitationMessage(s.cfg, recipient.Address, message))); err != nil {
+	if _, err := io.Copy(writer, strings.NewReader(buildTextMessage(s.cfg, recipient, subject, body))); err != nil {
 		_ = writer.Close()
 		return fmt.Errorf("write SMTP message: %w", err)
 	}
@@ -178,16 +215,14 @@ func (s *smtpSender) SendInvitation(ctx context.Context, message InvitationMessa
 }
 
 func buildInvitationMessage(cfg Config, recipient string, message InvitationMessage) string {
+	return buildTextMessage(cfg, recipient, invitationSubject(message), invitationBody(message))
+}
+
+func buildTextMessage(cfg Config, recipient, subject, body string) string {
 	from := (&mail.Address{Name: cfg.FromName, Address: cfg.FromAddress}).String()
-	subject := mime.QEncoding.Encode("UTF-8", fmt.Sprintf("加入 %s 的成员邀请", cleanText(message.Organization)))
-	role := invitationRoleLabel(message.Role)
-	body := fmt.Sprintf(
-		"你好：\r\n\r\n你收到了加入 %s 的成员邀请，角色为%s。\r\n\r\n请在 %s 前打开以下链接完成加入：\r\n%s\r\n\r\n如果你不认识该组织，请忽略此邮件。\r\n",
-		cleanText(message.Organization),
-		role,
-		message.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
-		strings.TrimSpace(message.InvitationURL),
-	)
+	subject = mime.QEncoding.Encode("UTF-8", cleanText(subject))
+	body = strings.ReplaceAll(body, "\n", "\r\n")
+	body = strings.ReplaceAll(body, "\r\r\n", "\r\n")
 	headers := []string{
 		"Date: " + time.Now().UTC().Format(time.RFC1123Z),
 		"From: " + from,
@@ -198,6 +233,48 @@ func buildInvitationMessage(cfg Config, recipient string, message InvitationMess
 		"Content-Transfer-Encoding: 8bit",
 	}
 	return strings.Join(headers, "\r\n") + "\r\n\r\n" + body
+}
+
+func invitationSubject(message InvitationMessage) string {
+	values := map[string]string{
+		"organization": cleanText(message.Organization),
+		"role":         invitationRoleLabel(message.Role),
+		"invite_url":   strings.TrimSpace(message.InvitationURL),
+		"expires_at":   message.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+	}
+	subject := strings.TrimSpace(message.SubjectTemplate)
+	if subject == "" {
+		subject = fmt.Sprintf("加入 %s 的成员邀请", values["organization"])
+	}
+	return applyTemplate(subject, values)
+}
+
+func invitationBody(message InvitationMessage) string {
+	values := map[string]string{
+		"organization": cleanText(message.Organization),
+		"role":         invitationRoleLabel(message.Role),
+		"invite_url":   strings.TrimSpace(message.InvitationURL),
+		"expires_at":   message.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+	}
+	body := strings.TrimSpace(message.BodyTemplate)
+	if body == "" {
+		body = "你好：\n\n你收到了加入 {{organization}} 的成员邀请，角色为{{role}}。\n\n请在 {{expires_at}} 前打开以下链接完成加入：\n{{invite_url}}\n\n如果你不认识该组织，请忽略此邮件。\n"
+	}
+	return applyTemplate(body, values)
+}
+
+func applyTemplate(template string, values map[string]string) string {
+	for key, value := range values {
+		template = strings.ReplaceAll(template, "{{"+key+"}}", value)
+	}
+	return template
+}
+
+func applicationTypeLabel(applicationType string) string {
+	if applicationType == "membership" {
+		return "成员加入申请"
+	}
+	return "服务器白名单申请"
 }
 
 func invitationRoleLabel(role string) string {

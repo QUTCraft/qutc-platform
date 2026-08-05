@@ -2,8 +2,10 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ArrowLeft, Check, MagicStick, Promotion, Ticket } from '@element-plus/icons-vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { portalApi } from '@/api/portal'
+import { organizationSlug, portalApi } from '@/api/portal'
 import type { ApplicationPayload } from '@/api/types'
+
+const isQutcraftOrganization = organizationSlug === 'qutcraft'
 
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
@@ -12,6 +14,7 @@ const isBlooming = ref(false)
 const isEntering = ref(true)
 
 const form = reactive<ApplicationPayload>({
+  type: isQutcraftOrganization ? 'whitelist' : 'membership',
   class_name: '',
   name: '',
   game_id: '',
@@ -20,11 +23,14 @@ const form = reactive<ApplicationPayload>({
 })
 
 const rules: FormRules = {
-  class_name: [{ required: true, message: '请输入您的班级/专业（如：计算机231）', trigger: 'blur' }],
   name: [{ required: true, message: '请输入您的真实姓名', trigger: 'blur' }],
-  game_id: [{ required: true, message: '请输入您的 Minecraft 游戏 ID', trigger: 'blur' }],
-  qq_number: [{ required: true, message: '请输入您的 QQ 号码', trigger: 'blur' }],
   email: [{ required: true, type: 'email', message: '请输入有效联系邮箱', trigger: 'blur' }],
+}
+
+if (isQutcraftOrganization) {
+  rules.class_name = [{ required: true, message: '请输入您的班级/专业（如：计算机231）', trigger: 'blur' }]
+  rules.game_id = [{ required: true, message: '请输入您的 Minecraft 游戏 ID', trigger: 'blur' }]
+  rules.qq_number = [{ required: true, message: '请输入您的 QQ 号码', trigger: 'blur' }]
 }
 
 onMounted(() => {
@@ -118,13 +124,14 @@ async function handleApply() {
       <div class="starlight-header">
         <div class="starlight-badge">
           <el-icon><MagicStick /></el-icon>
-          <span>QUTCRAFT // WHITELIST ACCESS</span>
+          <span>{{ isQutcraftOrganization ? 'QUTCRAFT // WHITELIST ACCESS' : 'ORGANIZATION // MEMBERSHIP ACCESS' }}</span>
         </div>
-        <h1 class="starlight-title">踏星汉而至，赴方块之约</h1>
-        <p class="starlight-welcome">
+        <h1 class="starlight-title">{{ isQutcraftOrganization ? '踏星汉而至，赴方块之约' : '加入组织，共建公开项目' }}</h1>
+        <p v-if="isQutcraftOrganization" class="starlight-welcome">
           青岛理工大学方块协会（QUTCraft）恭候多时。凡我校同仁，凭热忱与求知，皆可跨越次元壁垒。
           无论君精于宏伟雕琢、沉醉电路红石、擅长 Mod 开发，抑或钟情方寸探索，星河浩瀚，愿与君共铸奇迹。
         </p>
+        <p v-else class="starlight-welcome">提交成员申请，向组织介绍自己和希望参与的方向。管理员会在审核后通过邮件联系你。</p>
       </div>
 
       <!-- Success Hologram Certificate Screen -->
@@ -143,26 +150,27 @@ async function handleApply() {
           </div>
         </div>
 
-        <h2 class="blooming-title">✦ 已接入 QUTCraft 星河矩阵 ✦</h2>
+        <h2 class="blooming-title">{{ isQutcraftOrganization ? '✦ 已接入 QUTCraft 星河矩阵 ✦' : '✦ 申请已进入组织审批队列 ✦' }}</h2>
         <p class="success-subtitle">
           您的申请已生成并存入后台审批队列，请等待管理员完成审核。
         </p>
 
         <div class="passport-card">
           <div class="passport-header">
-            <span><el-icon><Ticket /></el-icon> QUTCraft 白名单验证存根</span>
-            <small class="passport-id">#QUT-2026-STAR</small>
+            <span><el-icon><Ticket /></el-icon> {{ isQutcraftOrganization ? 'QUTCraft 白名单验证存根' : '组织成员申请存根' }}</span>
+            <small class="passport-id">#QUT-2026-APPLICATION</small>
           </div>
           <div class="passport-grid">
-            <div><span>申请人</span><strong>{{ form.name }} ({{ form.class_name }})</strong></div>
-            <div><span>游戏 ID</span><strong>{{ form.game_id }}</strong></div>
-            <div><span>QQ 账号</span><strong>{{ form.qq_number }}</strong></div>
+            <div><span>申请人</span><strong>{{ form.name }}<span v-if="isQutcraftOrganization"> ({{ form.class_name }})</span></strong></div>
+            <div v-if="isQutcraftOrganization"><span>游戏 ID</span><strong>{{ form.game_id }}</strong></div>
+            <div v-if="isQutcraftOrganization"><span>QQ 账号</span><strong>{{ form.qq_number }}</strong></div>
+            <div v-else><span>申请类型</span><strong>成员加入</strong></div>
             <div><span>状态</span><strong class="tag-pending">● 待管理员审批 (Pending)</strong></div>
           </div>
         </div>
 
         <p class="success-tip">
-          请保持 <strong>{{ form.email }}</strong> 邮箱畅通，审批通过后将自动拉入官方社团群。
+          请保持 <strong>{{ form.email }}</strong> 邮箱畅通，审批结果会通过组织配置的通知渠道发送。
         </p>
 
         <div class="success-actions">
@@ -187,7 +195,7 @@ async function handleApply() {
         @submit.prevent="handleApply"
       >
         <div class="form-grid">
-          <el-form-item label="班级 / 专业" prop="class_name">
+          <el-form-item v-if="isQutcraftOrganization" label="班级 / 专业" prop="class_name">
             <el-input v-model="form.class_name" placeholder="例如：计算机231 / 建筑222" />
           </el-form-item>
 
@@ -196,7 +204,7 @@ async function handleApply() {
           </el-form-item>
         </div>
 
-        <div class="form-grid">
+        <div v-if="isQutcraftOrganization" class="form-grid">
           <el-form-item label="Minecraft 游戏 ID" prop="game_id">
             <el-input v-model="form.game_id" placeholder="Java 版正版或统一 ID" />
           </el-form-item>
@@ -205,6 +213,10 @@ async function handleApply() {
             <el-input v-model="form.qq_number" placeholder="便于拉入内部交流群" />
           </el-form-item>
         </div>
+
+        <el-form-item v-else label="申请说明">
+          <el-input v-model="form.note" type="textarea" :rows="4" maxlength="500" show-word-limit placeholder="想参与的方向、技能或其他说明（可选）" />
+        </el-form-item>
 
         <el-form-item label="电子邮箱" prop="email">
           <el-input v-model="form.email" autocomplete="email" placeholder="用于接收审核结果与通知" />
@@ -220,7 +232,7 @@ async function handleApply() {
             :icon="Promotion"
             class="cosmic-submit-btn"
           >
-            提交申请 · 赴方块之约
+            {{ isQutcraftOrganization ? '提交申请 · 赴方块之约' : '提交成员申请' }}
           </el-button>
         </div>
       </el-form>

@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/admin'
-import type { EmailAdapterStatus, Organization, PortalConfiguration, PortalManifest } from '@/api/types'
+import type { EmailAdapterStatus, InvitationTemplate, NotificationOutbox, Organization, PortalConfiguration, PortalManifest } from '@/api/types'
 import { clearPortalFallback } from '@/portal/runtime'
 
 const allowedCapabilities: Array<{ value: PortalManifest['capabilities'][number]; label: string }> = [
@@ -183,6 +183,13 @@ async function importManifest(file: File) {
 const emailStatus = ref<EmailAdapterStatus | null>(null)
 const emailStatusLoading = ref(false)
 
+const invitationTemplate = reactive<InvitationTemplate>({ subject_template: '', body_template: '', variables: [] })
+const invitationTemplateLoading = ref(false)
+const invitationTemplateSaving = ref(false)
+const notificationItems = ref<NotificationOutbox[]>([])
+const notificationLoading = ref(false)
+const invitationTemplateVariablesLabel = computed(() => invitationTemplate.variables.map((item) => `{{${item}}}`).join('、') || '加载中')
+
 async function loadEmailStatus() {
   emailStatusLoading.value = true
   try {
@@ -194,10 +201,60 @@ async function loadEmailStatus() {
   }
 }
 
+async function loadInvitationTemplate() {
+  invitationTemplateLoading.value = true
+  try {
+    Object.assign(invitationTemplate, await adminApi.getInvitationTemplate())
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '邀请模板加载失败。')
+  } finally {
+    invitationTemplateLoading.value = false
+  }
+}
+
+async function saveInvitationTemplate() {
+  invitationTemplateSaving.value = true
+  try {
+    Object.assign(invitationTemplate, await adminApi.updateInvitationTemplate({
+      subject_template: invitationTemplate.subject_template,
+      body_template: invitationTemplate.body_template,
+    }))
+    ElMessage.success('邀请邮件模板已保存。')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '邀请模板保存失败。')
+  } finally {
+    invitationTemplateSaving.value = false
+  }
+}
+
+async function loadNotifications() {
+  notificationLoading.value = true
+  try {
+    notificationItems.value = (await adminApi.getNotificationOutbox({ page: 1, page_size: 8 })).items
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '通知队列加载失败。')
+  } finally {
+    notificationLoading.value = false
+  }
+}
+
+async function retryNotification(item: NotificationOutbox) {
+  try {
+    const updated = await adminApi.retryNotification(item.id)
+    const index = notificationItems.value.findIndex((current) => current.id === updated.id)
+    if (index >= 0) notificationItems.value[index] = updated
+    ElMessage.success('通知已重新排队。')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '通知重试失败。')
+  }
+}
+
 onMounted(() => {
 	void loadOrganization()
   void loadPortalConfiguration()
   void loadEmailStatus()
+	void loadInvitationTemplate()
+	void loadNotifications()
 })
 </script>
 
@@ -343,6 +400,41 @@ onMounted(() => {
           <span>修改部署环境变量并重启 API 后生效。</span>
         </div>
       </article>
+
+      <article v-loading="invitationTemplateLoading" class="admin-panel" style="margin-top: 20px;">
+        <div class="panel-heading">
+          <div>
+            <h2>邀请邮件模板</h2>
+            <p>留空即可恢复默认内容。可用变量：{{ invitationTemplateVariablesLabel }}。</p>
+          </div>
+        </div>
+        <el-form label-position="top">
+          <el-form-item label="邮件主题"><el-input v-model="invitationTemplate.subject_template" maxlength="255" show-word-limit placeholder="加入 {{organization}} 的成员邀请" /></el-form-item>
+          <el-form-item label="邮件正文"><el-input v-model="invitationTemplate.body_template" type="textarea" :rows="8" maxlength="4000" show-word-limit placeholder="你好：&#10;&#10;你收到了加入 {{organization}} 的成员邀请……" /></el-form-item>
+          <el-button type="primary" round :loading="invitationTemplateSaving" @click="saveInvitationTemplate">保存邀请模板</el-button>
+        </el-form>
+      </article>
+
+      <article v-loading="notificationLoading" class="admin-panel" style="margin-top: 20px;">
+        <div class="panel-heading">
+          <div>
+            <h2>通知队列</h2>
+            <p>申请审批结果通过 outbox 异步发送；失败项可手动重新排队。</p>
+          </div>
+          <el-button text @click="loadNotifications">刷新</el-button>
+        </div>
+        <el-empty v-if="notificationItems.length === 0" description="暂无审批通知记录" :image-size="72" />
+        <div v-else class="notification-list">
+          <div v-for="item in notificationItems" :key="item.id" class="notification-row">
+            <div>
+              <strong>{{ item.recipient_email }}</strong>
+              <span>{{ item.event_type }} · {{ item.attempts }} 次尝试</span>
+            </div>
+            <el-tag size="small" :type="item.status === 'sent' ? 'success' : item.status === 'failed' ? 'danger' : 'info'">{{ item.status }}</el-tag>
+            <el-button v-if="item.status === 'failed' || item.status === 'disabled'" text type="primary" @click="retryNotification(item)">重试</el-button>
+          </div>
+        </div>
+      </article>
     </div>
 
     <aside class="admin-panel settings-note">
@@ -414,6 +506,33 @@ onMounted(() => {
   color: var(--el-text-color-secondary);
 }
 
+.notification-list {
+  display: grid;
+  gap: 8px;
+}
+
+.notification-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 14px;
+  background: var(--el-fill-color-lighter);
+}
+
+.notification-row strong,
+.notification-row span {
+  display: block;
+}
+
+.notification-row span {
+  margin-top: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
 @media (max-width: 720px) {
   .portal-active-summary {
     grid-template-columns: 1fr;
@@ -425,6 +544,14 @@ onMounted(() => {
 
   .social-link-row {
 	grid-template-columns: 1fr;
+  }
+
+  .notification-row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .notification-row > :last-child {
+    grid-column: 2;
   }
 }
 </style>

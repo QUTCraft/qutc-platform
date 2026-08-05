@@ -23,12 +23,17 @@ var (
 )
 
 type ApplicationDecisionService struct {
-	db      *gorm.DB
-	adapter serveradapter.Adapter
+	db            *gorm.DB
+	adapter       serveradapter.Adapter
+	notifications *NotificationService
 }
 
 func NewApplicationDecisionService(db *gorm.DB, adapter serveradapter.Adapter) *ApplicationDecisionService {
 	return &ApplicationDecisionService{db: db, adapter: adapter}
+}
+
+func NewApplicationDecisionServiceWithNotifications(db *gorm.DB, adapter serveradapter.Adapter, notifications *NotificationService) *ApplicationDecisionService {
+	return &ApplicationDecisionService{db: db, adapter: adapter, notifications: notifications}
 }
 
 func (s *ApplicationDecisionService) Decide(ctx context.Context, organizationID, actorUserID, applicationID, decision, reason, requestID string) (model.Application, *model.ApplicationServerSync, error) {
@@ -78,6 +83,11 @@ func (s *ApplicationDecisionService) Decide(ctx context.Context, organizationID,
 			CreatedAt:      now,
 		}).Error; err != nil {
 			return err
+		}
+		if s.notifications != nil {
+			if err := s.notifications.EnqueueApplicationDecision(tx, application); err != nil {
+				return err
+			}
 		}
 		if decision == "approved" && application.Type == "whitelist" {
 			record := model.ApplicationServerSync{

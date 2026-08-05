@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/middleware"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/model"
@@ -139,6 +140,8 @@ func (h *WorkspaceHandler) DownloadAsset(c *gin.Context) {
 		return
 	}
 	defer source.Close()
+	now := time.Now().UTC()
+	_ = h.db.Model(&model.MediaAsset{}).Where("id = ? AND organization_id = ?", asset.ID, asset.OrganizationID).Updates(map[string]any{"download_count": gorm.Expr("download_count + 1"), "last_downloaded_at": now}).Error
 	c.Header("X-Content-Type-Options", "nosniff")
 	disposition := "attachment"
 	if c.Param("slug") != "" && strings.HasPrefix(asset.MimeType, "image/") {
@@ -155,7 +158,25 @@ func assetResponse(asset model.MediaAsset) gin.H {
 	if asset.ContentID != "" {
 		contentID = asset.ContentID
 	}
-	return gin.H{"id": asset.ID, "content_id": contentID, "original_name": asset.OriginalName, "mime_type": asset.MimeType, "size_bytes": asset.SizeBytes, "download_url": "/api/v1/admin/assets/" + asset.ID + "/download"}
+	return gin.H{"id": asset.ID, "content_id": contentID, "original_name": asset.OriginalName, "mime_type": asset.MimeType, "size_bytes": asset.SizeBytes, "download_count": asset.DownloadCount, "last_downloaded_at": asset.LastDownloadedAt, "download_url": "/api/v1/admin/assets/" + asset.ID + "/download"}
+}
+
+func (h *WorkspaceHandler) AssetDownloadStats(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var asset model.MediaAsset
+	if err := h.db.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&asset).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fail(c, http.StatusNotFound, "asset.not_found", "媒体资源不存在。")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "asset.stats_failed", "媒体下载统计暂时无法读取。")
+		return
+	}
+	respond(c, http.StatusOK, gin.H{"id": asset.ID, "content_id": asset.ContentID, "download_count": asset.DownloadCount, "last_downloaded_at": asset.LastDownloadedAt})
 }
 
 func detectAssetType(reader io.Reader) (string, error) {
