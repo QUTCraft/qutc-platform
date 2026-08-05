@@ -231,7 +231,7 @@ paths:
       tags: [Portal]
       operationId: getPortalServerStatus
       summary: 获取服务器公开状态
-      description: 只返回允许公开展示的状态；不会返回 RCON 连接、命令、TPS 原始监控或审核数据。
+      description: 只返回允许公开展示的状态；不会返回 RCON 连接、命令、TPS 原始监控或审核数据。当前服务器适配器仅绑定 QUTCraft 场景，其他组织返回 enabled=false 且不提供申请入口。
       parameters:
         - $ref: '#/components/parameters/OrganizationSlug'
       responses:
@@ -419,6 +419,42 @@ paths:
               schema: { $ref: '#/components/schemas/AuthUserResponse' }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/auth/organizations:
+    get:
+      tags: [Auth]
+      operationId: listAuthOrganizations
+      summary: 获取当前账户可切换的组织
+      description: 只返回当前用户具有 active 成员关系的组织，以及该用户在各组织内独立计算的角色；current 标识访问令牌当前绑定的组织。
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 可用组织列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationMembershipListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/auth/switch-organization:
+    post:
+      tags: [Auth]
+      operationId: switchAuthOrganization
+      summary: 切换当前会话的组织上下文
+      description: 要求 Bearer JWT 与同一用户的 HttpOnly 刷新 Cookie。服务端验证目标组织成员关系，撤销旧刷新令牌，并为目标组织重新签发 Access Token 与轮换后的刷新 Cookie；后续刷新会保持该组织上下文。
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SwitchOrganizationRequest' }
+      responses:
+        '200':
+          description: 已切换组织；响应体携带新访问令牌，刷新令牌通过 HttpOnly Cookie 轮换
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPairResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /api/v1/membership/history:
     get:
       tags: [Auth]
@@ -768,6 +804,27 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/admin/invitations:
+    get:
+      tags: [Admin]
+      operationId: listAdminInvitations
+      summary: 获取当前组织的成员邀请
+      description: 仅返回邀请元数据和邮件投递状态，不返回或恢复任何明文邀请 token；可按邀请状态筛选。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/InvitationStatus' }
+      responses:
+        '200':
+          description: 当前组织的邀请列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminInvitationListResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Admin]
       operationId: createAdminInvitation
@@ -789,6 +846,52 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/invitations/{invitation_id}:
+    delete:
+      tags: [Admin]
+      operationId: revokeAdminInvitation
+      summary: 撤销待处理的成员邀请
+      description: 仅可撤销当前组织中仍为 pending 的邀请。撤销后原 token 立即失效，邀请记录与审计记录保留。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: invitation_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: 邀请已撤销
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/invitation-batches:
+    post:
+      tags: [Admin]
+      operationId: createAdminInvitationBatch
+      summary: 批量创建成员邀请
+      description: |
+        一次提交 1 至 20 条邀请，每条记录独立创建、投递和审计；单条校验、重复或成员冲突不会回滚其他成功项。
+        响应保持请求顺序并逐项返回成功结果或稳定错误码。成功项的 invite_url 仍然只在本次响应中展示。
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateInvitationBatchRequest' }
+      responses:
+        '200':
+          description: 批量处理完成；具体成功和失败数量见响应数据
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateInvitationBatchResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /api/v1/admin/invitations/{invitation_id}/email/retry:
     post:
       tags: [Admin]
@@ -811,6 +914,8 @@ paths:
               schema: { $ref: '#/components/schemas/CreateInvitationResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/admin/audit:
     get:
       tags: [Admin]
@@ -2498,6 +2603,21 @@ components:
         last_error: { type: string, maxLength: 500 }
         last_attempt_at: { type: string, format: date-time }
         sent_at: { type: string, format: date-time }
+    AdminInvitation:
+      allOf:
+        - $ref: '#/components/schemas/Invitation'
+        - type: object
+          required: [delivery]
+          properties:
+            delivery: { $ref: '#/components/schemas/EmailDelivery' }
+    AdminInvitationListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/AdminInvitation' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
     EmailAdapterStatus:
       type: object
       required: [driver, enabled, configured]
@@ -2806,6 +2926,25 @@ components:
         roles:
           type: array
           items: { $ref: '#/components/schemas/AuthRole' }
+    OrganizationMembership:
+      type: object
+      required: [id, slug, name, short_name, roles, current]
+      properties:
+        id: { type: string }
+        slug: { type: string, minLength: 1, maxLength: 64 }
+        name: { type: string, minLength: 1, maxLength: 160 }
+        short_name: { type: string, maxLength: 40 }
+        roles:
+          type: array
+          items: { $ref: '#/components/schemas/AuthRole' }
+        current:
+          type: boolean
+          description: 是否为当前 Access Token 绑定的组织。
+    SwitchOrganizationRequest:
+      type: object
+      required: [organization_id]
+      properties:
+        organization_id: { type: string, minLength: 1, maxLength: 64 }
     UpdateProfileRequest:
       type: object
       required: [display_name]
@@ -2883,6 +3022,12 @@ components:
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/AuthUser' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    OrganizationMembershipListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/OrganizationMembership' } }
         meta: { $ref: '#/components/schemas/Meta' }
     TokenPairResponse:
       type: object
@@ -2963,6 +3108,59 @@ components:
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/AIRun' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    CreateInvitationBatchRequest:
+      type: object
+      required: [invitations]
+      additionalProperties: false
+      properties:
+        invitations:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { $ref: '#/components/schemas/CreateInvitationRequest' }
+    InvitationBatchItemError:
+      type: object
+      required: [code, message]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum: [invitation.validation_failed, invitation.already_pending, membership.already_active, invitation.create_failed]
+        message: { type: string, maxLength: 200 }
+    InvitationBatchItemResult:
+      type: object
+      required: [index, email, succeeded]
+      properties:
+        index: { type: integer, minimum: 0, maximum: 19 }
+        email: { type: string, maxLength: 254 }
+        succeeded: { type: boolean }
+        invitation:
+          allOf:
+            - $ref: '#/components/schemas/Invitation'
+            - type: object
+              required: [invite_url, delivery]
+              properties:
+                invite_url: { type: string, format: uri-reference }
+                delivery: { $ref: '#/components/schemas/EmailDelivery' }
+        error: { $ref: '#/components/schemas/InvitationBatchItemError' }
+    InvitationBatchData:
+      type: object
+      required: [total, succeeded, failed, results]
+      properties:
+        total: { type: integer, minimum: 1, maximum: 20 }
+        succeeded: { type: integer, minimum: 0, maximum: 20 }
+        failed: { type: integer, minimum: 0, maximum: 20 }
+        results:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { $ref: '#/components/schemas/InvitationBatchItemResult' }
+    CreateInvitationBatchResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/InvitationBatchData' }
         meta: { $ref: '#/components/schemas/Meta' }
     ActivityPlanResponse:
       type: object

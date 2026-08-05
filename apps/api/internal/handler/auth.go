@@ -9,16 +9,18 @@ import (
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/middleware"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type AuthHandler struct {
+	db           *gorm.DB
 	auth         *service.AuthService
 	refreshTTL   time.Duration
 	secureCookie bool
 }
 
-func NewAuthHandler(auth *service.AuthService, refreshTTL time.Duration, secureCookie bool) *AuthHandler {
-	return &AuthHandler{auth: auth, refreshTTL: refreshTTL, secureCookie: secureCookie}
+func NewAuthHandler(db *gorm.DB, auth *service.AuthService, refreshTTL time.Duration, secureCookie bool) *AuthHandler {
+	return &AuthHandler{db: db, auth: auth, refreshTTL: refreshTTL, secureCookie: secureCookie}
 }
 
 type registerRequest struct {
@@ -31,6 +33,10 @@ type registerRequest struct {
 type loginRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required,max=128"`
+}
+
+type switchOrganizationRequest struct {
+	OrganizationID string `json:"organization_id" binding:"required,max=64"`
 }
 
 const refreshCookieName = "qutc_refresh"
@@ -145,6 +151,54 @@ func (h *AuthHandler) Me(c *gin.Context) {
 		return
 	}
 	respond(c, http.StatusOK, profile)
+}
+
+func (h *AuthHandler) Organizations(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	organizations, err := h.auth.ListOrganizations(principal)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "organization.list_failed", "可用组织暂时无法读取。")
+		return
+	}
+	respond(c, http.StatusOK, organizations)
+}
+
+func (h *AuthHandler) SwitchOrganization(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var request switchOrganizationRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		fail(c, http.StatusBadRequest, "organization.validation_failed", "目标组织不符合要求。")
+		return
+	}
+	refreshToken, cookieErr := c.Cookie(refreshCookieName)
+	if cookieErr != nil || strings.TrimSpace(refreshToken) == "" {
+		fail(c, http.StatusUnauthorized, "auth.refresh_invalid", "当前会话无法切换组织，请重新登录。")
+		return
+	}
+	pair, err := h.auth.SwitchOrganization(principal, request.OrganizationID, refreshToken)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrOrganizationUnavailable):
+			fail(c, http.StatusForbidden, "organization.membership_unavailable", "当前账户不是该组织的有效成员。")
+		case errors.Is(err, service.ErrInvalidRefresh):
+			h.clearRefreshCookie(c)
+			fail(c, http.StatusUnauthorized, "auth.refresh_invalid", "当前会话无法切换组织，请重新登录。")
+		default:
+			fail(c, http.StatusInternalServerError, "organization.switch_failed", "组织暂时无法切换。")
+		}
+		return
+	}
+	h.setRefreshCookie(c, pair.RefreshToken)
+	_ = writeAudit(h.db, c, pair.User.OrganizationID, principal.UserID, "auth.organization_switch", "organization", pair.User.OrganizationID)
+	respond(c, http.StatusOK, tokenPairResponse(pair))
 }
 
 func (h *AuthHandler) UpdateMe(c *gin.Context) {

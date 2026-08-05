@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ArrowLeft, Key, User } from '@element-plus/icons-vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
+import { organizationSlug } from '@/api/portal'
+import { usePortalIdentity } from '@/composables/usePortalIdentity'
 import { signIn } from '@/stores/session'
 
 const route = useRoute()
 const router = useRouter()
 const mockMode = (import.meta.env.VITE_API_MODE ?? 'mock') === 'mock'
+const isQutcraftPortal = organizationSlug === 'qutcraft'
+const { organization, loadPortalOrganization } = usePortalIdentity()
+const organizationName = computed(() => organization.value?.name ?? (isQutcraftPortal ? 'QUTCraft Commons' : 'Campus Commons'))
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
 
@@ -34,6 +39,10 @@ async function submit() {
     submitting.value = false
   }
 }
+
+onMounted(() => {
+  void loadPortalOrganization().catch(() => undefined)
+})
 </script>
 
 <template>
@@ -43,17 +52,17 @@ async function submit() {
       <div class="login-hero">
         <div class="hero-brand-mark">Q</div>
         <div class="hero-badge">
-          <i class="status-dot-online" /> QUTCraft Network
+          <i class="status-dot-online" /> {{ isQutcraftPortal ? 'QUTCraft Network' : 'Organization Commons' }}
         </div>
-        <h1 class="hero-title">QUTCraft Commons</h1>
+        <h1 class="hero-title">{{ organizationName }}</h1>
         <p class="hero-desc">
-          青岛理工大学 Minecraft 官方合作社团与学术交流平台管理工作台。
+          {{ isQutcraftPortal ? '青岛理工大学 Minecraft 官方合作社团与学术交流平台管理工作台。' : '面向校园社团与民间组织的内容、项目、知识与活动运营工作台。' }}
         </p>
 
         <div class="hero-features">
-          <span>✦ 白名单审批</span>
+          <span>✦ {{ isQutcraftPortal ? '白名单审批' : '活动策划' }}</span>
           <span>✦ 知识库沉淀</span>
-          <span>✦ 资源协作</span>
+          <span>✦ {{ isQutcraftPortal ? '资源协作' : '项目协作' }}</span>
         </div>
       </div>
 
@@ -65,7 +74,7 @@ async function submit() {
 
         <div class="login-header">
           <h2>登录管理工作台</h2>
-          <p>欢迎回到 QUTCraft 协作与管理平台，请验证您的成员身份。</p>
+          <p>欢迎回到 {{ organizationName }} 协作与管理平台，请验证您的成员身份。</p>
         </div>
 
         <el-form
@@ -82,7 +91,7 @@ async function submit() {
               v-model="form.email"
               :prefix-icon="User"
               autocomplete="email"
-              placeholder="name@qutcraft.local"
+              :placeholder="isQutcraftPortal ? 'name@qutcraft.local' : 'name@example.com'"
             />
           </el-form-item>
 

@@ -35,6 +35,43 @@ test('owner can open dashboard and organization settings', async ({ page }) => {
   await expect(page.getByLabel('组织全称')).toHaveValue('QUTCraft Commons')
 })
 
+test('account can switch organization and keep the selected session context', async ({ page }) => {
+  await page.goto('/?organization=campus-commons')
+  await page.goto('/login')
+  await expect(page).toHaveURL(/\/login$/)
+  await expect(page.locator('.login-hero')).toContainText('Campus Commons')
+  await expect(page.locator('.login-hero')).not.toContainText('Minecraft')
+  await page.getByRole('button', { name: /登录工作台/ }).click()
+  await expect(page).toHaveURL(/\/admin$/)
+
+  const organizationSwitcher = page.locator('.organization-switcher')
+  await expect(page.getByRole('combobox', { name: '切换当前组织' })).toBeEnabled()
+  await expect(organizationSwitcher).toContainText('QUTCraft')
+  await organizationSwitcher.click()
+  await Promise.all([
+    page.waitForEvent('load'),
+    page.getByRole('option', { name: /校园协作中心/ }).click(),
+  ])
+
+  await expect(page).toHaveURL(/\/admin$/)
+  await expect(page.locator('.organization-switcher')).toContainText('校园协作中心')
+  await expect(page.locator('.account-meta')).toContainText('管理员')
+  await expect(page.locator('.admin-brand')).toContainText('校园协作中心')
+  await expect(page.locator('.metric-grid')).toContainText('进行中项目')
+  await expect(page.getByRole('heading', { name: 'AI 活动运营' })).toBeVisible()
+  await page.reload()
+  await expect(page.locator('.organization-switcher')).toContainText('校园协作中心')
+
+  const menuButton = page.getByRole('button', { name: '打开后台导航' })
+  if (await menuButton.isVisible()) await menuButton.click()
+  await page.getByRole('link', { name: '返回公开门户', exact: true }).click()
+  await expect(page).toHaveURL(/\/?\?organization=campus-commons$/)
+  await expect(page.locator('.hero-brand-pill')).toContainText('Commons 官方门户')
+  await expect(page.locator('.app-header .brand')).toContainText('Campus Commons')
+  await expect(page.getByRole('complementary', { name: '组织公开概览' })).toBeVisible()
+  await expect(page.locator('body')).not.toContainText('Minecraft')
+})
+
 test('content editor keeps the full-page markdown workspace scrollable', async ({ page }) => {
   await page.goto('/login')
   await page.getByRole('button', { name: /登录工作台/ }).click()
@@ -43,6 +80,49 @@ test('content editor keeps the full-page markdown workspace scrollable', async (
   await expect(page.locator('textarea').first()).toBeVisible()
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+})
+
+test('owner can create, revisit, and revoke a pending invitation', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByRole('button', { name: /登录工作台/ }).click()
+  await expect(page).toHaveURL(/\/admin$/)
+  await page.goto('/admin/users')
+
+  const email = `pending-${Date.now()}@example.com`
+  await page.getByRole('button', { name: '邀请成员' }).click()
+  await page.getByPlaceholder('member@example.com').fill(email)
+  await page.getByRole('button', { name: '创建邀请' }).click()
+  await expect(page.getByText('邀请链接已创建', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '关闭', exact: true }).click()
+
+  const invitationRow = page.getByRole('row').filter({ hasText: email })
+  await expect(invitationRow).toBeVisible()
+  await invitationRow.getByRole('button', { name: '撤销' }).click()
+  await page.getByRole('button', { name: '确认撤销' }).click()
+  await expect(invitationRow).toHaveCount(0)
+  await expect(page.getByText('当前没有待处理邀请')).toBeVisible()
+})
+
+test('batch invitations preserve per-item success and failure results', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByRole('button', { name: /登录工作台/ }).click()
+  await expect(page).toHaveURL(/\/admin$/)
+  await page.goto('/admin/users')
+
+  const email = `batch-${Date.now()}@example.com`
+  await page.getByRole('button', { name: '批量邀请' }).click()
+  const dialog = page.getByRole('dialog', { name: '批量邀请成员' })
+  await dialog.getByRole('textbox').fill(`${email}\nnot-an-email`)
+  await expect(dialog.getByText('已识别 2 个不重复邮箱，单次最多 20 个。')).toBeVisible()
+  await dialog.getByRole('button', { name: '开始批量邀请' }).click()
+
+  await expect(page.getByText('处理完成：1 条成功，1 条失败', { exact: true })).toBeVisible()
+  await expect(page.getByRole('row').filter({ hasText: email })).toContainText('已创建')
+  await expect(page.getByRole('row').filter({ hasText: 'not-an-email' })).toContainText('邮箱、角色或邀请有效期不符合要求。')
+  const resultDialog = page.getByRole('dialog', { name: '批量邀请结果' })
+  await resultDialog.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(resultDialog).toBeHidden()
+  await expect(page.locator('.invitation-panel').getByRole('row').filter({ hasText: email })).toBeVisible()
 })
 
 test('activity planner opens as a structured three-step workspace', async ({ page }) => {

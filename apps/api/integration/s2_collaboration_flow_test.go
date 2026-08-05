@@ -31,10 +31,24 @@ type invitationDTO struct {
 type tokenPairDTO struct {
 	AccessToken string `json:"access_token"`
 	User        struct {
-		ID    string   `json:"id"`
-		Email string   `json:"email"`
-		Roles []string `json:"roles"`
+		ID             string   `json:"id"`
+		Email          string   `json:"email"`
+		OrganizationID string   `json:"organization_id"`
+		Roles          []string `json:"roles"`
 	} `json:"user"`
+}
+
+type organizationMembershipDTO struct {
+	ID        string   `json:"id"`
+	Slug      string   `json:"slug"`
+	Name      string   `json:"name"`
+	ShortName string   `json:"short_name"`
+	Roles     []string `json:"roles"`
+	Current   bool     `json:"current"`
+}
+
+type dashboardDTO struct {
+	OrganizationName string `json:"organization_name"`
 }
 
 type projectMemberDTO struct {
@@ -50,6 +64,301 @@ type projectMilestoneDTO struct {
 	Status      string     `json:"status"`
 	DueAt       *time.Time `json:"due_at"`
 	CompletedAt *time.Time `json:"completed_at"`
+}
+
+type invitationBatchDTO struct {
+	Total     int `json:"total"`
+	Succeeded int `json:"succeeded"`
+	Failed    int `json:"failed"`
+	Results   []struct {
+		Index      int            `json:"index"`
+		Email      string         `json:"email"`
+		Succeeded  bool           `json:"succeeded"`
+		Invitation *invitationDTO `json:"invitation"`
+		Error      *struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	} `json:"results"`
+}
+
+func TestS2OrganizationSwitchPersistsAndIsolatesContext(t *testing.T) {
+	cfg := loadIntegrationConfig(t)
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("create cookie jar: %v", err)
+	}
+	client := &http.Client{Timeout: 10 * time.Second, Jar: jar}
+	db := openIntegrationDB(t, cfg.mysqlDSN)
+
+	var owner model.User
+	if err := db.Where("email = ?", cfg.adminEmail).First(&owner).Error; err != nil {
+		t.Fatalf("load bootstrap owner: %v", err)
+	}
+	var originalOrganization model.Organization
+	if err := db.Where("slug = ?", cfg.organizationSlug).First(&originalOrganization).Error; err != nil {
+		t.Fatalf("load bootstrap organization: %v", err)
+	}
+	var administratorRole model.Role
+	if err := db.Where("`key` = ?", "administrator").First(&administratorRole).Error; err != nil {
+		t.Fatalf("load administrator role: %v", err)
+	}
+	var existingRefreshTokens []model.RefreshToken
+	if err := db.Where("user_id = ?", owner.ID).Find(&existingRefreshTokens).Error; err != nil {
+		t.Fatalf("snapshot owner refresh tokens: %v", err)
+	}
+	existingRefreshTokenIDs := make(map[string]struct{}, len(existingRefreshTokens))
+	for _, refreshToken := range existingRefreshTokens {
+		existingRefreshTokenIDs[refreshToken.ID] = struct{}{}
+	}
+
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	targetOrganization := model.Organization{
+		ID: uuid.NewString(), Slug: "s2-switch-" + suffix, Name: "S2 组织切换 " + suffix,
+		ShortName: "S2 Switch", IsPublic: false,
+	}
+	foreignOrganization := model.Organization{
+		ID: uuid.NewString(), Slug: "s2-foreign-" + suffix, Name: "S2 越权组织 " + suffix,
+		ShortName: "S2 Foreign", IsPublic: false,
+	}
+	if err := db.Create(&targetOrganization).Error; err != nil {
+		t.Fatalf("create target organization: %v", err)
+	}
+	if err := db.Create(&foreignOrganization).Error; err != nil {
+		t.Fatalf("create foreign organization: %v", err)
+	}
+	membership := model.Membership{
+		ID: uuid.NewString(), OrganizationID: targetOrganization.ID, UserID: owner.ID, State: "active",
+	}
+	if err := db.Create(&membership).Error; err != nil {
+		t.Fatalf("create target membership: %v", err)
+	}
+	if err := db.Create(&model.MembershipRole{MembershipID: membership.ID, RoleID: administratorRole.ID}).Error; err != nil {
+		t.Fatalf("assign target administrator role: %v", err)
+	}
+	t.Cleanup(func() {
+		var refreshTokens []model.RefreshToken
+		if findErr := db.Where("user_id = ?", owner.ID).Find(&refreshTokens).Error; findErr != nil {
+			t.Errorf("load organization switch refresh tokens for cleanup: %v", findErr)
+		} else {
+			for _, refreshToken := range refreshTokens {
+				if _, existed := existingRefreshTokenIDs[refreshToken.ID]; !existed {
+					if deleteErr := db.Delete(&model.RefreshToken{}, "id = ?", refreshToken.ID).Error; deleteErr != nil {
+						t.Errorf("cleanup organization switch refresh token %s: %v", refreshToken.ID, deleteErr)
+					}
+				}
+			}
+		}
+		if deleteErr := db.Delete(&model.Organization{}, "id IN ?", []string{targetOrganization.ID, foreignOrganization.ID}).Error; deleteErr != nil {
+			t.Errorf("cleanup organization switch organizations: %v", deleteErr)
+		}
+	})
+
+	ownerToken := loginAsOwner(t, client, cfg)
+	var organizationsEnvelope apiEnvelope[[]organizationMembershipDTO]
+	decodeJSON(t, request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/auth/organizations", ownerToken, nil, http.StatusOK), &organizationsEnvelope)
+	if !containsOrganization(organizationsEnvelope.Data, originalOrganization.ID, true, "owner") {
+		t.Fatalf("organization list does not mark bootstrap organization as current: %+v", organizationsEnvelope.Data)
+	}
+	if !containsOrganization(organizationsEnvelope.Data, targetOrganization.ID, false, "administrator") {
+		t.Fatalf("organization list does not include target membership: %+v", organizationsEnvelope.Data)
+	}
+	if containsOrganization(organizationsEnvelope.Data, foreignOrganization.ID, false, "") {
+		t.Fatalf("organization list exposed inaccessible organization %s", foreignOrganization.ID)
+	}
+
+	var switchedEnvelope apiEnvelope[tokenPairDTO]
+	decodeJSON(t, request(t, client, http.MethodPost, cfg.apiURL+"/api/v1/auth/switch-organization", ownerToken, map[string]any{
+		"organization_id": targetOrganization.ID,
+	}, http.StatusOK), &switchedEnvelope)
+	switched := switchedEnvelope.Data
+	if switched.AccessToken == "" || switched.User.OrganizationID != targetOrganization.ID || !containsString(switched.User.Roles, "administrator") {
+		t.Fatalf("switched token pair = %+v, want target administrator context", switched.User)
+	}
+
+	var dashboardEnvelope apiEnvelope[dashboardDTO]
+	decodeJSON(t, request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/dashboard", switched.AccessToken, nil, http.StatusOK), &dashboardEnvelope)
+	if dashboardEnvelope.Data.OrganizationName != targetOrganization.Name {
+		t.Fatalf("dashboard organization = %q, want %q", dashboardEnvelope.Data.OrganizationName, targetOrganization.Name)
+	}
+	var contentEnvelope apiEnvelope[[]contentDTO]
+	decodeJSON(t, request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/content?page_size=100", switched.AccessToken, nil, http.StatusOK), &contentEnvelope)
+	if len(contentEnvelope.Data) != 0 {
+		t.Fatalf("target organization content count = %d, want tenant-isolated empty list", len(contentEnvelope.Data))
+	}
+	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/auth/switch-organization", switched.AccessToken, map[string]any{
+		"organization_id": foreignOrganization.ID,
+	}, http.StatusForbidden)
+
+	var refreshedEnvelope apiEnvelope[tokenPairDTO]
+	decodeJSON(t, request(t, client, http.MethodPost, cfg.apiURL+"/api/v1/auth/refresh", "", map[string]any{}, http.StatusOK), &refreshedEnvelope)
+	refreshed := refreshedEnvelope.Data
+	if refreshed.AccessToken == "" || refreshed.User.OrganizationID != targetOrganization.ID || !containsString(refreshed.User.Roles, "administrator") {
+		t.Fatalf("refreshed token pair = %+v, want persisted target organization", refreshed.User)
+	}
+	decodeJSON(t, request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/auth/organizations", refreshed.AccessToken, nil, http.StatusOK), &organizationsEnvelope)
+	if !containsOrganization(organizationsEnvelope.Data, targetOrganization.ID, true, "administrator") {
+		t.Fatalf("refreshed organization list does not mark target as current: %+v", organizationsEnvelope.Data)
+	}
+
+	var auditCount int64
+	if err := db.Model(&model.AuditEvent{}).
+		Where("organization_id = ? AND actor_user_id = ? AND action = ? AND target_type = ? AND target_id = ?", targetOrganization.ID, owner.ID, "auth.organization_switch", "organization", targetOrganization.ID).
+		Count(&auditCount).Error; err != nil {
+		t.Fatalf("count organization switch audit: %v", err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("organization switch audit count = %d, want 1", auditCount)
+	}
+
+	if err := db.Model(&model.Membership{}).Where("id = ?", membership.ID).Update("state", "disabled").Error; err != nil {
+		t.Fatalf("disable target membership: %v", err)
+	}
+	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/dashboard", refreshed.AccessToken, nil, http.StatusUnauthorized)
+	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/auth/refresh", "", map[string]any{}, http.StatusUnauthorized)
+}
+
+func TestS2BatchInvitationsReturnPerItemResults(t *testing.T) {
+	cfg := loadIntegrationConfig(t)
+	client := &http.Client{Timeout: 10 * time.Second}
+	db := openIntegrationDB(t, cfg.mysqlDSN)
+	ownerToken := loginAsOwner(t, client, cfg)
+
+	email := "s2-batch-" + uuid.NewString() + "@integration.invalid"
+	var invitationID string
+	t.Cleanup(func() { cleanupS2Fixture(t, db, invitationID, "", "", "", "") })
+
+	batchBody := request(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/invitation-batches", ownerToken, map[string]any{
+		"invitations": []map[string]any{
+			{"email": email, "role": "editor", "expires_in_hours": 24},
+			{"email": "not-an-email", "role": "member"},
+			{"email": cfg.adminEmail, "role": "member"},
+			{"email": email, "role": "member"},
+		},
+	}, http.StatusOK)
+	if strings.Contains(string(batchBody), "token_hash") {
+		t.Fatal("batch invitation response exposed token_hash")
+	}
+	var envelope apiEnvelope[invitationBatchDTO]
+	decodeJSON(t, batchBody, &envelope)
+	batch := envelope.Data
+	if batch.Total != 4 || batch.Succeeded != 1 || batch.Failed != 3 || len(batch.Results) != 4 {
+		t.Fatalf("batch summary = %+v, want total=4 succeeded=1 failed=3", batch)
+	}
+	if batch.Results[0].Index != 0 || !batch.Results[0].Succeeded || batch.Results[0].Invitation == nil {
+		t.Fatalf("first batch result = %+v, want successful invitation", batch.Results[0])
+	}
+	invitationID = batch.Results[0].Invitation.ID
+	rawToken := strings.TrimPrefix(batch.Results[0].Invitation.InviteURL, "/invite/")
+	if invitationID == "" || rawToken == "" || batch.Results[0].Invitation.Delivery.Status != "disabled" {
+		t.Fatalf("successful batch invitation = %+v", batch.Results[0].Invitation)
+	}
+	wantCodes := []string{"", "invitation.validation_failed", "membership.already_active", "invitation.already_pending"}
+	for index, result := range batch.Results {
+		if result.Index != index {
+			t.Fatalf("batch result index = %d, want %d", result.Index, index)
+		}
+		if index == 0 {
+			continue
+		}
+		if result.Succeeded || result.Invitation != nil || result.Error == nil || result.Error.Code != wantCodes[index] {
+			t.Fatalf("batch result %d = %+v, want error %s", index, result, wantCodes[index])
+		}
+	}
+	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/invitations/"+rawToken, "", nil, http.StatusOK)
+
+	var invitationCount int64
+	if err := db.Model(&model.Invitation{}).Where("organization_id = ? AND email = ?", batch.Results[0].Invitation.OrganizationID, email).Count(&invitationCount).Error; err != nil {
+		t.Fatalf("count batch invitations: %v", err)
+	}
+	if invitationCount != 1 {
+		t.Fatalf("stored batch invitations = %d, want exactly one", invitationCount)
+	}
+	for _, action := range []string{"membership.invite", "membership.invite_email"} {
+		var auditCount int64
+		if err := db.Model(&model.AuditEvent{}).Where("action = ? AND target_type = ? AND target_id = ?", action, "invitation", invitationID).Count(&auditCount).Error; err != nil {
+			t.Fatalf("count batch invitation audit %s: %v", action, err)
+		}
+		if auditCount != 1 {
+			t.Fatalf("batch invitation audit %s count = %d, want 1", action, auditCount)
+		}
+	}
+	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/invitation-batches", ownerToken, map[string]any{"invitations": []any{}}, http.StatusBadRequest)
+	tooMany := make([]map[string]any, 21)
+	for index := range tooMany {
+		tooMany[index] = map[string]any{"email": "too-many-" + uuid.NewString() + "@integration.invalid", "role": "member"}
+	}
+	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/invitation-batches", ownerToken, map[string]any{"invitations": tooMany}, http.StatusBadRequest)
+
+	cleanupS2Fixture(t, db, invitationID, "", "", "", "")
+	invitationID = ""
+}
+
+func TestS2InvitationRevocation(t *testing.T) {
+	cfg := loadIntegrationConfig(t)
+	client := &http.Client{Timeout: 10 * time.Second}
+	db := openIntegrationDB(t, cfg.mysqlDSN)
+	ownerToken := loginAsOwner(t, client, cfg)
+
+	var organization model.Organization
+	if err := db.Where("slug = ?", cfg.organizationSlug).First(&organization).Error; err != nil {
+		t.Fatalf("load organization: %v", err)
+	}
+	email := "s2-revoke-" + uuid.NewString() + "@integration.invalid"
+	var invitationID string
+	t.Cleanup(func() { cleanupS2Fixture(t, db, invitationID, "", "", "", "") })
+
+	createBody := request(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/invitations", ownerToken, map[string]any{
+		"email": email, "role": "member", "expires_in_hours": 24,
+	}, http.StatusCreated)
+	var createdEnvelope apiEnvelope[invitationDTO]
+	decodeJSON(t, createBody, &createdEnvelope)
+	invitationID = createdEnvelope.Data.ID
+	rawToken := strings.TrimPrefix(createdEnvelope.Data.InviteURL, "/invite/")
+	if invitationID == "" || rawToken == "" {
+		t.Fatalf("created revocation fixture = %+v", createdEnvelope.Data)
+	}
+
+	var pendingEnvelope apiEnvelope[[]invitationDTO]
+	decodeJSON(t, request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/invitations?status=pending&page_size=100", ownerToken, nil, http.StatusOK), &pendingEnvelope)
+	if !containsInvitation(pendingEnvelope.Data, invitationID, "pending") {
+		t.Fatalf("pending invitation %s missing from admin list", invitationID)
+	}
+	if strings.Contains(string(createBody), "token_hash") {
+		t.Fatal("invitation response exposed token_hash")
+	}
+
+	var revokedEnvelope apiEnvelope[invitationDTO]
+	decodeJSON(t, request(t, client, http.MethodDelete, cfg.apiURL+"/api/v1/admin/invitations/"+invitationID, ownerToken, nil, http.StatusOK), &revokedEnvelope)
+	if revokedEnvelope.Data.Status != "revoked" {
+		t.Fatalf("revoked invitation status = %q, want revoked", revokedEnvelope.Data.Status)
+	}
+	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/invitations/"+rawToken, "", nil, http.StatusGone)
+	requireStatus(t, client, http.MethodDelete, cfg.apiURL+"/api/v1/admin/invitations/"+invitationID, ownerToken, nil, http.StatusConflict)
+
+	var revokedListEnvelope apiEnvelope[[]invitationDTO]
+	decodeJSON(t, request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/invitations?status=revoked&page_size=100", ownerToken, nil, http.StatusOK), &revokedListEnvelope)
+	if !containsInvitation(revokedListEnvelope.Data, invitationID, "revoked") {
+		t.Fatalf("revoked invitation %s missing from admin history", invitationID)
+	}
+	var stored model.Invitation
+	if err := db.First(&stored, "id = ?", invitationID).Error; err != nil {
+		t.Fatalf("load revoked invitation: %v", err)
+	}
+	if stored.RevokedAt == nil || stored.AcceptedAt != nil {
+		t.Fatalf("stored revoked invitation = %+v", stored)
+	}
+	var auditCount int64
+	if err := db.Model(&model.AuditEvent{}).
+		Where("organization_id = ? AND action = ? AND target_type = ? AND target_id = ? AND result = ?", organization.ID, "membership.invitation_revoke", "invitation", invitationID, "success").
+		Count(&auditCount).Error; err != nil {
+		t.Fatalf("count invitation revoke audit: %v", err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("invitation revoke audit count = %d, want 1", auditCount)
+	}
+
+	cleanupS2Fixture(t, db, invitationID, "", "", "", "")
+	invitationID = ""
 }
 
 func TestS2InvitationAndProjectCollaboration(t *testing.T) {
@@ -332,6 +641,16 @@ func containsString(values []string, expected string) bool {
 	return false
 }
 
+func containsOrganization(values []organizationMembershipDTO, id string, current bool, role string) bool {
+	for _, value := range values {
+		if value.ID != id || value.Current != current {
+			continue
+		}
+		return role == "" || containsString(value.Roles, role)
+	}
+	return false
+}
+
 func containsMilestone(values []projectMilestoneDTO, id, status string) bool {
 	for _, value := range values {
 		if value.ID == id && value.Status == status {
@@ -344,6 +663,15 @@ func containsMilestone(values []projectMilestoneDTO, id, status string) bool {
 func containsProjectMember(values []projectMemberDTO, userID string) bool {
 	for _, value := range values {
 		if value.UserID == userID {
+			return true
+		}
+	}
+	return false
+}
+
+func containsInvitation(values []invitationDTO, id, status string) bool {
+	for _, value := range values {
+		if value.ID == id && value.Status == status {
 			return true
 		}
 	}

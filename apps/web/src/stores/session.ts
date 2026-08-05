@@ -30,5 +30,6 @@ export async function restoreSession() {
 
 export async function signIn(email: string, password: string) { apply(await authApi.login({ email, password })); session.initialized = true }
 export async function signUp(payload: { email: string; display_name: string; password: string; invitation_token?: string }) { apply(await authApi.register(payload)); session.initialized = true }
+export async function switchSessionOrganization(organizationId: string) { apply(await authApi.switchOrganization(organizationId)); session.initialized = true }
 export async function signOut() { try { await authApi.logout() } finally { clear(); session.initialized = true } }
 export function expireSession() { clear(); session.initialized = true }

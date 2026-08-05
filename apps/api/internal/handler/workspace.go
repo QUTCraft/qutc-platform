@@ -393,6 +393,10 @@ func (h *WorkspaceHandler) PortalServer(c *gin.Context) {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
+	if organization.Slug != "qutcraft" {
+		respond(c, http.StatusOK, gin.H{"enabled": false, "label": "未配置服务器适配器", "state": "offline", "version": nil, "online_players": nil, "max_players": nil, "updated_at": time.Now().UTC(), "apply_url": nil})
+		return
+	}
 	status, err := h.serverAdapter.Status(c.Request.Context())
 	if err != nil {
 		respond(c, http.StatusOK, gin.H{"enabled": false, "label": "Minecraft 服务", "state": "offline", "version": nil, "online_players": nil, "max_players": nil, "updated_at": time.Now().UTC(), "apply_url": "#join"})
@@ -412,10 +416,11 @@ func (h *WorkspaceHandler) AdminDashboard(c *gin.Context) {
 		fail(c, http.StatusNotFound, "organization.not_found", "组织不存在。")
 		return
 	}
-	var published, total, activeMembers int64
+	var published, total, activeMembers, activeProjects int64
 	h.db.Model(&model.Content{}).Where("organization_id = ? AND status = ?", principal.OrganizationID, "published").Count(&published)
 	h.db.Model(&model.Content{}).Where("organization_id = ?", principal.OrganizationID).Count(&total)
 	h.db.Model(&model.Membership{}).Where("organization_id = ? AND state = ?", principal.OrganizationID, "active").Count(&activeMembers)
+	h.db.Model(&model.Project{}).Where("organization_id = ? AND status = ?", principal.OrganizationID, "active").Count(&activeProjects)
 	var recent []model.Content
 	h.db.Where("organization_id = ?", principal.OrganizationID).Order("updated_at DESC").Limit(12).Find(&recent)
 	recentItems := make([]gin.H, 0, len(recent))
@@ -429,7 +434,11 @@ func (h *WorkspaceHandler) AdminDashboard(c *gin.Context) {
 		pendingItems = append(pendingItems, h.applicationAdminItem(item))
 	}
 	server := h.serverStatus(c.Request.Context())
-	respond(c, http.StatusOK, gin.H{"organization_name": organization.Name, "updated_at": time.Now().UTC(), "metrics": []gin.H{{"label": "活跃成员", "value": activeMembers, "change": "当前组织成员", "tone": "primary"}, {"label": "已发布内容", "value": published, "change": "当前公开内容", "tone": "secondary"}, {"label": "内容总数", "value": total, "change": "含草稿", "tone": "neutral"}, {"label": "在线玩家", "value": server["online_players"], "change": "服务器适配器：" + h.serverAdapter.Mode(), "tone": "neutral"}}, "pending_applications": pendingItems, "recent_content": recentItems, "server": server})
+	lastMetric := gin.H{"label": "进行中项目", "value": activeProjects, "change": "当前组织项目", "tone": "neutral"}
+	if organization.Slug == "qutcraft" {
+		lastMetric = gin.H{"label": "在线玩家", "value": server["online_players"], "change": "服务器适配器：" + h.serverAdapter.Mode(), "tone": "neutral"}
+	}
+	respond(c, http.StatusOK, gin.H{"organization_name": organization.Name, "updated_at": time.Now().UTC(), "metrics": []gin.H{{"label": "活跃成员", "value": activeMembers, "change": "当前组织成员", "tone": "primary"}, {"label": "已发布内容", "value": published, "change": "当前公开内容", "tone": "secondary"}, {"label": "内容总数", "value": total, "change": "含草稿", "tone": "neutral"}, lastMetric}, "pending_applications": pendingItems, "recent_content": recentItems, "server": server})
 }
 func contentItems() []gin.H {
 	return []gin.H{{"id": "content_001", "title": "QUTCraft CMS 项目正式启动", "type": "news", "status": "published", "author": "QUTCraft Admin", "updated_at": "2026-07-17T03:00:00Z"}}

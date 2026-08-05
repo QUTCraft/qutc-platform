@@ -94,7 +94,7 @@ func main() {
 	router.Use(middleware.RequestID(), middleware.StructuredLogger(appLogger), gin.Recovery(), cors.New(corsConfig(cfg)))
 
 	authService := service.NewAuthService(db, cfg)
-	authHandler := handler.NewAuthHandler(authService, cfg.JWTRefreshTTL, cfg.AppEnv == "production")
+	authHandler := handler.NewAuthHandler(db, authService, cfg.JWTRefreshTTL, cfg.AppEnv == "production")
 	invitationHandler := handler.NewInvitationHandler(db, authService, emailSender, cfg.PublicWebBaseURL)
 	workspaceHandler := handler.NewWorkspaceHandlerWithDependencies(db, publicCache, cfg.AppEnv, serveradapter.NewMock(), cfg.ServerAdapterTimeout, mediaStorage)
 	portalConfigHandler := handler.NewPortalConfigHandler(db)
@@ -119,6 +119,8 @@ func main() {
 	auth.POST("/logout", authHandler.Logout)
 	auth.GET("/me", middleware.RequireAuth(authService), authHandler.Me)
 	auth.PATCH("/me", middleware.RequireAuth(authService), authHandler.UpdateMe)
+	auth.GET("/organizations", middleware.RequireAuth(authService), authHandler.Organizations)
+	auth.POST("/switch-organization", authRateLimiter.Middleware(), middleware.RequireAuth(authService), authHandler.SwitchOrganization)
 
 	invitations := v1.Group("/invitations")
 	invitations.GET("/:token", authRateLimiter.Middleware(), invitationHandler.Preview)
@@ -146,7 +148,10 @@ func main() {
 	admin.GET("/assets/:id/download", middleware.RequirePermission(authService, "asset:read"), workspaceHandler.DownloadAsset)
 	admin.GET("/users", middleware.RequirePermission(authService, "membership:read"), workspaceHandler.AdminUsers)
 	admin.PATCH("/users/:id", middleware.RequirePermission(authService, "membership:manage"), workspaceHandler.AdminUpdateUser)
+	admin.GET("/invitations", middleware.RequirePermission(authService, "membership:manage"), invitationHandler.List)
 	admin.POST("/invitations", middleware.RequirePermission(authService, "membership:manage"), invitationHandler.Create)
+	admin.POST("/invitation-batches", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "membership:manage"), invitationHandler.CreateBatch)
+	admin.DELETE("/invitations/:id", middleware.RequirePermission(authService, "membership:manage"), invitationHandler.Revoke)
 	admin.POST("/invitations/:id/email/retry", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "membership:manage"), invitationHandler.RetryEmail)
 	admin.GET("/notifications/email/status", middleware.RequirePermission(authService, "organization:configure"), invitationHandler.EmailStatus)
 	admin.GET("/projects", middleware.RequirePermission(authService, "project:read"), workspaceHandler.AdminProjects)

@@ -1,7 +1,36 @@
 import { get, getPage, post } from '@/api/client'
 import type { ApplicationPayload, KnowledgeArticle, KnowledgeDirectory, Organization, PortalRuntimeConfiguration, Project, PublicContentDetail, PublicPost, Resource, ServerStatus } from '@/api/types'
 
-export const organizationSlug = import.meta.env.VITE_ORGANIZATION_SLUG ?? 'qutcraft'
+const defaultOrganizationSlug = import.meta.env.VITE_ORGANIZATION_SLUG ?? 'qutcraft'
+const organizationStorageKey = 'qutc.portal_organization_slug'
+const organizationSlugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+function normalizeOrganizationSlug(value: string | null | undefined) {
+  const slug = value?.trim().toLowerCase() ?? ''
+  return organizationSlugPattern.test(slug) ? slug : ''
+}
+
+function resolveOrganizationSlug() {
+  const fallback = normalizeOrganizationSlug(defaultOrganizationSlug) || 'qutcraft'
+  if (typeof window === 'undefined') return fallback
+
+  try {
+    let requestedValue = ''
+    new URLSearchParams(window.location.search).forEach((value, key) => {
+      if (key === 'organization') requestedValue = value
+    })
+    const requested = normalizeOrganizationSlug(requestedValue)
+    if (requested) {
+      window.sessionStorage.setItem(organizationStorageKey, requested)
+      return requested
+    }
+    return normalizeOrganizationSlug(window.sessionStorage.getItem(organizationStorageKey)) || fallback
+  } catch {
+    return fallback
+  }
+}
+
+export const organizationSlug = resolveOrganizationSlug()
 export const portalBase = `/api/v1/portal/organizations/${organizationSlug}`
 
 export interface PortalPageQuery {

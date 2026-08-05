@@ -1,5 +1,5 @@
 import { del, get, getPage, patch, post, put, upload } from '@/api/client'
-import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, EmailAdapterStatus, InvitationRole, MediaAsset, Organization, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
+import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminInvitationSummary, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, BatchInvitationResponse, EmailAdapterStatus, Invitation, InvitationRole, InvitationStatus, MediaAsset, Organization, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
 
 const adminBase = '/api/v1/admin'
 
@@ -37,7 +37,10 @@ export const adminApi = {
   createKnowledgeDirectory: (payload: Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>) => post<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories`, payload),
   updateKnowledgeDirectory: (id: string, payload: Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>) => patch<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories/${id}`, payload),
   getUsers: (params: PageQuery = {}) => getPage<AdminUser>(withQuery(`${adminBase}/users`, params)),
+  getInvitations: (params: PageQuery & { status?: InvitationStatus | '' } = {}) => getPage<AdminInvitationSummary>(withQuery(`${adminBase}/invitations`, params)),
   createInvitation: (payload: { email: string; role: InvitationRole; expires_in_hours?: number }) => post<AdminInvitation>(`${adminBase}/invitations`, payload),
+  createBatchInvitations: (payload: { invitations: Array<{ email: string; role: InvitationRole; expires_in_hours?: number }> }) => post<BatchInvitationResponse>(`${adminBase}/invitation-batches`, payload),
+  revokeInvitation: (id: string) => del<Invitation>(`${adminBase}/invitations/${id}`),
   retryInvitationEmail: (id: string) => post<AdminInvitation>(`${adminBase}/invitations/${id}/email/retry`),
   getEmailAdapterStatus: () => get<EmailAdapterStatus>(`${adminBase}/notifications/email/status`),
   updateUser: (id: string, payload: { state: AdminMembershipWriteState; role: AdminUser['role'] }) => patch<AdminUser>(`${adminBase}/users/${id}`, payload),

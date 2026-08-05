@@ -20,6 +20,11 @@ func TestLoadDemoSeedEnabled(t *testing.T) {
 	if Load().DemoSeedEnabled {
 		t.Fatal("invalid DEMO_SEED_ENABLED should use the safe false fallback")
 	}
+
+	t.Setenv("DEMO_SEED_MULTI_ORGANIZATION", "true")
+	if !Load().DemoSeedMultiOrganization {
+		t.Fatal("DEMO_SEED_MULTI_ORGANIZATION=true was not enabled")
+	}
 }
 
 func TestDemoSeedProfiles(t *testing.T) {
@@ -118,6 +123,7 @@ func TestValidateRejectsUnsafeProductionConfiguration(t *testing.T) {
 		{name: "placeholder JWT", mutate: func(cfg *Config) { cfg.JWTAccessSecret = "replace-with-a-long-random-production-secret" }},
 		{name: "short JWT", mutate: func(cfg *Config) { cfg.JWTAccessSecret = "too-short" }},
 		{name: "demo seed", mutate: func(cfg *Config) { cfg.DemoSeedEnabled = true }},
+		{name: "multi-organization demo seed", mutate: func(cfg *Config) { cfg.DemoSeedMultiOrganization = true }},
 		{name: "short bootstrap password", mutate: func(cfg *Config) { cfg.BootstrapAdminPassword = "short" }},
 		{name: "placeholder S3 credentials", mutate: func(cfg *Config) {
 			cfg.StorageDriver = "s3"

@@ -4,9 +4,9 @@
 > 契约源：[openapi.yaml](openapi.yaml)（OpenAPI 3.1.1）  
 > 适用对象：Go 后端、Vue 前端、Apifox 测试、Swagger UI、自定义门户开发者
 
-本文说明当前已开发的认证（Auth）、公开门户（Portal）与后台工作台（Admin）接口。它是对 OpenAPI 契约的可读补充：**路径、字段类型、必填性和状态码以 `openapi.yaml` 为最终事实来源**。本文会明确区分已落地的 CMS、资源、知识目录、成员邀请、门户配置与审计能力和仍在排期中的运行时能力。
+本文说明当前已开发的认证（Auth）、公开门户（Portal）与后台工作台（Admin）接口。它是对 OpenAPI 契约的可读补充：**路径、字段类型、必填性和状态码以 `openapi.yaml` 为最终事实来源**。本文会明确区分已落地的 CMS、资源、知识目录、成员邀请、多组织会话、门户配置与审计能力和仍在排期中的运行时能力。
 
-> 实现状态：`/api/v1/auth/*`、邀请注册/接受、Portal 公开内容读取、Admin 内容生命周期、媒体资产、用户资料、项目/成员/里程碑、知识库目录、申请审批/Mock ServerAdapter、门户配置、审计查询和存活/就绪探针已在 Go API 底座中实现。
+> 实现状态：`/api/v1/auth/*`、多组织列举/安全切换、邀请注册/接受、Portal 公开内容读取、Admin 内容生命周期、媒体资产、用户资料、项目/成员/里程碑、知识库目录、申请审批/Mock ServerAdapter、门户配置、审计查询和存活/就绪探针已在 Go API 底座中实现。
 
 ## 1. 设计边界
 
@@ -33,7 +33,7 @@ https://api.qutcraft.local
 本地后端建议在 Apifox 中配置为：
 
 ```text
-http://localhost:8080
+http://localhost:18080
 ```
 
 前端通过 `VITE_API_BASE_URL` 覆盖服务地址；当前前端的默认 `mock` 模式不会发出网络请求。
@@ -47,14 +47,14 @@ http://localhost:8080
 ### 2.3 Portal 请求示例
 
 ```bash
-curl "http://localhost:8080/api/v1/portal/organizations/qutcraft/projects?page=1&page_size=20&status=active" \
+curl "http://localhost:18080/api/v1/portal/organizations/qutcraft/projects?page=1&page_size=20&status=active" \
   -H "Accept: application/json"
 ```
 
 ### 2.4 Admin 请求示例
 
 ```bash
-curl "http://localhost:8080/api/v1/admin/dashboard" \
+curl "http://localhost:18080/api/v1/admin/dashboard" \
   -H "Accept: application/json" \
   -H "Authorization: Bearer <access-token>"
 ```
@@ -199,11 +199,11 @@ OpenAPI 当前将具体权限决策留给服务端 RBAC 策略，因此不能把
 
 ### 4.3 组织隔离
 
-Portal 通过 `organization_slug` 定位组织。Admin 当前为“当前 token 所属组织”的工作台，因此 URL 中不暴露组织标识；服务端必须从认证上下文取组织 ID，绝不可接受客户端随意提交的组织 ID 来越权切换数据。
+Portal 通过 `organization_slug` 定位组织。Admin 是“当前 token 所属组织”的工作台，因此业务 URL 中不暴露组织标识，服务端必须从认证上下文取组织 ID。唯一允许客户端提交目标组织 ID 的入口是专用的 `POST /api/v1/auth/switch-organization`；该接口会重新验证 active 成员关系、轮换 Refresh Token 并重新签发绑定目标组织的 Access Token，不能用请求体中的组织 ID 直接读取或修改业务数据。
 
 ## 5. Auth API（身份与会话）
 
-公共前缀：`/api/v1/auth`。注册和登录使用 JSON 请求体；刷新与退出从 `qutc_refresh` HttpOnly Cookie 读取刷新令牌；`/me` 必须携带 Bearer JWT。Access Token 只在前端运行内存中保存，刷新令牌不会进入响应 JSON、浏览器脚本或 Web Storage。生产环境 Cookie 同时启用 `Secure`，所有环境均使用 `SameSite=Strict`。
+公共前缀：`/api/v1/auth`。注册和登录使用 JSON 请求体；刷新、退出和组织切换从 `qutc_refresh` HttpOnly Cookie 读取刷新令牌；`/me` 与组织接口必须携带 Bearer JWT。Access Token 只在前端运行内存中保存，刷新令牌不会进入响应 JSON、浏览器脚本或 Web Storage。生产环境 Cookie 同时启用 `Secure`，所有环境均使用 `SameSite=Strict`。
 
 | 方法与路径 | 认证 | 说明 |
 | --- | --- | --- |
@@ -212,6 +212,8 @@ Portal 通过 `organization_slug` 定位组织。Admin 当前为“当前 token 
 | `POST /refresh` | HttpOnly Cookie | 原子轮换 Refresh Token，返回新的 Access Token。 |
 | `POST /logout` | HttpOnly Cookie | 撤销 Cookie 对应 Refresh Token 并清除 Cookie；重复调用保持安全。 |
 | `GET /me` | Bearer JWT | 返回当前用户、当前组织和角色。 |
+| `GET /organizations` | Bearer JWT | 返回当前账户具有 active 成员关系的组织、组织内角色和当前组织标记。 |
+| `POST /switch-organization` | Bearer JWT + HttpOnly Cookie | 验证目标成员关系，轮换会话并返回绑定目标组织的新 Access Token。 |
 
 ### 5.1 当前用户资料
 
@@ -252,6 +254,25 @@ Portal 通过 `organization_slug` 定位组织。Admin 当前为“当前 token 
 ```
 
 访问令牌短时有效且只驻留于页面内存；刷新令牌只以哈希形式保存在服务端，并在刷新时轮换。密码最少 12 个字符。认证失败、禁用用户或失效刷新令牌均不得泄露账户是否存在以外的敏感细节。
+
+### 5.2 多组织会话切换
+
+`GET /api/v1/auth/organizations` 返回当前账户可进入的组织。每项包含 `id`、`slug`、`name`、`short_name`、该组织内独立计算的 `roles`，以及是否与当前 Access Token 一致的 `current`。停用、退出或不存在的成员关系不会出现在列表中。
+
+切换请求：
+
+```json
+{
+  "organization_id": "org_target"
+}
+```
+
+`POST /api/v1/auth/switch-organization` 同时要求当前 Bearer JWT 和浏览器自动携带的 `qutc_refresh` Cookie。成功时服务端在同一事务中撤销旧 Refresh Token，为目标组织签发新的 Token Pair，并写入目标组织的 `auth.organization_switch` 审计；前端必须替换 Access Token、当前用户与角色，并重新加载后台数据。之后调用 `/refresh` 仍保持目标组织，不会回退到最早加入的组织。
+
+- 目标成员关系不存在或不是 `active`：`403 organization.membership_unavailable`。
+- Refresh Cookie 缺失、过期、已轮换或不属于当前用户：`401 auth.refresh_invalid`。
+- 切换后若目标成员关系被停用，旧 Access Token 在下一次受保护请求时立即返回 `401`，Refresh 也不能续期。
+- 所有 Admin 查询继续只使用 JWT 中经过签发的当前组织，不接受业务请求自行覆盖 `organization_id`。
 
 ## 6. Portal API（公开只读）
 
@@ -391,6 +412,8 @@ Operation ID：`listPortalKnowledgeArticles`
 
 `GET /api/v1/portal/organizations/{organization_slug}/server-status`  
 Operation ID：`getPortalServerStatus`
+
+服务器适配器是可选的组织场景能力。当前只有 `qutcraft` 返回已配置的脱敏 Minecraft 状态；其他公开组织返回 `enabled=false`、`state=offline`、`apply_url=null`，不会读取或暴露 QUTCraft 的玩家数据。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -703,6 +726,9 @@ Operation ID：`executeRestrictedServerCommand`
 5. 邮箱不匹配返回 `403`；重复、已使用、过期或撤销的链接分别使用统一冲突/失效错误，不返回 token 哈希。
 6. 创建响应包含真实 `delivery` 状态。邮件未启用或发送失败时邀请仍有效，Admin 必须保留复制链接入口。
 7. `POST /api/v1/admin/invitations/{invitation_id}/email/retry` 会先轮换 token，使旧链接失效，再在事务外投递；邮件失败不回滚新邀请链接。
+8. `GET /api/v1/admin/invitations` 按当前组织分页返回邀请和邮件状态，可使用 `status=pending|accepted|expired|revoked` 筛选，但不会返回或恢复明文 token。
+9. `DELETE /api/v1/admin/invitations/{invitation_id}` 只撤销当前组织中的待处理邀请；成功后原链接立即返回 `410 invitation.revoked`，重复撤销、撤销已接受或已过期邀请返回 `409`，操作写入审计事件。
+10. `POST /api/v1/admin/invitation-batches` 一次接收 1—20 条邀请并保持请求顺序逐项返回结果；单条校验、已有成员或重复邀请只影响该条，成功项分别创建、投递和审计，明文链接仍只在本次响应中展示。
 
 ### 7.8 外部适配器与通知规范
 
@@ -809,9 +835,9 @@ Operation ID：`listAdminAuditEvents`
 | `/admin` | 后台概览 | `GET /admin/dashboard`。 |
 | `/admin/content` | 内容工作区 | 内容创建、编辑、发布/下线与资源上传。 |
 | `/admin/knowledge` | 知识目录 | 知识目录创建与编辑。 |
-| `/admin/users` | 成员与权限 | `GET/PATCH /admin/users`、邀请创建及邮件失败重试。 |
+| `/admin/users` | 成员与权限 | `GET/PATCH /admin/users`、单个/批量邀请、邀请列表/撤销及邮件失败重试。 |
 | `/admin/projects` | 项目管理 | 项目、项目成员和里程碑管理接口。 |
-| `/admin/reviews` | 审批与 RCON | 申请列表、批准/拒绝、服务器状态、受限命令。 |
+| `/admin/reviews` | 申请审核与可选服务器适配 | 所有组织可处理成员申请；仅 QUTCraft 场景展示服务器状态、同步记录与受限命令。 |
 | `/admin/audit` | 审计记录 | `GET /admin/audit-events`，按组织、权限和筛选条件查询。 |
 | `/admin/ai` | 智能体配置 | 读取脱敏供应商状态；组织所有者保存启停、配额、超时和上下文策略。 |
 | `/admin/settings` | 门户与通知设置 | 门户 Manifest 管理；只读检查服务端邮件适配器状态，不接收 SMTP 密码。 |
@@ -844,7 +870,7 @@ Operation ID：`listAdminAuditEvents`
 - 密码重置、邮箱验证、2FA、SSO 与多组织主动切换。
 - 内容删除、定时发布、复杂审核流与版本历史。
 - 分片上传、病毒扫描回调与跨存储后端在线迁移。
-- 批量邀请、邀请撤销/重发、成员资料编辑。
+- 邀请模板和成员资料编辑。
 - 申请人状态查询、撤回、补充材料与审批通知。
 - RCON 命令白名单配置、命令历史查询、服务器监控明细。
 - 门户历史版本回滚、资源包上传/审核与运行时健康查询。

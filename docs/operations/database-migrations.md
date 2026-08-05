@@ -43,6 +43,8 @@ SELECT version, applied_at FROM schema_migrations ORDER BY version;
 
 012 新增 `activity_plan_evaluations`，以 `(plan_id, reviewer_user_id)` 唯一约束保存五维人工评分；`organization_id` 同时参与所有服务端查询，防止跨组织读取。该表沿用 010 的旧数据卷兼容策略，不新增跨表外键；删除测试方案或执行数据清理时必须先删除对应评分。
 
+013 为 `refresh_tokens` 新增 `organization_id` 与索引。迁移前签发的历史 Refresh Token 使用空字符串兼容值，并在首次轮换时回退到用户最早的 active 组织；迁移后签发和轮换的令牌始终记录当前组织。该列刻意不建立组织外键，以允许历史空值安全过渡；服务端每次 Refresh 和组织切换仍会实时校验用户与目标组织的 active 成员关系。
+
 5. 在空数据库再次启动，验证 001 至最新版本可完整执行。
 
 ## 5. 回退边界

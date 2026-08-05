@@ -25,6 +25,7 @@ const { data, error, loading, refresh } = useAsyncData(async () => {
 
 const heroNews = computed(() => data.value?.posts[0])
 const statusLabel = computed(() => ({ online: '运行正常', maintenance: '维护中', offline: '离线' }[data.value?.serverStatus.state ?? 'offline']))
+const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcraft')
 </script>
 
 <template>
@@ -59,7 +60,7 @@ const statusLabel = computed(() => ({ online: '运行正常', maintenance: '维�
 
           <div class="hero-actions">
             <el-button
-              v-if="data.serverStatus.apply_url"
+              v-if="isQutcraftPortal && data.serverStatus.apply_url"
               type="primary"
               size="large"
               round
@@ -68,6 +69,11 @@ const statusLabel = computed(() => ({ online: '运行正常', maintenance: '维�
             >
               申请加入服务器 <el-icon class="el-icon--right"><ArrowRight /></el-icon>
             </el-button>
+            <RouterLink v-else-if="!isQutcraftPortal" to="/posts">
+              <el-button type="primary" size="large" round class="hero-apply-btn">
+                查看组织动态 <el-icon class="el-icon--right"><ArrowRight /></el-icon>
+              </el-button>
+            </RouterLink>
             <RouterLink to="/projects">
               <el-button size="large" round class="hero-secondary-btn">浏览公开项目</el-button>
             </RouterLink>
@@ -76,7 +82,7 @@ const statusLabel = computed(() => ({ online: '运行正常', maintenance: '维�
             </RouterLink>
           </div>
 
-          <div class="hero-stats-strip">
+          <div v-if="isQutcraftPortal" class="hero-stats-strip">
             <div class="stat-item">
               <strong>30+</strong>
               <small>公开协作项目</small>
@@ -92,10 +98,26 @@ const statusLabel = computed(() => ({ online: '运行正常', maintenance: '维�
               <small>Minecraft 生态服</small>
             </div>
           </div>
+          <div v-else class="hero-stats-strip">
+            <div class="stat-item">
+              <strong>{{ data.posts.length }}</strong>
+              <small>公开动态</small>
+            </div>
+            <div class="stat-divider" />
+            <div class="stat-item">
+              <strong>{{ data.projects.length }}</strong>
+              <small>公开项目</small>
+            </div>
+            <div class="stat-divider" />
+            <div class="stat-item">
+              <strong>{{ data.knowledge.length }}</strong>
+              <small>知识条目</small>
+            </div>
+          </div>
         </div>
 
         <!-- Live Server Status Glassmorphism Card -->
-        <aside class="hero-status" aria-label="公开服务状态">
+        <aside v-if="isQutcraftPortal" class="hero-status" aria-label="公开服务状态">
           <div class="status-header">
             <div class="status-kicker">LIVE SERVER NETWORK</div>
             <span class="status-pill" :class="data.serverStatus.state">
@@ -132,10 +154,38 @@ const statusLabel = computed(() => ({ online: '运行正常', maintenance: '维�
             立即提交白名单申请 →
           </el-button>
         </aside>
+        <aside v-else class="hero-status" aria-label="组织公开概览">
+          <div class="status-header">
+            <div class="status-kicker">ORGANIZATION COMMONS</div>
+            <span class="status-pill online">
+              <span class="status-dot online" /> 公开门户运行中
+            </span>
+          </div>
+
+          <h2>{{ data.organization.short_name }} 协作空间</h2>
+          <dl class="status-dl">
+            <div>
+              <dt>内容发布</dt>
+              <dd>{{ data.posts.length }} 条公开动态</dd>
+            </div>
+            <div>
+              <dt>项目协作</dt>
+              <dd>{{ data.projects.length }} 个公开项目</dd>
+            </div>
+            <div>
+              <dt>知识沉淀</dt>
+              <dd>{{ data.knowledge.length }} 篇公开资料</dd>
+            </div>
+          </dl>
+
+          <RouterLink to="/projects">
+            <el-button class="status-button" type="primary" round>查看公开协作 →</el-button>
+          </RouterLink>
+        </aside>
       </section>
 
       <!-- Portal Core Pillars Section -->
-      <section class="pillars-section">
+      <section v-if="isQutcraftPortal" class="pillars-section">
         <div class="pillar-card">
           <div class="pillar-icon-box tone-primary">
             <el-icon><Tools /></el-icon>
@@ -160,13 +210,38 @@ const statusLabel = computed(() => ({ online: '运行正常', maintenance: '维�
           <p>积累完整的玩家教程、红石与建筑工坊指南，构建属于社团的长效知识库。</p>
         </div>
       </section>
+      <section v-else class="pillars-section">
+        <div class="pillar-card">
+          <div class="pillar-icon-box tone-primary">
+            <el-icon><Reading /></el-icon>
+          </div>
+          <h3>公共内容运营</h3>
+          <p>统一维护组织动态、公开资源与对外信息，让宣传内容始终有清晰来源和发布状态。</p>
+        </div>
+
+        <div class="pillar-card">
+          <div class="pillar-icon-box tone-secondary">
+            <el-icon><Tools /></el-icon>
+          </div>
+          <h3>项目协同推进</h3>
+          <p>围绕负责人、成员和里程碑组织协作过程，使活动与长期项目都能够持续交接。</p>
+        </div>
+
+        <div class="pillar-card">
+          <div class="pillar-icon-box tone-tertiary">
+            <el-icon><Notebook /></el-icon>
+          </div>
+          <h3>组织知识沉淀</h3>
+          <p>将制度、活动经验与复盘资料整理为可检索、可引用、可持续维护的公共知识。</p>
+        </div>
+      </section>
 
       <!-- Latest News Showcase Section -->
       <section class="portal-section">
         <SectionHeading
           eyebrow="LATEST ANNOUNCEMENTS"
           title="最新动态与公告"
-          description="社团发布的第一手活动通知、更新日志与公开通告。"
+          :description="isQutcraftPortal ? '社团发布的第一手活动通知、更新日志与公开通告。' : '组织公开发布的活动通知、服务进展与重要通告。'"
           action-label="查看全部动态"
           action-to="/posts"
         />
@@ -197,7 +272,7 @@ const statusLabel = computed(() => ({ online: '运行正常', maintenance: '维�
         <SectionHeading
           eyebrow="CREATIVE LABS & PROJECTS"
           title="正在发生的项目"
-          description="由社团成员自主发起的建造、学术与开发工程。"
+          :description="isQutcraftPortal ? '由社团成员自主发起的建造、学术与开发工程。' : '由组织成员共同推进、对外公开的服务与协作项目。'"
           action-label="查看全部项目"
           action-to="/projects"
         />

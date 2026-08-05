@@ -274,6 +274,118 @@ func TestS3DemoSeedIsIdempotentAndNonDestructive(t *testing.T) {
 	}
 }
 
+func TestS3MultiOrganizationDemoSeedIsScopedAndIdempotent(t *testing.T) {
+	cfg := loadIntegrationConfig(t)
+	db := openIntegrationDB(t, cfg.mysqlDSN)
+
+	var primary model.Organization
+	if err := db.Where("slug = ?", cfg.organizationSlug).First(&primary).Error; err != nil {
+		t.Fatalf("load primary organization: %v", err)
+	}
+	tx := db.Begin()
+	if tx.Error != nil {
+		t.Fatalf("begin multi-organization seed transaction: %v", tx.Error)
+	}
+	t.Cleanup(func() { tx.Rollback() })
+
+	seedConfig := config.Config{BootstrapAdminEmail: cfg.adminEmail, BootstrapAdminPassword: cfg.adminPassword, BootstrapAdminName: "S3 Demo Owner", DemoSeedProfile: "qutcraft"}
+	if err := database.SeedMultiOrganizationDemo(tx, seedConfig, primary); err != nil {
+		t.Fatalf("first SeedMultiOrganizationDemo() error = %v", err)
+	}
+	var secondary model.Organization
+	if err := tx.Where("slug = ?", "campus-commons").First(&secondary).Error; err != nil {
+		t.Fatalf("load secondary demo organization: %v", err)
+	}
+	if secondary.Name != "Campus Commons" || secondary.ID == primary.ID {
+		t.Fatalf("secondary demo organization = %+v", secondary)
+	}
+	applicationIDs := []string{"application_pending_generic", "application_approved_generic", "application_rejected_generic"}
+	if err := tx.Where("organization_id = ? AND id = ?", secondary.ID, "application_sync_approved_generic").Delete(&model.ApplicationServerSync{}).Error; err != nil {
+		t.Fatalf("reset secondary demo sync fixture: %v", err)
+	}
+	if err := tx.Where("organization_id = ? AND id IN ?", secondary.ID, applicationIDs).Delete(&model.Application{}).Error; err != nil {
+		t.Fatalf("reset secondary demo application fixtures: %v", err)
+	}
+	if err := database.SeedMultiOrganizationDemo(tx, seedConfig, primary); err != nil {
+		t.Fatalf("reseed secondary demo applications: %v", err)
+	}
+
+	var owner model.User
+	if err := tx.Where("email = ?", cfg.adminEmail).First(&owner).Error; err != nil {
+		t.Fatalf("load bootstrap owner: %v", err)
+	}
+	var secondaryMembership model.Membership
+	if err := tx.Where("organization_id = ? AND user_id = ? AND state = ?", secondary.ID, owner.ID, "active").First(&secondaryMembership).Error; err != nil {
+		t.Fatalf("load secondary owner membership: %v", err)
+	}
+	var ownerRole model.Role
+	if err := tx.Where("`key` = ?", "owner").First(&ownerRole).Error; err != nil {
+		t.Fatalf("load owner role: %v", err)
+	}
+	var ownerRoleLinkCount int64
+	if err := tx.Model(&model.MembershipRole{}).Where("membership_id = ? AND role_id = ?", secondaryMembership.ID, ownerRole.ID).Count(&ownerRoleLinkCount).Error; err != nil {
+		t.Fatalf("count secondary owner role link: %v", err)
+	}
+	if ownerRoleLinkCount != 1 {
+		t.Fatalf("secondary owner role link count = %d, want 1", ownerRoleLinkCount)
+	}
+
+	contentIDs := []string{"content_main_generic", "content_event_generic", "content_resource_generic", "content_knowledge_generic", "content_safety_generic", "content_archive_generic"}
+	projectIDs := []string{"project_main_generic", "project_event_generic", "project_knowledge_generic"}
+	directoryIDs := []string{"knowledge_dir_collab_generic", "knowledge_dir_tech_generic", "knowledge_dir_community_generic"}
+	assertScopedSeedCount(t, tx, &model.Content{}, secondary.ID, contentIDs, 6)
+	assertScopedSeedCount(t, tx, &model.Project{}, secondary.ID, projectIDs, 3)
+	assertScopedSeedCount(t, tx, &model.KnowledgeDirectory{}, secondary.ID, directoryIDs, 3)
+	assertSeedCount(t, tx, &model.AgentDefinition{}, "organization_id = ?", secondary.ID, 2)
+	var knowledgeCount int64
+	if err := tx.Model(&model.Content{}).Where("organization_id = ? AND type = ? AND status = ?", secondary.ID, "knowledge", "published").Count(&knowledgeCount).Error; err != nil {
+		t.Fatalf("count secondary knowledge content: %v", err)
+	}
+	if knowledgeCount < 3 {
+		t.Fatalf("secondary published knowledge count = %d, want at least 3", knowledgeCount)
+	}
+	var membershipApplicationCount int64
+	if err := tx.Model(&model.Application{}).Where("organization_id = ? AND type = ?", secondary.ID, "membership").Count(&membershipApplicationCount).Error; err != nil {
+		t.Fatalf("count secondary membership applications: %v", err)
+	}
+	if membershipApplicationCount != 3 {
+		t.Fatalf("secondary membership application count = %d, want 3", membershipApplicationCount)
+	}
+	var secondarySyncCount int64
+	if err := tx.Model(&model.ApplicationServerSync{}).Where("organization_id = ?", secondary.ID).Count(&secondarySyncCount).Error; err != nil {
+		t.Fatalf("count secondary server syncs: %v", err)
+	}
+	if secondarySyncCount != 0 {
+		t.Fatalf("secondary server sync count = %d, want 0", secondarySyncCount)
+	}
+
+	if err := tx.Model(&model.Content{}).Where("id = ?", "content_main_generic").Update("title", "保留通用组织人工修改").Error; err != nil {
+		t.Fatalf("customize secondary demo content: %v", err)
+	}
+	if err := database.SeedMultiOrganizationDemo(tx, seedConfig, primary); err != nil {
+		t.Fatalf("second SeedMultiOrganizationDemo() error = %v", err)
+	}
+	var customized model.Content
+	if err := tx.First(&customized, "id = ?", "content_main_generic").Error; err != nil {
+		t.Fatalf("reload customized secondary content: %v", err)
+	}
+	if customized.Title != "保留通用组织人工修改" {
+		t.Fatalf("second multi-organization seed overwrote title: %q", customized.Title)
+	}
+	assertScopedSeedCount(t, tx, &model.Content{}, secondary.ID, contentIDs, 6)
+}
+
+func assertScopedSeedCount(t *testing.T, db *gorm.DB, value any, organizationID string, ids []string, want int64) {
+	t.Helper()
+	var count int64
+	if err := db.Model(value).Where("organization_id = ? AND id IN ?", organizationID, ids).Count(&count).Error; err != nil {
+		t.Fatalf("count scoped seed records: %v", err)
+	}
+	if count != want {
+		t.Fatalf("scoped seed record count = %d, want %d", count, want)
+	}
+}
+
 func assertSeedCount(t *testing.T, db *gorm.DB, value any, query string, args any, want int64) {
 	t.Helper()
 	var count int64

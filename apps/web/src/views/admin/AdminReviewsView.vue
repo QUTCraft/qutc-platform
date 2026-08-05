@@ -17,13 +17,14 @@ const filters = reactive<Required<Pick<AdminApplicationFilters, 'page' | 'page_s
 })
 
 const { data, error, loading, refresh } = useAsyncData(async () => {
-  const [applications, server] = await Promise.all([adminApi.getApplications(filters), adminApi.getServerStatus()])
-  return { applications, server }
+  const [applications, server, organization] = await Promise.all([adminApi.getApplications(filters), adminApi.getServerStatus(), adminApi.getOrganization()])
+  return { applications, server, organization }
 })
 const command = reactive({ value: 'list' })
 const running = ref(false)
 const retryingId = ref('')
 const applications = computed(() => data.value?.applications.items ?? [])
+const isQutcraftOrganization = computed(() => data.value?.organization.slug === 'qutcraft')
 
 function applyFilters() {
   filters.page = 1
@@ -119,8 +120,8 @@ async function runCommand() {
     <template v-if="data">
       <section class="admin-page-heading">
         <div>
-          <h2>审核与服务器</h2>
-          <p>筛选并审批加入申请，查看与受限服务器适配器分离保存的同步结果。</p>
+          <h2>{{ isQutcraftOrganization ? '审核与服务器' : '申请审核' }}</h2>
+          <p>{{ isQutcraftOrganization ? '筛选并审批加入申请，查看与受限服务器适配器分离保存的同步结果。' : '筛选并处理当前组织的成员申请，审核事实与组织操作均会保留审计记录。' }}</p>
         </div>
       </section>
 
@@ -128,7 +129,7 @@ async function runCommand() {
         <article class="admin-panel">
           <div class="panel-heading">
             <div>
-              <h2>白名单与成员申请</h2>
+              <h2>{{ isQutcraftOrganization ? '白名单与成员申请' : '成员申请' }}</h2>
             </div>
             <el-tag>{{ data.applications.total }} 条结果</el-tag>
           </div>
@@ -137,7 +138,7 @@ async function runCommand() {
             <el-input
               v-model="filters.query"
               clearable
-              placeholder="搜索姓名、游戏 ID、邮箱或 QQ"
+              :placeholder="isQutcraftOrganization ? '搜索姓名、游戏 ID、邮箱或 QQ' : '搜索姓名、班级或邮箱'"
               @keyup.enter="applyFilters"
             />
             <el-select v-model="filters.status" aria-label="审批状态" placeholder="全部审批状态">
@@ -148,10 +149,10 @@ async function runCommand() {
             </el-select>
             <el-select v-model="filters.type" aria-label="申请类型" placeholder="全部申请类型">
               <el-option label="全部申请类型" value="" />
-              <el-option label="服务器白名单" value="whitelist" />
+              <el-option v-if="isQutcraftOrganization" label="服务器白名单" value="whitelist" />
               <el-option label="成员申请" value="membership" />
             </el-select>
-            <el-select v-model="filters.server_sync_status" aria-label="服务器同步状态" placeholder="全部同步状态">
+            <el-select v-if="isQutcraftOrganization" v-model="filters.server_sync_status" aria-label="服务器同步状态" placeholder="全部同步状态">
               <el-option label="全部同步状态" value="" />
               <el-option label="无同步任务" value="none" />
               <el-option label="同步中" value="pending" />
@@ -228,7 +229,7 @@ async function runCommand() {
           />
         </article>
 
-        <article class="admin-panel command-panel">
+        <article v-if="isQutcraftOrganization" class="admin-panel command-panel">
           <div class="panel-heading">
             <div>
               <h2>{{ data.server.label }}</h2>
@@ -269,6 +270,31 @@ async function runCommand() {
               {{ data.server.mode === 'mock' ? '模拟命令' : '执行命令' }}
             </el-button>
           </div>
+        </article>
+        <article v-else class="admin-panel command-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>审核边界</h2>
+            </div>
+            <span class="server-state online"><i /> 组织内审批</span>
+          </div>
+
+          <dl class="server-facts">
+            <div>
+              <dt>当前组织</dt>
+              <dd>{{ data.organization.name }}</dd>
+            </div>
+            <div>
+              <dt>申请范围</dt>
+              <dd>成员加入与活动协作</dd>
+            </div>
+            <div>
+              <dt>外部执行</dt>
+              <dd>未配置，不会触发服务器命令</dd>
+            </div>
+          </dl>
+
+          <p>通用组织的成员申请只更新平台内审批状态；Minecraft ServerAdapter 是 QUTCraft 场景的可选扩展。</p>
         </article>
       </section>
     </template>

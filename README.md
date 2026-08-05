@@ -21,13 +21,13 @@ QUTCraft Platform 是“社团智枢 Commons Agent”的工程底座：一套面
 ### 公开门户
 
 - MD3 风格的组织首页、公开项目、资源中心与知识库列表。
-- 组织动态、项目、资源、知识文章及公开服务器状态的契约 Mock 数据。
+- 组织动态、项目、资源与知识文章的公开数据；QUTCraft 场景额外展示脱敏服务器状态，通用组织显示协作概览。
 - 响应式导航和独立的公开页面布局。
 
 ### 管理工作台
 
 - 独立的后台侧边导航与工作台布局，入口为 `/admin`。
-- Dashboard：组织概览、待办申请、近期内容与服务器适配状态。
+- Dashboard：组织概览、待办申请与近期内容；QUTCraft 展示服务器适配状态，通用组织展示活动运营入口。
 - 内容工作区：查看内容状态并创建草稿。
 - 成员与权限：查看成员、组织角色和状态，创建邀请，并显示可选 SMTP 的真实投递结果与失败重试。
 - 审核与服务器：处理白名单/成员申请，演示受限 RCON 命令入口。
@@ -194,9 +194,15 @@ docker compose --profile docs up
 ```dotenv
 DEMO_SEED_ENABLED=true
 DEMO_SEED_PROFILE=qutcraft
+# 同时准备 QUTCraft 与 Campus Commons，并让同一引导管理员加入两个组织。
+DEMO_SEED_MULTI_ORGANIZATION=true
+# Web 未携带 organization 查询参数时使用的默认公开组织。
+VITE_ORGANIZATION_SLUG=qutcraft
 ```
 
-`DEMO_SEED_PROFILE=qutcraft` 提供 QUTCraft 社团演示资料；比赛或通用产品演示使用 `generic`，并建议同时将 `DEFAULT_ORGANIZATION_SLUG` 改为通用标识。Profile 只影响首次创建的组织和缺失的固定演示记录，不会覆盖后台已经编辑的资料。
+`DEMO_SEED_PROFILE=qutcraft` 提供 QUTCraft 社团演示资料；比赛或通用产品演示使用 `generic`，并建议同时将 `DEFAULT_ORGANIZATION_SLUG` 改为通用标识。开启 `DEMO_SEED_MULTI_ORGANIZATION` 后，系统会在主 Profile 之外创建另一套独立命名空间的演示组织；同一引导管理员可在 Admin 顶栏切换。Profile 和多组织开关只影响缺失的演示记录，不会覆盖后台已经编辑的资料。
+
+Admin 中的“查看门户”与“返回公开门户”会携带当前组织 slug，例如 `/?organization=campus-commons`。公开门户会在当前浏览器会话中保持该组织上下文，后续访问动态、项目、资源和知识库仍只读取对应组织的 Portal API。
 
 然后重新创建 API 容器：
 
@@ -205,9 +211,9 @@ cd deploy/compose
 docker compose up -d --build api
 ```
 
-演示 seed 使用固定 ID，只补充缺失记录；重复启动不会生成重复数据，也不会覆盖已有记录的人工修改。当前会创建 4 条内容、3 个知识目录、3 个项目及 2 个里程碑，以及待处理、已通过、已拒绝三种申请和一条明确标识为 Mock 的服务器同步结果。
+演示 seed 使用固定 ID，只补充缺失记录；重复启动不会生成重复数据，也不会覆盖已有记录的人工修改。每个组织会创建 6 条内容（其中 3 条为活动策划可引用知识）、3 个知识目录、3 个项目及 2 个里程碑，以及待处理、已通过、已拒绝三种申请。QUTCraft 的白名单批准示例额外带一条明确标识为 Mock 的服务器同步结果；Campus Commons 只使用成员申请，不创建 Minecraft 同步任务。第二组织使用独立 ID，不会覆盖主组织数据。
 
-生产环境必须保持 `DEMO_SEED_ENABLED=false`，且必须替换引导密码与 JWT 密钥。关闭 seed 不会删除已有数据；如需清理演示记录，应使用受控清理脚本或重建专用演示数据库，不能在生产库直接执行通配删除。
+生产环境必须同时保持 `DEMO_SEED_ENABLED=false` 和 `DEMO_SEED_MULTI_ORGANIZATION=false`，且必须替换引导密码与 JWT 密钥。关闭 seed 不会删除已有数据；如需清理演示记录，应使用受控清理脚本或重建专用演示数据库，不能在生产库直接执行通配删除。
 
 ## API 与接口协作
 
@@ -228,7 +234,7 @@ docker compose up -d --build api
 
 接口或字段变更必须按以下顺序进行：更新 OpenAPI → 更新文档与示例 → 更新后端 DTO/鉴权/测试 → 更新前端 API client 与页面。禁止在前端猜测尚未定义的 URL 或字段。
 
-仓库内置统一质量门禁，覆盖 OpenAPI 结构与安全语义、79 条 Gin 路由、71 个前端请求、26 个 Apifox 核心请求、Go 测试、前端类型检查和生产构建：
+仓库内置统一质量门禁，覆盖 OpenAPI 结构与安全语义、84 条 Gin 路由、76 个前端请求、26 个 Apifox 核心请求、Go 测试、前端类型检查和生产构建：
 
 ```powershell
 .\scripts\run-quality-gate.ps1
@@ -244,6 +250,12 @@ Compose 已启动时，可同时执行 Web/API 路由冒烟和 S1—S6 真实 My
 
 ```powershell
 .\scripts\run-ai-activity-demo-rehearsal.ps1 -Rounds 3
+```
+
+双组织环境可分别切换到 QUTCraft 与 Campus Commons 各跑一轮；报告按组织拆分，仍不会自动评分、批准或发布：
+
+```powershell
+.\scripts\run-multi-organization-demo-rehearsal.ps1 -RoundsPerOrganization 1
 ```
 
 Apifox 集合、环境模板、各检查器的单独运行方式见 [API 协作说明](docs/api/README.md)。`apps/web` 另提供 `pnpm test:e2e`，使用 Playwright 在桌面和移动视口验证 Portal、登录、组织设置、Markdown 编辑器与 AI 活动策划工作台。GitHub Actions 会在 push 与 pull request 上运行基础门禁及 Chromium 关键流程。

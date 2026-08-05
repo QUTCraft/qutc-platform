@@ -426,9 +426,30 @@ export interface Invitation {
   created_at: string
 }
 
-export interface AdminInvitation extends Invitation {
-  invite_url: string
+export interface AdminInvitationSummary extends Invitation {
   delivery: EmailDelivery
+}
+
+export interface AdminInvitation extends AdminInvitationSummary {
+  invite_url: string
+}
+
+export interface BatchInvitationResult {
+  index: number
+  email: string
+  succeeded: boolean
+  invitation?: AdminInvitation
+  error?: {
+    code: string
+    message: string
+  }
+}
+
+export interface BatchInvitationResponse {
+  total: number
+  succeeded: number
+  failed: number
+  results: BatchInvitationResult[]
 }
 
 export interface InvitationAcceptance extends Invitation {
@@ -535,6 +556,15 @@ export interface AuthUser {
   avatar_url?: string
   organization_id: string
   roles: Array<'owner' | 'administrator' | 'editor' | 'member'>
+}
+
+export interface OrganizationMembership {
+  id: string
+  slug: string
+  name: string
+  short_name: string
+  roles: Array<'owner' | 'administrator' | 'editor' | 'member'>
+  current: boolean
 }
 
 export interface TokenPair {

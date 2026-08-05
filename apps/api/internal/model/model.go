@@ -101,12 +101,13 @@ type MembershipRole struct {
 }
 
 type RefreshToken struct {
-	ID        string     `gorm:"primaryKey;type:char(36)"`
-	UserID    string     `gorm:"index;type:char(36);not null"`
-	TokenHash string     `gorm:"uniqueIndex;type:char(64);not null"`
-	ExpiresAt time.Time  `gorm:"index;not null"`
-	RevokedAt *time.Time `gorm:"index"`
-	CreatedAt time.Time
+	ID             string     `gorm:"primaryKey;type:char(36)"`
+	UserID         string     `gorm:"index;type:char(36);not null"`
+	OrganizationID string     `gorm:"index;type:char(36);not null;default:''"`
+	TokenHash      string     `gorm:"uniqueIndex;type:char(64);not null"`
+	ExpiresAt      time.Time  `gorm:"index;not null"`
+	RevokedAt      *time.Time `gorm:"index"`
+	CreatedAt      time.Time
 }
 
 type AuditEvent struct {

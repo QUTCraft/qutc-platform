@@ -34,6 +34,29 @@ type createInvitationRequest struct {
 	ExpiresInHours int    `json:"expires_in_hours"`
 }
 
+type batchInvitationRequest struct {
+	Invitations []createInvitationRequest `json:"invitations" binding:"required"`
+}
+
+type batchInvitationResult struct {
+	Index      int                 `json:"index"`
+	Email      string              `json:"email"`
+	Succeeded  bool                `json:"succeeded"`
+	Invitation *invitationResponse `json:"invitation,omitempty"`
+	Error      *batchItemError     `json:"error,omitempty"`
+}
+
+type batchItemError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type invitationFailure struct {
+	HTTPStatus int
+	Code       string
+	Message    string
+}
+
 type invitationResponse struct {
 	service.InvitationView
 	InviteURL string                `json:"invite_url,omitempty"`
@@ -60,32 +83,138 @@ func (h *InvitationHandler) Create(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "invitation.validation_failed", "邮箱、角色或邀请有效期不符合要求。")
 		return
 	}
+	response, failure := h.createInvitation(c, principal, request)
+	if failure != nil {
+		fail(c, failure.HTTPStatus, failure.Code, failure.Message)
+		return
+	}
+	respond(c, http.StatusCreated, response)
+}
+
+func (h *InvitationHandler) CreateBatch(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var request batchInvitationRequest
+	if err := c.ShouldBindJSON(&request); err != nil || len(request.Invitations) < 1 || len(request.Invitations) > 20 {
+		fail(c, http.StatusBadRequest, "invitation.batch_validation_failed", "批量邀请必须包含 1 到 20 条记录。")
+		return
+	}
+	results := make([]batchInvitationResult, 0, len(request.Invitations))
+	succeeded := 0
+	for index, item := range request.Invitations {
+		item.Email = strings.ToLower(strings.TrimSpace(item.Email))
+		response, failure := h.createInvitation(c, principal, item)
+		result := batchInvitationResult{Index: index, Email: item.Email, Succeeded: failure == nil}
+		if failure == nil {
+			result.Invitation = &response
+			succeeded++
+		} else {
+			result.Error = &batchItemError{Code: failure.Code, Message: failure.Message}
+		}
+		results = append(results, result)
+	}
+	respond(c, http.StatusOK, gin.H{
+		"total":     len(results),
+		"succeeded": succeeded,
+		"failed":    len(results) - succeeded,
+		"results":   results,
+	})
+}
+
+func (h *InvitationHandler) createInvitation(c *gin.Context, principal service.Principal, request createInvitationRequest) (invitationResponse, *invitationFailure) {
+	if request.ExpiresInHours < 0 || request.ExpiresInHours > int(service.MaxInvitationExpiry/time.Hour) {
+		return invitationResponse{}, invitationCreateFailure(service.ErrInvitationInvalidExpiry)
+	}
 	expiresIn := service.DefaultInvitationExpiry
 	if request.ExpiresInHours != 0 {
 		expiresIn = time.Duration(request.ExpiresInHours) * time.Hour
 	}
 	result, err := h.auth.CreateInvitation(principal.OrganizationID, principal.UserID, request.Email, strings.TrimSpace(request.Role), expiresIn)
 	if err != nil {
-		switch {
-		case errors.Is(err, service.ErrInvitationInvalidRole), errors.Is(err, service.ErrInvitationInvalidExpiry):
-			fail(c, http.StatusBadRequest, "invitation.validation_failed", "邀请角色或有效期不符合要求。")
-		case errors.Is(err, service.ErrInvitationPending):
-			fail(c, http.StatusConflict, "invitation.already_pending", "该邮箱已有尚未处理的邀请。")
-		case errors.Is(err, service.ErrInvitationAlreadyMember):
-			fail(c, http.StatusConflict, "membership.already_active", "该邮箱已经是当前组织的有效成员。")
-		default:
-			fail(c, http.StatusInternalServerError, "invitation.create_failed", "邀请暂时无法创建。")
-		}
-		return
+		return invitationResponse{}, invitationCreateFailure(err)
 	}
 	_ = h.db.Create(&model.AuditEvent{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ActorUserID: principal.UserID, Action: "membership.invite", TargetType: "invitation", TargetID: result.ID, Result: "success", RequestID: ensureRequestID(c)}).Error
 	delivery := h.deliverInvitation(c.Request.Context(), result)
 	h.auditDelivery(c, principal, result.ID, delivery)
-	respond(c, http.StatusCreated, invitationResponse{
+	return invitationResponse{
 		InvitationView: result.InvitationView,
 		InviteURL:      "/invite/" + result.Token,
 		Delivery:       delivery,
-	})
+	}, nil
+}
+
+func invitationCreateFailure(err error) *invitationFailure {
+	switch {
+	case errors.Is(err, service.ErrInvitationInvalidEmail), errors.Is(err, service.ErrInvitationInvalidRole), errors.Is(err, service.ErrInvitationInvalidExpiry):
+		return &invitationFailure{HTTPStatus: http.StatusBadRequest, Code: "invitation.validation_failed", Message: "邮箱、角色或邀请有效期不符合要求。"}
+	case errors.Is(err, service.ErrInvitationPending):
+		return &invitationFailure{HTTPStatus: http.StatusConflict, Code: "invitation.already_pending", Message: "该邮箱已有尚未处理的邀请。"}
+	case errors.Is(err, service.ErrInvitationAlreadyMember):
+		return &invitationFailure{HTTPStatus: http.StatusConflict, Code: "membership.already_active", Message: "该邮箱已经是当前组织的有效成员。"}
+	default:
+		return &invitationFailure{HTTPStatus: http.StatusInternalServerError, Code: "invitation.create_failed", Message: "邀请暂时无法创建。"}
+	}
+}
+
+func (h *InvitationHandler) List(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	page, pageSize, ok := listMeta(c, 0)
+	if !ok {
+		return
+	}
+	items, total, err := h.auth.ListInvitations(principal.OrganizationID, c.Query("status"), page, pageSize)
+	if err != nil {
+		if errors.Is(err, service.ErrInvitationInvalidStatus) {
+			fail(c, http.StatusBadRequest, "invitation.invalid_status", "邀请状态筛选值不符合要求。")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "invitation.list_failed", "邀请列表暂时无法读取。")
+		return
+	}
+	deliveries, err := h.deliveriesForInvitations(items)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "invitation.list_failed", "邀请列表暂时无法读取。")
+		return
+	}
+	responses := make([]invitationResponse, 0, len(items))
+	for _, item := range items {
+		responses = append(responses, invitationResponse{
+			InvitationView: item,
+			Delivery:       deliveries[item.ID],
+		})
+	}
+	respondWithMeta(c, http.StatusOK, responses, gin.H{"page": page, "page_size": pageSize, "total": total})
+}
+
+func (h *InvitationHandler) Revoke(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	result, err := h.auth.RevokeInvitation(principal.OrganizationID, c.Param("id"))
+	if err != nil {
+		handleInvitationMutationError(c, err)
+		return
+	}
+	_ = h.db.Create(&model.AuditEvent{
+		ID:             uuid.NewString(),
+		OrganizationID: principal.OrganizationID,
+		ActorUserID:    principal.UserID,
+		Action:         "membership.invitation_revoke",
+		TargetType:     "invitation",
+		TargetID:       result.ID,
+		Result:         "success",
+		RequestID:      ensureRequestID(c),
+	}).Error
+	respond(c, http.StatusOK, result)
 }
 
 func (h *InvitationHandler) RetryEmail(c *gin.Context) {
@@ -159,6 +288,21 @@ func handleInvitationLookupError(c *gin.Context, err error) {
 		fail(c, http.StatusNotFound, "invitation.not_found", "邀请链接不存在。")
 	default:
 		fail(c, http.StatusInternalServerError, "invitation.lookup_failed", "邀请状态暂时无法读取。")
+	}
+}
+
+func handleInvitationMutationError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, service.ErrInvitationExpired):
+		fail(c, http.StatusConflict, "invitation.expired", "已过期的邀请不能撤销。")
+	case errors.Is(err, service.ErrInvitationRevoked):
+		fail(c, http.StatusConflict, "invitation.already_revoked", "邀请已经撤销。")
+	case errors.Is(err, service.ErrInvitationAccepted):
+		fail(c, http.StatusConflict, "invitation.already_accepted", "已接受的邀请不能撤销。")
+	case errors.Is(err, service.ErrInvitationNotFound):
+		fail(c, http.StatusNotFound, "invitation.not_found", "邀请不存在。")
+	default:
+		fail(c, http.StatusInternalServerError, "invitation.update_failed", "邀请状态暂时无法更新。")
 	}
 }
 
@@ -265,6 +409,26 @@ func deliveryResponse(delivery model.InvitationDelivery) emailDeliveryResponse {
 		LastAttemptAt: delivery.LastAttemptAt,
 		SentAt:        delivery.SentAt,
 	}
+}
+
+func (h *InvitationHandler) deliveriesForInvitations(invitations []service.InvitationView) (map[string]emailDeliveryResponse, error) {
+	responses := make(map[string]emailDeliveryResponse, len(invitations))
+	ids := make([]string, 0, len(invitations))
+	for _, invitation := range invitations {
+		ids = append(ids, invitation.ID)
+		responses[invitation.ID] = emailDeliveryResponse{Status: "disabled", Adapter: "disabled", Attempts: 0}
+	}
+	if len(ids) == 0 {
+		return responses, nil
+	}
+	var deliveries []model.InvitationDelivery
+	if err := h.db.Where("invitation_id IN ?", ids).Find(&deliveries).Error; err != nil {
+		return nil, err
+	}
+	for _, delivery := range deliveries {
+		responses[delivery.InvitationID] = deliveryResponse(delivery)
+	}
+	return responses, nil
 }
 
 func safeDeliveryError(err error) string {

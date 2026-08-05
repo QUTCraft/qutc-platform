@@ -25,8 +25,10 @@ var (
 	ErrInvitationPending       = errors.New("invitation already pending")
 	ErrInvitationAlreadyMember = errors.New("user is already an active member")
 	ErrInvitationEmailMismatch = errors.New("invitation email does not match account")
+	ErrInvitationInvalidEmail  = errors.New("invitation email is invalid")
 	ErrInvitationInvalidRole   = errors.New("invitation role is invalid")
 	ErrInvitationInvalidExpiry = errors.New("invitation expiry is invalid")
+	ErrInvitationInvalidStatus = errors.New("invitation status is invalid")
 )
 
 type InvitationView struct {
@@ -53,7 +55,7 @@ type InvitationAcceptance struct {
 func (s *AuthService) CreateInvitation(organizationID, invitedBy, email, role string, expiresIn time.Duration) (InvitationCreateResult, error) {
 	email = normalizeInvitationEmail(email)
 	if _, err := mail.ParseAddress(email); err != nil || email == "" {
-		return InvitationCreateResult{}, errors.New("invitation email is invalid")
+		return InvitationCreateResult{}, ErrInvitationInvalidEmail
 	}
 	if !validInvitationRole(role) {
 		return InvitationCreateResult{}, ErrInvitationInvalidRole
@@ -105,6 +107,84 @@ func (s *AuthService) LookupInvitation(rawToken string) (InvitationView, error) 
 		return InvitationView{}, err
 	}
 	return s.invitationView(invit)
+}
+
+func (s *AuthService) ListInvitations(organizationID, status string, page, pageSize int) ([]InvitationView, int64, error) {
+	status = strings.TrimSpace(status)
+	if status != "" && status != "pending" && status != "accepted" && status != "expired" && status != "revoked" {
+		return nil, 0, ErrInvitationInvalidStatus
+	}
+
+	now := time.Now().UTC()
+	query := s.db.Model(&model.Invitation{}).Where("organization_id = ?", organizationID)
+	switch status {
+	case "pending":
+		query = query.Where("accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?", now)
+	case "accepted":
+		query = query.Where("accepted_at IS NOT NULL")
+	case "expired":
+		query = query.Where("accepted_at IS NULL AND revoked_at IS NULL AND expires_at <= ?", now)
+	case "revoked":
+		query = query.Where("accepted_at IS NULL AND revoked_at IS NOT NULL")
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var invitations []model.Invitation
+	if err := query.Order("created_at DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&invitations).Error; err != nil {
+		return nil, 0, err
+	}
+	var organization model.Organization
+	if err := s.db.First(&organization, "id = ?", organizationID).Error; err != nil {
+		return nil, 0, err
+	}
+	items := make([]InvitationView, 0, len(invitations))
+	for _, invitation := range invitations {
+		items = append(items, invitationViewForOrganization(invitation, organization.Name, now))
+	}
+	return items, total, nil
+}
+
+func (s *AuthService) RevokeInvitation(organizationID, invitationID string) (InvitationView, error) {
+	var result InvitationView
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var invitation model.Invitation
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND organization_id = ?", strings.TrimSpace(invitationID), organizationID).
+			First(&invitation).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return ErrInvitationNotFound
+			}
+			return err
+		}
+		now := time.Now().UTC()
+		switch invitationStatus(invitation, now) {
+		case "expired":
+			return ErrInvitationExpired
+		case "revoked":
+			return ErrInvitationRevoked
+		case "accepted":
+			return ErrInvitationAccepted
+		}
+		if err := tx.Model(&invitation).Updates(map[string]interface{}{
+			"revoked_at": now,
+			"updated_at": now,
+		}).Error; err != nil {
+			return err
+		}
+		invitation.RevokedAt = &now
+		invitation.UpdatedAt = now
+		view, err := s.invitationViewWithDB(tx, invitation)
+		if err != nil {
+			return err
+		}
+		view.Status = "revoked"
+		result = view
+		return nil
+	})
+	return result, err
 }
 
 // RotateInvitationToken invalidates the previously issued link before an
@@ -220,7 +300,11 @@ func (s *AuthService) invitationViewWithDB(db *gorm.DB, invit model.Invitation) 
 	if err := db.First(&organization, "id = ?", invit.OrganizationID).Error; err != nil {
 		return InvitationView{}, err
 	}
-	return InvitationView{ID: invit.ID, OrganizationID: invit.OrganizationID, Organization: organization.Name, Email: invit.Email, Role: invit.Role, Status: invitationStatus(invit, time.Now().UTC()), ExpiresAt: invit.ExpiresAt, CreatedAt: invit.CreatedAt}, nil
+	return invitationViewForOrganization(invit, organization.Name, time.Now().UTC()), nil
+}
+
+func invitationViewForOrganization(invit model.Invitation, organizationName string, now time.Time) InvitationView {
+	return InvitationView{ID: invit.ID, OrganizationID: invit.OrganizationID, Organization: organizationName, Email: invit.Email, Role: invit.Role, Status: invitationStatus(invit, now), ExpiresAt: invit.ExpiresAt, CreatedAt: invit.CreatedAt}
 }
 
 func (s *AuthService) findInvitation(db *gorm.DB, rawToken string, lock bool) (model.Invitation, error) {

@@ -1,14 +1,21 @@
 <script setup lang="ts">
 import { Menu, UserFilled } from '@element-plus/icons-vue'
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { organizationSlug } from '@/api/portal'
 import { usePageTransition } from '@/composables/usePageTransition'
+import { usePortalIdentity } from '@/composables/usePortalIdentity'
 
 const { navigateToApply } = usePageTransition()
 const router = useRouter()
 const mobileOpen = ref(false)
+const { organization, loadPortalOrganization } = usePortalIdentity()
+const isQutcraftPortal = organizationSlug === 'qutcraft'
+const organizationName = computed(() => organization.value?.name ?? (organizationSlug === 'qutcraft' ? 'QUTCraft Commons' : organizationSlug))
+const organizationSubtitle = computed(() => organization.value?.short_name ? `${organization.value.short_name} · 公共门户` : '公共门户')
 
 const goToLogin = () => router.push({ name: 'login' })
+const runPrimaryAction = (event: MouseEvent) => isQutcraftPortal ? navigateToApply(event) : router.push({ name: 'projects' })
 
 const links = [
   { to: '/', label: '首页' },
@@ -17,15 +24,19 @@ const links = [
   { to: '/resources', label: '资源' },
   { to: '/knowledge', label: '知识库' },
 ]
+
+onMounted(() => {
+  void loadPortalOrganization().catch(() => undefined)
+})
 </script>
 
 <template>
   <header class="app-header">
-    <RouterLink class="brand" to="/" aria-label="QUTCraft Commons 首页">
+    <RouterLink class="brand" to="/" :aria-label="`${organizationName} 首页`">
       <span class="brand-mark">Q</span>
       <span>
-        <strong>QUTCraft Commons</strong>
-        <small>Qingdao University of Technology</small>
+        <strong>{{ organizationName }}</strong>
+        <small>{{ organizationSubtitle }}</small>
       </span>
     </RouterLink>
 
@@ -35,7 +46,7 @@ const links = [
 
     <div class="header-actions">
       <el-button class="header-login-btn" text :icon="UserFilled" aria-label="成员登录" @click="goToLogin">成员登录</el-button>
-      <el-button class="header-join-btn" type="primary" round @click="(e: MouseEvent) => navigateToApply(e)">加入我们</el-button>
+      <el-button class="header-join-btn" type="primary" round @click="runPrimaryAction">{{ isQutcraftPortal ? '加入我们' : '公开项目' }}</el-button>
       <el-button class="menu-button" text circle :icon="Menu" aria-label="打开导航" @click="mobileOpen = true" />
     </div>
   </header>

@@ -2016,6 +2016,22 @@ h1, h2, h3, h4, h5, h6, p {
   gap: 12px;
 }
 
+.organization-switcher {
+  width: clamp(180px, 22vw, 280px);
+}
+
+.organization-switcher .el-select__wrapper {
+  min-height: 42px;
+  border-radius: 999px;
+  background: var(--md-sys-color-surface-container);
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-outline-variant) !important;
+}
+
+.organization-switcher .el-select__selected-item {
+  color: var(--md-sys-color-on-surface);
+  font-weight: 700;
+}
+
 .admin-app .el-button:not(.is-circle):not(.is-text) {
   min-height: 40px;
   padding: 0 18px !important;
@@ -3790,6 +3806,10 @@ body {
 
   .admin-topbar-actions .portal-btn-link {
     display: none;
+  }
+
+  .organization-switcher {
+    width: min(48vw, 210px);
   }
 
   .admin-content {

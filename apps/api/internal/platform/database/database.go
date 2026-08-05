@@ -59,27 +59,116 @@ func MigrateAndSeed(db *gorm.DB, cfg config.Config) error {
 		if err := SeedDemoData(db, cfg, organization); err != nil {
 			return err
 		}
+		if cfg.DemoSeedMultiOrganization {
+			if err := SeedMultiOrganizationDemo(db, cfg, organization); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+type demoFixtureIDs struct {
+	contentMain             string
+	contentEvent            string
+	contentResource         string
+	contentKnowledge        string
+	contentKnowledgeSafety  string
+	contentKnowledgeArchive string
+	projectMain             string
+	projectEvent            string
+	projectKnowledge        string
+	milestoneAPI            string
+	milestoneRelease        string
+	directoryCollaboration  string
+	directoryTechnology     string
+	directoryCommunity      string
+	applicationPending      string
+	applicationApproved     string
+	applicationRejected     string
+	applicationSyncApproved string
+}
+
+var primaryDemoFixtureIDs = demoFixtureIDs{
+	contentMain: "content_cms", contentEvent: "content_build", contentResource: "content_resource",
+	contentKnowledge: "content_knowledge", contentKnowledgeSafety: "content_knowledge_safety", contentKnowledgeArchive: "content_knowledge_archive",
+	projectMain: "project_cms", projectEvent: "project_spawn", projectKnowledge: "project_wiki",
+	milestoneAPI: "milestone_demo_api", milestoneRelease: "milestone_demo_release",
+	directoryCollaboration: "knowledge_directory_collaboration", directoryTechnology: "knowledge_directory_technology", directoryCommunity: "knowledge_directory_community",
+	applicationPending: "application_demo", applicationApproved: "application_demo_approved", applicationRejected: "application_demo_rejected",
+	applicationSyncApproved: "application_sync_demo_approved",
+}
+
+func secondaryDemoFixtureIDs(profile string) demoFixtureIDs {
+	suffix := "generic"
+	if normalizeDemoProfile(profile) == "qutcraft" {
+		suffix = "qutcraft"
+	}
+	return demoFixtureIDs{
+		contentMain: "content_main_" + suffix, contentEvent: "content_event_" + suffix, contentResource: "content_resource_" + suffix,
+		contentKnowledge: "content_knowledge_" + suffix, contentKnowledgeSafety: "content_safety_" + suffix, contentKnowledgeArchive: "content_archive_" + suffix,
+		projectMain: "project_main_" + suffix, projectEvent: "project_event_" + suffix, projectKnowledge: "project_knowledge_" + suffix,
+		milestoneAPI: "milestone_api_" + suffix, milestoneRelease: "milestone_release_" + suffix,
+		directoryCollaboration: "knowledge_dir_collab_" + suffix, directoryTechnology: "knowledge_dir_tech_" + suffix, directoryCommunity: "knowledge_dir_community_" + suffix,
+		applicationPending: "application_pending_" + suffix, applicationApproved: "application_approved_" + suffix, applicationRejected: "application_rejected_" + suffix,
+		applicationSyncApproved: "application_sync_approved_" + suffix,
+	}
+}
+
+func normalizeDemoProfile(profile string) string {
+	if strings.EqualFold(strings.TrimSpace(profile), "generic") {
+		return "generic"
+	}
+	return "qutcraft"
 }
 
 // SeedDemoData creates only stable, development-owned fixtures that are
 // missing. It never updates or deletes existing records and is disabled unless
 // DEMO_SEED_ENABLED is explicitly true.
 func SeedDemoData(db *gorm.DB, cfg config.Config, organization model.Organization) error {
+	return seedDemoData(db, cfg, organization, normalizeDemoProfile(cfg.DemoSeedProfile), primaryDemoFixtureIDs)
+}
+
+func seedDemoData(db *gorm.DB, cfg config.Config, organization model.Organization, profile string, ids demoFixtureIDs) error {
 	if cfg.BootstrapAdminEmail == "" {
 		return fmt.Errorf("demo seed requires BOOTSTRAP_ADMIN_EMAIL")
 	}
-	if err := seedKnowledgeDirectories(db, organization); err != nil {
+	if err := seedKnowledgeDirectories(db, organization, ids); err != nil {
 		return err
 	}
-	if err := seedContent(db, cfg, organization); err != nil {
+	if err := seedContent(db, cfg, organization, profile, ids); err != nil {
 		return err
 	}
-	if err := seedProjects(db, cfg, organization); err != nil {
+	if err := seedProjects(db, cfg, organization, profile, ids); err != nil {
 		return err
 	}
-	return seedApplications(db, cfg, organization)
+	return seedApplications(db, cfg, organization, profile, ids)
+}
+
+// SeedMultiOrganizationDemo creates the opposite demonstration profile and
+// grants the bootstrap owner access to it. It is idempotent and only called
+// when both explicit demo-seed flags are enabled.
+func SeedMultiOrganizationDemo(db *gorm.DB, cfg config.Config, primary model.Organization) error {
+	secondaryProfile := "generic"
+	secondarySlug := "campus-commons"
+	if normalizeDemoProfile(cfg.DemoSeedProfile) == "generic" || primary.Slug == secondarySlug {
+		secondaryProfile = "qutcraft"
+		secondarySlug = "qutcraft"
+	}
+	if primary.Slug == secondarySlug {
+		return fmt.Errorf("secondary demo organization conflicts with primary slug %s", primary.Slug)
+	}
+	secondary, err := findOrCreateDemoOrganization(db, secondarySlug, secondaryProfile)
+	if err != nil {
+		return err
+	}
+	if err := seedAgentDefinitions(db, secondary); err != nil {
+		return err
+	}
+	if err := seedBootstrapOwner(db, cfg, secondary); err != nil {
+		return err
+	}
+	return seedDemoData(db, cfg, secondary, secondaryProfile, secondaryDemoFixtureIDs(secondaryProfile))
 }
 
 func findOrCreateOrganization(db *gorm.DB, cfg config.Config) (model.Organization, error) {
@@ -123,6 +212,38 @@ func findOrCreateOrganization(db *gorm.DB, cfg config.Config) (model.Organizatio
 	}
 	if err := db.Create(&organization).Error; err != nil {
 		return model.Organization{}, fmt.Errorf("create organization: %w", err)
+	}
+	return organization, nil
+}
+
+func findOrCreateDemoOrganization(db *gorm.DB, slug, profile string) (model.Organization, error) {
+	var organization model.Organization
+	err := db.Where("slug = ?", slug).First(&organization).Error
+	if err == nil {
+		return organization, nil
+	}
+	if err != gorm.ErrRecordNotFound {
+		return model.Organization{}, fmt.Errorf("find secondary demo organization: %w", err)
+	}
+	organization = model.Organization{
+		ID: uuid.NewString(), Slug: slug, SocialLinksJSON: "[]", IsPublic: true,
+	}
+	if normalizeDemoProfile(profile) == "generic" {
+		organization.Name = "Campus Commons"
+		organization.ShortName = "Commons"
+		organization.Tagline = "让组织信息、协作与公共内容持续流动。"
+		organization.Introduction = "面向校园社团与民间组织的公共门户、内容分发和协作平台。"
+		organization.ContactEmail = "hello@campus-commons.example"
+	} else {
+		organization.Name = "QUTCraft Commons"
+		organization.ShortName = "QUTCraft"
+		organization.Tagline = "把社团正在发生的事，认真地呈现出来。"
+		organization.Introduction = "QUTCraft 是青岛理工大学的 Minecraft 社团，持续建设内容、项目与公共知识资产。"
+		organization.ContactEmail = "contact@qutcraft.example"
+		organization.SocialLinksJSON = `[{"label":"GitHub","href":"https://github.com/QUTCraft/qutc-platform"}]`
+	}
+	if err := db.Create(&organization).Error; err != nil {
+		return model.Organization{}, fmt.Errorf("create secondary demo organization: %w", err)
 	}
 	return organization, nil
 }
@@ -296,24 +417,28 @@ func seedBootstrapOwner(db *gorm.DB, cfg config.Config, organization model.Organ
 	return nil
 }
 
-func seedContent(db *gorm.DB, cfg config.Config, organization model.Organization) error {
+func seedContent(db *gorm.DB, cfg config.Config, organization model.Organization, profile string, ids demoFixtureIDs) error {
 	var user model.User
 	if err := db.Where("email = ?", cfg.BootstrapAdminEmail).First(&user).Error; err != nil {
 		return fmt.Errorf("find content seed author: %w", err)
 	}
 	publishedAt := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
 	items := []model.Content{
-		{ID: "content_cms", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "QUTCraft CMS 项目正式启动", Type: "news", Category: "社团动态", Status: "published", Excerpt: "从官网、资源分发到服务器适配，我们开始建设可持续的公共入口。", Body: "# QUTCraft CMS 项目正式启动\n\n我们正在建设一个连接公开门户、内容管理与组织协作的公共平台。\n\n- 门户只展示已发布内容\n- 后台负责内容与成员协作\n- 外部系统通过受控 Adapter 接入", PublishedAt: &publishedAt},
-		{ID: "content_build", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "暑期建筑活动报名", Type: "news", Category: "活动", Status: "draft", Excerpt: "面向成员开放的活动草稿。", Body: "该内容尚未发布，只能在后台看到。"},
-		{ID: "content_resource", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "QUTCraft CMS 产品说明", Type: "resource", Category: "document", Status: "published", Excerpt: "项目目标、门户范围与 MVP 路线。", Body: "QUTCraft CMS 的公开产品说明与接入资料。", PublishedAt: &publishedAt},
-		{ID: "content_knowledge", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "如何让社团项目可交接", Type: "knowledge", Category: "项目协作", KnowledgeDirectoryID: stringPointer("knowledge_directory_collaboration"), Status: "published", Excerpt: "建立不依赖个人记忆的项目协作方式。", Body: "从目标、角色、决策记录到发布节奏，建立可持续的知识库。", PublishedAt: &publishedAt},
+		{ID: ids.contentMain, OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "QUTCraft CMS 项目正式启动", Type: "news", Category: "社团动态", Status: "published", Excerpt: "从官网、资源分发到服务器适配，我们开始建设可持续的公共入口。", Body: "# QUTCraft CMS 项目正式启动\n\n我们正在建设一个连接公开门户、内容管理与组织协作的公共平台。\n\n- 门户只展示已发布内容\n- 后台负责内容与成员协作\n- 外部系统通过受控 Adapter 接入", PublishedAt: &publishedAt},
+		{ID: ids.contentEvent, OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "暑期建筑活动报名", Type: "news", Category: "活动", Status: "draft", Excerpt: "面向成员开放的活动草稿。", Body: "该内容尚未发布，只能在后台看到。"},
+		{ID: ids.contentResource, OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "QUTCraft CMS 产品说明", Type: "resource", Category: "document", Status: "published", Excerpt: "项目目标、门户范围与 MVP 路线。", Body: "QUTCraft CMS 的公开产品说明与接入资料。", PublishedAt: &publishedAt},
+		{ID: ids.contentKnowledge, OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "如何让社团项目可交接", Type: "knowledge", Category: "项目协作", KnowledgeDirectoryID: stringPointer(ids.directoryCollaboration), Status: "published", Excerpt: "建立不依赖个人记忆的项目协作方式。", Body: "从目标、角色、决策记录到发布节奏，建立可持续的知识库。", PublishedAt: &publishedAt},
+		{ID: ids.contentKnowledgeSafety, OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "服务器开放日活动安全规范", Type: "knowledge", Category: "社团实践", KnowledgeDirectoryID: stringPointer(ids.directoryCommunity), Status: "published", Excerpt: "覆盖人员分工、账号与设备安全、现场秩序和突发情况处置。", Body: "# 服务器开放日活动安全规范\n\n1. 活动前确认场地、电源、网络和设备责任人。\n2. 体验账号使用临时权限，不展示后台凭据。\n3. 设置签到、秩序维护和应急联络岗位。\n4. 发生网络、设备或人员安全问题时立即暂停体验并记录事实。", PublishedAt: &publishedAt},
+		{ID: ids.contentKnowledgeArchive, OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "社团活动复盘与资料归档", Type: "knowledge", Category: "项目协作", KnowledgeDirectoryID: stringPointer(ids.directoryCollaboration), Status: "published", Excerpt: "将活动目标、执行事实、成果授权和改进项整理成可交接记录。", Body: "# 社团活动复盘与资料归档\n\n复盘应记录目标达成、实际参与人数、预算差异、风险事件和后续负责人。公开照片与作品前须确认授权，内部名单和联系方式不得进入门户。", PublishedAt: &publishedAt},
 	}
-	if cfg.DemoSeedProfile == "generic" {
+	if profile == "generic" {
 		items = []model.Content{
-			{ID: "content_cms", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "组织数字化工作台正式启用", Type: "news", Category: "组织动态", Status: "published", Excerpt: "统一管理公共内容、项目进展、成员协作和知识资产。", Body: "# 组织数字化工作台正式启用\n\n我们开始使用统一平台维护公共门户、内容和组织协作。", PublishedAt: &publishedAt},
-			{ID: "content_build", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "暑期开放活动报名", Type: "news", Category: "活动", Status: "draft", Excerpt: "面向成员开放的活动草稿。", Body: "该内容尚未发布，只能在后台看到。"},
-			{ID: "content_resource", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "组织协作平台产品说明", Type: "resource", Category: "document", Status: "published", Excerpt: "公共门户、内容分发与协作管理的产品范围。", Body: "面向校园社团与民间组织的通用产品说明。", PublishedAt: &publishedAt},
-			{ID: "content_knowledge", OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "如何让组织项目可交接", Type: "knowledge", Category: "项目协作", KnowledgeDirectoryID: stringPointer("knowledge_directory_collaboration"), Status: "published", Excerpt: "建立不依赖个人记忆的项目协作方式。", Body: "从目标、角色、决策记录到发布节奏，建立可持续的知识库。", PublishedAt: &publishedAt},
+			{ID: ids.contentMain, OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "组织数字化工作台正式启用", Type: "news", Category: "组织动态", Status: "published", Excerpt: "统一管理公共内容、项目进展、成员协作和知识资产。", Body: "# 组织数字化工作台正式启用\n\n我们开始使用统一平台维护公共门户、内容和组织协作。", PublishedAt: &publishedAt},
+			{ID: ids.contentEvent, OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "暑期开放活动报名", Type: "news", Category: "活动", Status: "draft", Excerpt: "面向成员开放的活动草稿。", Body: "该内容尚未发布，只能在后台看到。"},
+			{ID: ids.contentResource, OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "组织协作平台产品说明", Type: "resource", Category: "document", Status: "published", Excerpt: "公共门户、内容分发与协作管理的产品范围。", Body: "面向校园社团与民间组织的通用产品说明。", PublishedAt: &publishedAt},
+			{ID: ids.contentKnowledge, OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "如何让组织项目可交接", Type: "knowledge", Category: "项目协作", KnowledgeDirectoryID: stringPointer(ids.directoryCollaboration), Status: "published", Excerpt: "建立不依赖个人记忆的项目协作方式。", Body: "从目标、角色、决策记录到发布节奏，建立可持续的知识库。", PublishedAt: &publishedAt},
+			{ID: ids.contentKnowledgeSafety, OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "校园活动立项与安全审批规范", Type: "knowledge", Category: "社团实践", KnowledgeDirectoryID: stringPointer(ids.directoryCommunity), Status: "published", Excerpt: "校园活动在宣传和执行前需要完成场地、安全、人员与应急确认。", Body: "# 校园活动立项与安全审批规范\n\n活动立项须明确负责人、目标受众、时间场地、预算来源和风险边界。执行前确认场地审批、消防疏散、设备用电、志愿者岗位和应急联系人；涉及外部人员、收费或公开传播时按学校规定追加审批。", PublishedAt: &publishedAt},
+			{ID: ids.contentKnowledgeArchive, OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "活动复盘与公开资料归档规范", Type: "knowledge", Category: "项目协作", KnowledgeDirectoryID: stringPointer(ids.directoryCollaboration), Status: "published", Excerpt: "活动结束后沉淀事实、成果、预算和改进项，同时保护参与者隐私。", Body: "# 活动复盘与公开资料归档规范\n\n复盘需记录实际流程、参与人数、预算差异、风险事件、反馈和后续负责人。公开照片、作品与名单前须取得授权；联系方式、审批附件和内部评价只保留在受控工作区。", PublishedAt: &publishedAt},
 		}
 	}
 	for _, item := range items {
@@ -332,21 +457,21 @@ func seedContent(db *gorm.DB, cfg config.Config, organization model.Organization
 	return nil
 }
 
-func seedProjects(db *gorm.DB, cfg config.Config, organization model.Organization) error {
+func seedProjects(db *gorm.DB, cfg config.Config, organization model.Organization, profile string, ids demoFixtureIDs) error {
 	var user model.User
 	if err := db.Where("email = ?", cfg.BootstrapAdminEmail).First(&user).Error; err != nil {
 		return fmt.Errorf("find project seed owner: %w", err)
 	}
 	items := []model.Project{
-		{ID: "project_cms", OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "QUTCraft CMS", Summary: "面向校园社团与民间组织的公开门户与内容分发系统，QUTCraft 是首个落地案例。", Status: "active", Tags: "Vue 3,Go,API-first", IsPublic: true},
-		{ID: "project_spawn", OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "主城公共区域计划", Summary: "把成员作品、活动路线与社区服务设施组织成一个可以长期生长的起点。", Status: "active", Tags: "建筑,社区共建", IsPublic: true},
-		{ID: "project_wiki", OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "社团知识库迁移", Summary: "将散落的经验、规则、活动资料和技术笔记逐步整理为可检索的公共知识库。", Status: "research", Tags: "知识库,信息架构", IsPublic: true},
+		{ID: ids.projectMain, OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "QUTCraft CMS", Summary: "面向校园社团与民间组织的公开门户与内容分发系统，QUTCraft 是首个落地案例。", Status: "active", Tags: "Vue 3,Go,API-first", IsPublic: true},
+		{ID: ids.projectEvent, OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "主城公共区域计划", Summary: "把成员作品、活动路线与社区服务设施组织成一个可以长期生长的起点。", Status: "active", Tags: "建筑,社区共建", IsPublic: true},
+		{ID: ids.projectKnowledge, OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "社团知识库迁移", Summary: "将散落的经验、规则、活动资料和技术笔记逐步整理为可检索的公共知识库。", Status: "research", Tags: "知识库,信息架构", IsPublic: true},
 	}
-	if cfg.DemoSeedProfile == "generic" {
+	if profile == "generic" {
 		items = []model.Project{
-			{ID: "project_cms", OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "组织数字化平台", Summary: "面向校园社团与民间组织的公共门户、内容分发与协作管理系统。", Status: "active", Tags: "Vue 3,Go,API-first", IsPublic: true},
-			{ID: "project_spawn", OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "校园开放活动计划", Summary: "组织报名、宣传、现场协作和活动成果归档。", Status: "active", Tags: "活动,公共协作", IsPublic: true},
-			{ID: "project_wiki", OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "组织知识库迁移", Summary: "将散落的制度、活动资料和经验整理为可检索、可交接的知识库。", Status: "research", Tags: "知识库,信息架构", IsPublic: true},
+			{ID: ids.projectMain, OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "组织数字化平台", Summary: "面向校园社团与民间组织的公共门户、内容分发与协作管理系统。", Status: "active", Tags: "Vue 3,Go,API-first", IsPublic: true},
+			{ID: ids.projectEvent, OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "校园开放活动计划", Summary: "组织报名、宣传、现场协作和活动成果归档。", Status: "active", Tags: "活动,公共协作", IsPublic: true},
+			{ID: ids.projectKnowledge, OrganizationID: organization.ID, OwnerUserID: user.ID, Title: "组织知识库迁移", Summary: "将散落的制度、活动资料和经验整理为可检索、可交接的知识库。", Status: "research", Tags: "知识库,信息架构", IsPublic: true},
 		}
 	}
 	for _, item := range items {
@@ -369,15 +494,15 @@ func seedProjects(db *gorm.DB, cfg config.Config, organization model.Organizatio
 			return fmt.Errorf("find project owner %s: %w", item.ID, memberErr)
 		}
 	}
-	return seedProjectMilestones(db)
+	return seedProjectMilestones(db, ids)
 }
 
-func seedProjectMilestones(db *gorm.DB) error {
+func seedProjectMilestones(db *gorm.DB, ids demoFixtureIDs) error {
 	dueAPI := time.Date(2026, time.August, 15, 0, 0, 0, 0, time.UTC)
 	dueRelease := time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC)
 	items := []model.ProjectMilestone{
-		{ID: "milestone_demo_api", ProjectID: "project_cms", Title: "完成 API 契约与核心闭环", Status: "active", DueAt: &dueAPI},
-		{ID: "milestone_demo_release", ProjectID: "project_cms", Title: "发布比赛演示版本", Status: "planned", DueAt: &dueRelease},
+		{ID: ids.milestoneAPI, ProjectID: ids.projectMain, Title: "完成 API 契约与核心闭环", Status: "active", DueAt: &dueAPI},
+		{ID: ids.milestoneRelease, ProjectID: ids.projectMain, Title: "发布比赛演示版本", Status: "planned", DueAt: &dueRelease},
 	}
 	for _, item := range items {
 		var existing model.ProjectMilestone
@@ -395,11 +520,11 @@ func seedProjectMilestones(db *gorm.DB) error {
 	return nil
 }
 
-func seedKnowledgeDirectories(db *gorm.DB, organization model.Organization) error {
+func seedKnowledgeDirectories(db *gorm.DB, organization model.Organization, ids demoFixtureIDs) error {
 	items := []model.KnowledgeDirectory{
-		{ID: "knowledge_directory_collaboration", OrganizationID: organization.ID, Name: "项目协作", Slug: "collaboration", Description: "项目目标、角色与交接记录。", SortOrder: 10, IsPublic: true},
-		{ID: "knowledge_directory_technology", OrganizationID: organization.ID, Name: "技术规范", Slug: "technology", Description: "接口、前端和部署规范。", SortOrder: 20, IsPublic: true},
-		{ID: "knowledge_directory_community", OrganizationID: organization.ID, Name: "社团实践", Slug: "community", Description: "适用于组织日常协作的经验。", SortOrder: 30, IsPublic: true},
+		{ID: ids.directoryCollaboration, OrganizationID: organization.ID, Name: "项目协作", Slug: "collaboration", Description: "项目目标、角色与交接记录。", SortOrder: 10, IsPublic: true},
+		{ID: ids.directoryTechnology, OrganizationID: organization.ID, Name: "技术规范", Slug: "technology", Description: "接口、前端和部署规范。", SortOrder: 20, IsPublic: true},
+		{ID: ids.directoryCommunity, OrganizationID: organization.ID, Name: "社团实践", Slug: "community", Description: "适用于组织日常协作的经验。", SortOrder: 30, IsPublic: true},
 	}
 	for _, item := range items {
 		var existing model.KnowledgeDirectory
@@ -417,7 +542,7 @@ func seedKnowledgeDirectories(db *gorm.DB, organization model.Organization) erro
 	return nil
 }
 
-func seedApplications(db *gorm.DB, cfg config.Config, organization model.Organization) error {
+func seedApplications(db *gorm.DB, cfg config.Config, organization model.Organization, profile string, ids demoFixtureIDs) error {
 	var owner model.User
 	if err := db.Where("email = ?", cfg.BootstrapAdminEmail).First(&owner).Error; err != nil {
 		return fmt.Errorf("find application seed reviewer: %w", err)
@@ -425,9 +550,16 @@ func seedApplications(db *gorm.DB, cfg config.Config, organization model.Organiz
 
 	decidedAt := time.Date(2026, time.July, 28, 10, 0, 0, 0, time.UTC)
 	applications := []model.Application{
-		{ID: "application_demo", OrganizationID: organization.ID, Type: "whitelist", ClassName: "计算机231", ApplicantName: "Yukino", GameID: "YukinoCraft", QQNumber: "123456789", Email: "yukino@example.com", Note: "希望参与周末建筑测试。", Status: "pending"},
-		{ID: "application_demo_approved", OrganizationID: organization.ID, Type: "whitelist", ClassName: "自动化231", ApplicantName: "Dawn", GameID: "DawnBuilder", QQNumber: "223456789", Email: "dawn@example.com", Note: "希望参与公共建筑项目。", Status: "approved", DecidedAt: &decidedAt, DecidedBy: owner.ID, DecisionReason: "资料完整，符合加入要求。"},
-		{ID: "application_demo_rejected", OrganizationID: organization.ID, Type: "membership", ClassName: "设计231", ApplicantName: "Nova", GameID: "NovaDesign", QQNumber: "323456789", Email: "nova@example.com", Note: "希望加入内容组。", Status: "rejected", DecidedAt: &decidedAt, DecidedBy: owner.ID, DecisionReason: "申请资料需要补充作品说明。"},
+		{ID: ids.applicationPending, OrganizationID: organization.ID, Type: "whitelist", ClassName: "计算机231", ApplicantName: "Yukino", GameID: "YukinoCraft", QQNumber: "123456789", Email: "yukino@example.com", Note: "希望参与周末建筑测试。", Status: "pending"},
+		{ID: ids.applicationApproved, OrganizationID: organization.ID, Type: "whitelist", ClassName: "自动化231", ApplicantName: "Dawn", GameID: "DawnBuilder", QQNumber: "223456789", Email: "dawn@example.com", Note: "希望参与公共建筑项目。", Status: "approved", DecidedAt: &decidedAt, DecidedBy: owner.ID, DecisionReason: "资料完整，符合加入要求。"},
+		{ID: ids.applicationRejected, OrganizationID: organization.ID, Type: "membership", ClassName: "设计231", ApplicantName: "Nova", GameID: "NovaDesign", QQNumber: "323456789", Email: "nova@example.com", Note: "希望加入内容组。", Status: "rejected", DecidedAt: &decidedAt, DecidedBy: owner.ID, DecisionReason: "申请资料需要补充作品说明。"},
+	}
+	if normalizeDemoProfile(profile) == "generic" {
+		applications = []model.Application{
+			{ID: ids.applicationPending, OrganizationID: organization.ID, Type: "membership", ClassName: "计算机学院", ApplicantName: "林沐", Email: "linmu@example.com", Note: "希望加入校园开放活动志愿者团队。", Status: "pending"},
+			{ID: ids.applicationApproved, OrganizationID: organization.ID, Type: "membership", ClassName: "建筑学院", ApplicantName: "陈曦", Email: "chenxi@example.com", Note: "希望参与校园文化活动的视觉设计。", Status: "approved", DecidedAt: &decidedAt, DecidedBy: owner.ID, DecisionReason: "资料完整，已确认可参与活动协作。"},
+			{ID: ids.applicationRejected, OrganizationID: organization.ID, Type: "membership", ClassName: "管理学院", ApplicantName: "周宁", Email: "zhouning@example.com", Note: "希望加入活动运营团队。", Status: "rejected", DecidedAt: &decidedAt, DecidedBy: owner.ID, DecisionReason: "当前申请缺少可参与时间，请补充后重新提交。"},
+		}
 	}
 	for _, application := range applications {
 		var existing model.Application
@@ -443,11 +575,15 @@ func seedApplications(db *gorm.DB, cfg config.Config, organization model.Organiz
 		}
 	}
 
+	if normalizeDemoProfile(profile) == "generic" {
+		return nil
+	}
+
 	completedAt := decidedAt.Add(2 * time.Second)
 	syncRecord := model.ApplicationServerSync{
-		ID:             "application_sync_demo_approved",
+		ID:             ids.applicationSyncApproved,
 		OrganizationID: organization.ID,
-		ApplicationID:  "application_demo_approved",
+		ApplicationID:  ids.applicationApproved,
 		Operation:      "whitelist.add",
 		Adapter:        "minecraft-mock",
 		Mode:           "mock",

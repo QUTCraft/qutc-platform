@@ -15,14 +15,16 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var (
-	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrInvalidRefresh     = errors.New("invalid refresh token")
-	ErrInvalidPassword    = errors.New("password must be at least 12 characters")
-	ErrEmailInUse         = errors.New("email already registered")
-	ErrSessionInactive    = errors.New("user or organization membership is inactive")
+	ErrInvalidCredentials      = errors.New("invalid credentials")
+	ErrInvalidRefresh          = errors.New("invalid refresh token")
+	ErrInvalidPassword         = errors.New("password must be at least 12 characters")
+	ErrEmailInUse              = errors.New("email already registered")
+	ErrSessionInactive         = errors.New("user or organization membership is inactive")
+	ErrOrganizationUnavailable = errors.New("organization membership is unavailable")
 )
 
 type Principal struct {
@@ -39,6 +41,15 @@ type Profile struct {
 	AvatarURL      string   `json:"avatar_url"`
 	OrganizationID string   `json:"organization_id"`
 	Roles          []string `json:"roles"`
+}
+
+type OrganizationMembershipView struct {
+	ID        string   `json:"id"`
+	Slug      string   `json:"slug"`
+	Name      string   `json:"name"`
+	ShortName string   `json:"short_name"`
+	Roles     []string `json:"roles"`
+	Current   bool     `json:"current"`
 }
 
 type TokenPair struct {
@@ -180,12 +191,101 @@ func (s *AuthService) Refresh(refreshToken string) (TokenPair, error) {
 	if err := s.db.Where("id = ? AND state = ?", stored.UserID, "active").First(&user).Error; err != nil {
 		return TokenPair{}, ErrInvalidRefresh
 	}
-	organizationID, err := s.activeOrganizationID(user.ID)
-	if err != nil {
-		return TokenPair{}, err
+	organizationID := strings.TrimSpace(stored.OrganizationID)
+	if organizationID == "" {
+		var err error
+		organizationID, err = s.activeOrganizationID(user.ID)
+		if err != nil {
+			return TokenPair{}, err
+		}
+	} else {
+		active, err := s.hasActiveMembership(s.db, user.ID, organizationID)
+		if err != nil {
+			return TokenPair{}, err
+		}
+		if !active {
+			return TokenPair{}, ErrInvalidRefresh
+		}
 	}
 	var pair TokenPair
-	err = s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		now := time.Now().UTC()
+		result := tx.Model(&model.RefreshToken{}).Where("id = ? AND revoked_at IS NULL", stored.ID).Update("revoked_at", now)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrInvalidRefresh
+		}
+		var issueErr error
+		pair, issueErr = s.issueTokenPair(tx, user, organizationID)
+		return issueErr
+	})
+	return pair, err
+}
+
+func (s *AuthService) ListOrganizations(principal Principal) ([]OrganizationMembershipView, error) {
+	type organizationMembershipRow struct {
+		ID        string
+		Slug      string
+		Name      string
+		ShortName string
+	}
+	var rows []organizationMembershipRow
+	if err := s.db.Table("organizations AS organizations").
+		Select("organizations.id, organizations.slug, organizations.name, organizations.short_name").
+		Joins("JOIN memberships ON memberships.organization_id = organizations.id").
+		Where("memberships.user_id = ? AND memberships.state = ?", principal.UserID, "active").
+		Order("memberships.created_at ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	items := make([]OrganizationMembershipView, 0, len(rows))
+	for _, row := range rows {
+		roles, err := s.rolesFor(s.db, principal.UserID, row.ID)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, OrganizationMembershipView{
+			ID: row.ID, Slug: row.Slug, Name: row.Name, ShortName: row.ShortName,
+			Roles: roles, Current: row.ID == principal.OrganizationID,
+		})
+	}
+	return items, nil
+}
+
+func (s *AuthService) SwitchOrganization(principal Principal, organizationID, refreshToken string) (TokenPair, error) {
+	organizationID = strings.TrimSpace(organizationID)
+	refreshToken = strings.TrimSpace(refreshToken)
+	if organizationID == "" {
+		return TokenPair{}, ErrOrganizationUnavailable
+	}
+	if refreshToken == "" {
+		return TokenPair{}, ErrInvalidRefresh
+	}
+
+	var pair TokenPair
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var stored model.RefreshToken
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("token_hash = ? AND user_id = ? AND revoked_at IS NULL AND expires_at > ?", tokenHash(refreshToken), principal.UserID, time.Now().UTC()).
+			First(&stored).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return ErrInvalidRefresh
+			}
+			return err
+		}
+		var user model.User
+		if err := tx.Where("id = ? AND state = ?", principal.UserID, "active").First(&user).Error; err != nil {
+			return ErrInvalidRefresh
+		}
+		active, err := s.hasActiveMembership(tx, principal.UserID, organizationID)
+		if err != nil {
+			return err
+		}
+		if !active {
+			return ErrOrganizationUnavailable
+		}
 		now := time.Now().UTC()
 		result := tx.Model(&model.RefreshToken{}).Where("id = ? AND revoked_at IS NULL", stored.ID).Update("revoked_at", now)
 		if result.Error != nil {
@@ -302,7 +402,7 @@ func (s *AuthService) issueTokenPair(db *gorm.DB, user model.User, organizationI
 	if err != nil {
 		return TokenPair{}, err
 	}
-	if err := db.Create(&model.RefreshToken{ID: uuid.NewString(), UserID: user.ID, TokenHash: tokenHash(refreshToken), ExpiresAt: now.Add(s.cfg.JWTRefreshTTL)}).Error; err != nil {
+	if err := db.Create(&model.RefreshToken{ID: uuid.NewString(), UserID: user.ID, OrganizationID: organizationID, TokenHash: tokenHash(refreshToken), ExpiresAt: now.Add(s.cfg.JWTRefreshTTL)}).Error; err != nil {
 		return TokenPair{}, fmt.Errorf("store refresh token: %w", err)
 	}
 	roles, err := s.rolesFor(db, user.ID, organizationID)
@@ -310,6 +410,16 @@ func (s *AuthService) issueTokenPair(db *gorm.DB, user model.User, organizationI
 		return TokenPair{}, err
 	}
 	return TokenPair{AccessToken: accessToken, RefreshToken: refreshToken, TokenType: "Bearer", ExpiresIn: int64(s.cfg.JWTAccessTTL.Seconds()), User: Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Bio: user.Bio, AvatarURL: user.AvatarURL, OrganizationID: organizationID, Roles: roles}}, nil
+}
+
+func (s *AuthService) hasActiveMembership(db *gorm.DB, userID, organizationID string) (bool, error) {
+	var count int64
+	if err := db.Model(&model.Membership{}).
+		Where("user_id = ? AND organization_id = ? AND state = ?", userID, organizationID, "active").
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count == 1, nil
 }
 
 func (s *AuthService) activeOrganizationID(userID string) (string, error) {

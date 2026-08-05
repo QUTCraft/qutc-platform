@@ -19,10 +19,12 @@ import type {
   AIKnowledgeResult,
   AuditEvent,
   AuthUser,
+  BatchInvitationResponse,
   EmailAdapterStatus,
   KnowledgeArticle,
   KnowledgeDirectory,
   Organization,
+  OrganizationMembership,
   Page,
   PortalConfiguration,
   PortalManifest,
@@ -51,6 +53,24 @@ const organization: Organization = {
 	is_public: true,
 	updated_at: new Date().toISOString(),
 }
+
+const campusOrganization: Organization = {
+  id: 'org_campus_commons',
+  slug: 'campus-commons',
+  name: 'Campus Commons',
+  short_name: 'Commons',
+  tagline: '让组织信息、协作与公共内容持续流动。',
+  introduction: '面向校园社团与民间组织的公共门户、内容分发和协作平台。',
+  contact_email: 'hello@campus-commons.example',
+  social_links: [],
+  is_public: true,
+  updated_at: new Date().toISOString(),
+}
+
+const mockOrganizations: OrganizationMembership[] = [
+  { id: 'org_qutcraft', slug: 'qutcraft', name: 'QUTCraft Commons', short_name: 'QUTCraft', roles: ['owner'], current: true },
+  { id: 'org_campus_commons', slug: 'campus-commons', name: '校园社团协作中心', short_name: '校园协作中心', roles: ['administrator'], current: false },
+]
 
 const posts: PublicPost[] = [
   { id: 'post_cms', title: 'QUTCraft CMS 项目正式启动', excerpt: '从官网、资源分发到服务器适配，我们开始把社团长期积累的内容整理成可持续的公共入口。', category: '社团动态', published_at: '2026-07-14T12:00:00Z', reading_minutes: 4 },
@@ -220,16 +240,24 @@ export async function mockGet<T>(path: string): Promise<T> {
   await wait()
   const requestUrl = new URL(path, 'http://mock.local')
   if (path.endsWith('/auth/me')) { if (!mockUser) throw new Error('当前会话已失效。'); return mockUser as T }
+  if (path.endsWith('/auth/organizations')) {
+    requireMockAdmin()
+    return mockOrganizations.map((item) => ({ ...item, current: item.id === mockUser?.organization_id })) as T
+  }
   if (path.includes('/admin/')) requireMockAdmin()
   if (path.endsWith('/admin/dashboard')) {
+    const currentOrganization = mockOrganizations.find((item) => item.id === mockUser?.organization_id)
+    const isQutcraftOrganization = currentOrganization?.slug === 'qutcraft'
     const dashboard: AdminDashboard = {
-      organization_name: organization.name,
+      organization_name: currentOrganization?.name ?? organization.name,
       updated_at: '2026-07-17T04:10:00Z',
       metrics: [
         { label: '活跃成员', value: 24, change: '较上周 +3', tone: 'primary' },
         { label: '已发布内容', value: 38, change: '本周 +5', tone: 'secondary' },
         { label: '待处理申请', value: applications.filter((item) => item.status === 'pending').length, change: '需要你的处理', tone: 'warning' },
-        { label: '在线玩家', value: adminServer.online_players, change: '服务器状态正常', tone: 'neutral' },
+        isQutcraftOrganization
+          ? { label: '在线玩家', value: adminServer.online_players, change: '服务器状态正常', tone: 'neutral' }
+          : { label: '进行中项目', value: 2, change: '当前组织项目', tone: 'neutral' },
       ],
       pending_applications: applications.filter((item) => item.status === 'pending'),
       recent_content: adminContent,
@@ -240,6 +268,11 @@ export async function mockGet<T>(path: string): Promise<T> {
   if (requestUrl.pathname.endsWith('/admin/content')) return page(adminContent) as T
   if (requestUrl.pathname.endsWith('/admin/knowledge/directories')) return page(adminKnowledgeDirectories) as T
   if (requestUrl.pathname.endsWith('/admin/users')) return page(adminUsers) as T
+  if (requestUrl.pathname.endsWith('/admin/invitations')) {
+    const status = requestUrl.searchParams.get('status')
+    const invitations = status ? adminInvitations.filter((item) => item.status === status) : adminInvitations
+    return page(structuredClone(invitations)) as T
+  }
   if (requestUrl.pathname.endsWith('/admin/audit-events')) {
     const action = requestUrl.searchParams.get('action')
     const targetType = requestUrl.searchParams.get('target_type')
@@ -329,7 +362,7 @@ export async function mockGet<T>(path: string): Promise<T> {
   const invitationMatch = path.match(/\/api\/v1\/invitations\/([^/]+)$/)
   if (invitationMatch) {
     const invitation = adminInvitations.find((item) => item.invite_url.endsWith(invitationMatch[1]))
-    if (!invitation) throw new Error('邀请链接不存在或已失效。')
+    if (!invitation || invitation.status !== 'pending') throw new Error('邀请链接不存在或已失效。')
     const { invite_url: _inviteUrl, ...preview } = invitation
     return preview as Invitation as T
   }
@@ -360,7 +393,7 @@ export async function mockGet<T>(path: string): Promise<T> {
   if (path.endsWith('/admin/notifications/email/status')) {
     return { driver: 'disabled', enabled: false, configured: false } as EmailAdapterStatus as T
   }
-	if (path.endsWith('/admin/organization')) return structuredClone(organization) as T
+	if (path.endsWith('/admin/organization')) return structuredClone(mockUser?.organization_id === campusOrganization.id ? campusOrganization : organization) as T
   if (path.endsWith('/admin/portal/config')) return structuredClone(portalConfiguration) as T
   if (path.endsWith('/configuration')) {
     const runtime: PortalRuntimeConfiguration = {
@@ -376,7 +409,8 @@ export async function mockGet<T>(path: string): Promise<T> {
     if (!detail) throw new Error('公开内容不存在或尚未发布。')
     return detail as T
   }
-  if (/\/organizations\/[^/]+$/.test(path)) return organization as T
+  const organizationMatch = requestUrl.pathname.match(/\/organizations\/([^/]+)$/)
+  if (organizationMatch) return structuredClone(organizationMatch[1] === campusOrganization.slug ? campusOrganization : organization) as T
   if (path.endsWith('/posts')) return page(posts) as T
   if (path.endsWith('/projects')) return page(projects) as T
   if (path.endsWith('/resources')) return page(resources) as T
@@ -406,6 +440,15 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
   }
   if (path.endsWith('/auth/refresh')) { if (!mockUser) throw new Error('刷新令牌已失效。'); return authPair(mockUser) as T }
   if (path.endsWith('/auth/logout')) { saveMockUser(null); return { revoked: true } as T }
+  if (path.endsWith('/auth/switch-organization')) {
+    requireMockAdmin()
+    const payload = body as { organization_id?: string }
+    const target = mockOrganizations.find((item) => item.id === payload.organization_id)
+    if (!target || !mockUser) throw new Error('当前账户不是该组织的有效成员。')
+    const user: AuthUser = { ...mockUser, organization_id: target.id, roles: [...target.roles] }
+    saveMockUser(user)
+    return authPair(user) as T
+  }
   if (path.endsWith('/apply')) return { id: `application_${Date.now()}`, status: 'pending', submitted_at: new Date().toISOString() } as T
 	if (path.includes('/admin/')) requireMockAdmin()
   if (path.endsWith('/admin/ai/knowledge/search')) {
@@ -578,6 +621,37 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     adminContent = [content, ...adminContent]
     return content as T
   }
+  if (path.endsWith('/admin/invitation-batches')) {
+    const payload = body as { invitations: Array<{ email: string; role: AdminInvitation['role']; expires_in_hours?: number }> }
+    if (!Array.isArray(payload.invitations) || payload.invitations.length < 1 || payload.invitations.length > 20) throw new Error('批量邀请必须包含 1 到 20 条记录。')
+    const results: BatchInvitationResponse['results'] = []
+    for (const [index, item] of payload.invitations.entries()) {
+      const email = item.email.trim().toLowerCase()
+      const existingInvitation = adminInvitations.some((invitation) => invitation.email.toLowerCase() === email && invitation.status === 'pending')
+      const existingMember = adminUsers.some((user) => user.email.toLowerCase() === email && user.state === 'active')
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !['member', 'editor', 'administrator'].includes(item.role)) {
+        results.push({ index, email, succeeded: false, error: { code: 'invitation.validation_failed', message: '邮箱、角色或邀请有效期不符合要求。' } })
+        continue
+      }
+      if (existingInvitation || existingMember) {
+        results.push({ index, email, succeeded: false, error: { code: existingMember ? 'membership.already_active' : 'invitation.already_pending', message: existingMember ? '该邮箱已经是当前组织的有效成员。' : '该邮箱已有尚未处理的邀请。' } })
+        continue
+      }
+      const token = `mock-invite-${Date.now()}-${index}`
+      const invitation: AdminInvitation = {
+        id: `invitation_${Date.now()}_${index}`,
+        organization_id: 'org_qutcraft', organization_name: organization.name,
+        email, role: item.role, status: 'pending',
+        expires_at: new Date(Date.now() + (item.expires_in_hours ?? 168) * 3600 * 1000).toISOString(),
+        created_at: new Date().toISOString(), invite_url: `/invite/${token}`,
+        delivery: { status: 'disabled', adapter: 'disabled', attempts: 0 },
+      }
+      adminInvitations = [invitation, ...adminInvitations]
+      results.push({ index, email, succeeded: true, invitation: structuredClone(invitation) })
+    }
+    const succeeded = results.filter((item) => item.succeeded).length
+    return { total: results.length, succeeded, failed: results.length - succeeded, results } as T
+  }
   if (path.endsWith('/admin/invitations')) {
     const payload = body as { email: string; role: AdminInvitation['role']; expires_in_hours?: number }
     const token = `mock-invite-${Date.now()}`
@@ -599,7 +673,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
   const invitationRetryMatch = path.match(/\/admin\/invitations\/([^/]+)\/email\/retry$/)
   if (invitationRetryMatch) {
     const invitation = adminInvitations.find((item) => item.id === invitationRetryMatch[1])
-    if (!invitation) throw new Error('邀请不存在或已失效。')
+    if (!invitation || invitation.status !== 'pending') throw new Error('邀请不存在或已失效。')
     invitation.invite_url = `/invite/mock-invite-retry-${Date.now()}`
     invitation.delivery = {
       status: 'failed',
@@ -614,7 +688,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
   if (invitationAcceptMatch) {
     requireMockAdmin()
     const invitation = adminInvitations.find((item) => item.invite_url.endsWith(invitationAcceptMatch[1]))
-    if (!invitation) throw new Error('邀请链接不存在或已失效。')
+    if (!invitation || invitation.status !== 'pending') throw new Error('邀请链接不存在或已失效。')
     invitation.status = 'accepted'
     return { ...invitation, membership_id: `membership_${Date.now()}` } as T
   }
@@ -709,8 +783,9 @@ export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
   await wait()
   requireMockAdmin()
 	if (path.endsWith('/admin/organization')) {
-		Object.assign(organization, body as Partial<Organization>, { updated_at: new Date().toISOString() })
-		return structuredClone(organization) as T
+		const currentOrganization = mockUser?.organization_id === campusOrganization.id ? campusOrganization : organization
+		Object.assign(currentOrganization, body as Partial<Organization>, { updated_at: new Date().toISOString() })
+		return structuredClone(currentOrganization) as T
 	}
   if (path.endsWith('/admin/ai/config')) {
     const payload = body as Pick<AIConfiguration, 'enabled' | 'run_limit_per_hour' | 'request_timeout_seconds' | 'max_sources' | 'max_context_characters'>
@@ -811,6 +886,14 @@ export async function mockPut<T>(path: string, body: unknown): Promise<T> {
 export async function mockDelete<T>(path: string): Promise<T> {
   await wait()
   requireMockAdmin()
+  const invitationMatch = path.match(/\/admin\/invitations\/([^/]+)$/)
+  if (invitationMatch) {
+    const invitation = adminInvitations.find((item) => item.id === invitationMatch[1])
+    if (!invitation || invitation.status !== 'pending') throw new Error('只有待处理邀请可以撤销。')
+    invitation.status = 'revoked'
+    const { invite_url: _inviteUrl, delivery: _delivery, ...result } = invitation
+    return structuredClone(result) as T
+  }
   const memberMatch = path.match(/\/admin\/projects\/([^/]+)\/members\/([^/]+)$/)
   if (memberMatch) {
     const members = adminProjectMembers[memberMatch[1]] ?? []

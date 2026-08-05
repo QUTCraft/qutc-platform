@@ -8,6 +8,7 @@ import { formatDate } from '@/utils/format'
 
 const { data, error, loading, refresh } = useAsyncData(adminApi.getDashboard)
 const metricIcons = [User, DocumentChecked, Bell, Connection]
+const isQutcraftOrganization = computed(() => data.value?.organization_name.toLowerCase().includes('qutcraft') ?? true)
 const serverLabel = computed(() => data.value?.server.state === 'online' ? '服务器连接正常' : '服务器暂不可用')
 </script>
 
@@ -17,7 +18,7 @@ const serverLabel = computed(() => data.value?.server.state === 'online' ? '服�
       <section class="admin-intro">
         <div>
           <h2>工作台概览</h2>
-          <p>这里汇总了平台活跃动态、待审批申请与服务器运行状态。</p>
+          <p>{{ isQutcraftOrganization ? '这里汇总了平台活跃动态、待审批申请与服务器运行状态。' : '这里汇总当前组织的成员、内容、申请与项目协作状态。' }}</p>
         </div>
         <small>上次同步：{{ formatDate(data.updated_at) }}</small>
       </section>
@@ -54,7 +55,7 @@ const serverLabel = computed(() => data.value?.server.state === 'online' ? '服�
           </div>
         </article>
 
-        <article class="admin-panel server-panel">
+        <article v-if="isQutcraftOrganization" class="admin-panel server-panel">
           <div class="server-panel-top">
             <div>
               <h2>{{ data.server.label }}</h2>
@@ -66,6 +67,18 @@ const serverLabel = computed(() => data.value?.server.state === 'online' ? '服�
           <p>{{ data.server.online_players }} / {{ data.server.max_players }} 名玩家在线。</p>
           <RouterLink to="/admin/reviews">
             <el-button type="primary" round style="margin-top: 16px;">进入审核与服务器控制台</el-button>
+          </RouterLink>
+        </article>
+        <article v-else class="admin-panel server-panel">
+          <div class="server-panel-top">
+            <div>
+              <h2>AI 活动运营</h2>
+            </div>
+            <span class="server-state online"><i /> 人工审批保护</span>
+          </div>
+          <p>从组织知识生成带引用的活动方案，再由成员逐项评分、批准并进入项目与内容工作流。</p>
+          <RouterLink to="/admin/activity-planner">
+            <el-button type="primary" round style="margin-top: 16px;">进入活动策划工作台</el-button>
           </RouterLink>
         </article>
       </section>

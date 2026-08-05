@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateRange(1, 10)]
     [int]$Rounds = 3,
@@ -8,6 +8,7 @@ param(
     [string]$EnvFile = "",
     [string]$OutputPath = "",
     [string]$SourceQuery = "项目",
+    [string]$OrganizationSlug = "",
     [switch]$AllowMock
 )
 
@@ -83,7 +84,8 @@ function Invoke-QUTCAPI {
     }
     if ($null -ne $Body) {
         $arguments.ContentType = "application/json"
-        $arguments.Body = $Body | ConvertTo-Json -Depth 12 -Compress
+        $jsonBody = $Body | ConvertTo-Json -Depth 12 -Compress
+        $arguments.Body = [System.Text.Encoding]::UTF8.GetBytes($jsonBody)
     }
     try {
         return Invoke-RestMethod @arguments
@@ -107,6 +109,30 @@ if ([string]::IsNullOrWhiteSpace($token)) {
     throw "Login succeeded without an access token."
 }
 
+$organizationsResponse = Invoke-QUTCAPI -Method GET -Path "/api/v1/auth/organizations" -Token $token
+$organizations = @($organizationsResponse.data)
+$currentOrganization = $organizations | Where-Object current | Select-Object -First 1
+if (-not [string]::IsNullOrWhiteSpace($OrganizationSlug)) {
+    $targetOrganization = $organizations | Where-Object { $_.slug -eq $OrganizationSlug } | Select-Object -First 1
+    if ($null -eq $targetOrganization) {
+        throw "The current account cannot access organization '$OrganizationSlug'."
+    }
+    if (-not $targetOrganization.current) {
+        $switched = Invoke-QUTCAPI -Method POST -Path "/api/v1/auth/switch-organization" -Token $token -Body @{
+            organization_id = [string]$targetOrganization.id
+        }
+        $token = [string]$switched.data.access_token
+        if ([string]::IsNullOrWhiteSpace($token)) {
+            throw "Organization switch succeeded without an access token."
+        }
+    }
+    $currentOrganization = $targetOrganization
+}
+if ($null -eq $currentOrganization) {
+    throw "The authenticated session has no current organization."
+}
+$organizationLabel = if ([string]::IsNullOrWhiteSpace([string]$currentOrganization.short_name)) { [string]$currentOrganization.name } else { [string]$currentOrganization.short_name }
+
 $configuration = Invoke-QUTCAPI -Method GET -Path "/api/v1/admin/ai/config" -Token $token
 $provider = $configuration.data.provider
 if (-not $provider.enabled -or -not $provider.configured) {
@@ -120,8 +146,10 @@ $searchQueries = @($SourceQuery, "活动", "组织", "规范", "门户") | Where
 $source = $null
 foreach ($query in $searchQueries) {
     $search = Invoke-QUTCAPI -Method POST -Path "/api/v1/admin/ai/knowledge/search" -Token $token -Body @{ query = $query; limit = 10 }
-    if ($search.data.Count -gt 0) {
-        $source = $search.data[0]
+    $matches = @($search.data)
+    Write-Host "DEMO_REHEARSAL_SOURCE_QUERY: organization=$([string]$currentOrganization.slug) query=$query matches=$($matches.Count)"
+    if ($matches.Count -gt 0) {
+        $source = $matches[0]
         break
     }
 }
@@ -153,7 +181,7 @@ for ($round = 1; $round -le $Rounds; $round++) {
     try {
         $start = (Get-Date).ToUniversalTime().AddDays(30 + $round)
         $created = Invoke-QUTCAPI -Method POST -Path "/api/v1/admin/ai/activity-plans" -Token $token -RequestID $roundResult.request_id -Body @{
-            title = "比赛主演示稳定性演练 $round · $rehearsalID"
+            title = "$organizationLabel 活动策划演练 $round · $rehearsalID"
             objective = "验证校园组织活动策划服务在真实模型下能够稳定生成带引用、可人工审查且不越权执行的方案"
             audience = "校园社团负责人、活动组织者与参赛评审"
             venue = "校内多功能活动空间"
@@ -209,6 +237,7 @@ $report = [ordered]@{
     rehearsal_id = $rehearsalID
     generated_at = (Get-Date).ToUniversalTime().ToString("o")
     api_url = $ApiUrl
+    organization = @{ id = [string]$currentOrganization.id; slug = [string]$currentOrganization.slug; name = [string]$currentOrganization.name }
     provider = @{ provider = $provider.provider; mode = $provider.mode; model = $provider.model }
     prompt_version = "activity-planner/v2"
     rounds_requested = $Rounds
@@ -228,7 +257,7 @@ $report = [ordered]@{
 $outputDirectory = Split-Path -Parent $OutputPath
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $OutputPath -Encoding utf8
-Write-Host "AI_ACTIVITY_DEMO_REHEARSAL: provider=$($provider.provider) mode=$($provider.mode) passed=$passed/$Rounds average_latency=${averageLatency}ms"
+Write-Host "AI_ACTIVITY_DEMO_REHEARSAL: organization=$([string]$currentOrganization.slug) provider=$($provider.provider) mode=$($provider.mode) passed=$passed/$Rounds average_latency=${averageLatency}ms"
 Write-Host "AI_ACTIVITY_DEMO_REHEARSAL_REPORT: $OutputPath"
 if ($passed -ne $Rounds) {
     throw "Only $passed/$Rounds rehearsal rounds passed."
