@@ -1,6 +1,8 @@
-# 邀请邮件适配器规范
+# 邮件与通知适配器规范
 
 ## 1. 目标与边界
+
+当前邮件能力包含两条失败语义不同的路径：成员邀请邮件，以及申请审批结果通知。
 
 邀请邮件是成员邀请流程的可选外部适配器，不是邀请事务的组成部分：
 
@@ -9,6 +11,13 @@
 - 未启用 SMTP 时，Admin 仍会取得一次性 `invite_url`，可复制链接完成完整加入流程。
 - 浏览器只读取适配器状态和单次投递结果，不读取 SMTP 主机、用户名、密码或授权码。
 - 服务端始终只持久化邀请 token 的 SHA-256 哈希，不为邮件重试保存明文 token。
+
+申请审批通知使用持久化 Outbox：
+
+- 审批事务只写入唯一通知事件，不在事务中连接 SMTP。
+- 单机 worker 在事务提交后领取事件并发送；发送失败不会回滚已经生效的审批决定。
+- SMTP 禁用、失败、重试次数和脱敏错误均可由具有组织配置权限的管理员查看。
+- 当前没有申请人自助状态页、Webhook、企业微信、退信处理或多实例 worker，这些能力继续延期。
 
 ## 2. 服务端配置
 
@@ -29,6 +38,8 @@
 
 ## 3. 数据模型
 
+### 3.1 邀请投递
+
 `invitation_deliveries` 为每个邀请保存一条邮件投递记录：
 
 | 字段 | 语义 |
@@ -42,6 +53,23 @@
 | `last_error` | 最长 500 字符的服务端诊断信息，仅在受保护 Admin 响应中出现。 |
 
 邀请接受不依赖投递状态。即使状态是 `failed` 或 `disabled`，有效链接仍可完成注册或已有账户接受。
+
+### 3.2 审批通知 Outbox
+
+`notification_outboxes` 为审批结果保存可重试事件：
+
+| 字段 | 语义 |
+| --- | --- |
+| `event_type` | `application.approved` 或 `application.rejected`。 |
+| `target_type` / `target_id` | 当前为 `application` 与申请 ID；与事件类型组成唯一约束，避免重复审批通知。 |
+| `recipient_email` | 审批时申请记录中的邮箱，仅 Admin 可见。 |
+| `status` | `pending`、`sending`、`sent`、`failed`、`disabled`。 |
+| `attempts` | 已领取并尝试处理的次数；自动处理上限为 5。 |
+| `available_at` | 允许下一次领取的时间；失败时按尝试次数退避。 |
+| `last_attempt_at` / `sent_at` | 最近尝试和成功时间。 |
+| `last_error` | 最长 500 字符的安全错误摘要，不保存 SMTP 原文或凭据。 |
+
+API 进程重启不会丢失 `pending`/`failed` 事件。当前 worker 与 API 同进程、按单实例部署设计；多实例公平领取和独立消息中间件不在比赛版承诺内。
 
 ## 4. API
 
@@ -106,17 +134,39 @@
 
 该接口永不返回 `SMTP_HOST`、端口、用户名、密码或授权码。配置修改只能通过受控部署变量完成并重启 API。
 
+### 4.4 组织级邀请模板
+
+`GET /api/v1/admin/notifications/invitation-template` 读取当前组织模板，`PATCH` 更新主题与正文；两者均要求 `organization:configure`。
+
+允许变量只有：
+
+- `{{organization}}`
+- `{{role}}`
+- `{{invite_url}}`
+- `{{expires_at}}`
+
+主题最长 255 字符，正文最长 4000 字符。未知变量、残缺花括号和超长内容返回 `400 notification.template_invalid`；主题或正文留空表示使用服务端默认模板。保存动作写入 `notification.invitation_template_update` 审计。模板不允许读取申请材料、成员隐私或 SMTP 配置。
+
+### 4.5 审批通知队列
+
+- `GET /api/v1/admin/notifications/outbox`：要求 `organization:configure`，按当前组织分页，可用 `status` 精确筛选。
+- `POST /api/v1/admin/notifications/outbox/{notification_id}/retry`：只允许 `failed` 或 `disabled` 事件；清空安全错误、重置尝试次数并重新置为 `pending`，写入 `notification.retry` 审计。
+
+SMTP 未启用时，worker 将事件标记为 `disabled`，而不是伪报发送成功。SMTP 失败时事件进入 `failed` 并按退避时间自动重试；达到 5 次后保留失败记录等待人工处理。列表和重试接口不返回邮件正文、密码、主机或上游错误原文。
+
 ## 5. 审计与失败语义
 
 - `membership.invite`：邀请核心记录创建成功。
 - `membership.invite_email`：记录每次邮件阶段结果，`result` 为 `sent`、`failed` 或未启用时的 `skipped`。
+- `notification.invitation_template_update`：组织邀请模板更新成功。
+- `notification.retry`：审批通知被人工重新排队。
 - 适配器使用连接级总超时；SMTP 错误会截断到 500 字符，不包含请求中的邀请 token。
 - 重试端点受敏感操作限流保护，避免对同一地址反复发送。
 - SMTP 成功仅代表上游服务器接受邮件，不代表最终进入收件箱；退信与送达回执属于后续异步通知能力。
 
 ## 6. 本地验证
 
-默认 Compose 使用 `EMAIL_DRIVER=disabled`，可验证链接降级路径：
+默认 Compose 使用 `EMAIL_DRIVER=disabled`，可验证邀请链接降级和审批通知 `disabled` 可见路径：
 
 ```powershell
 docker compose --env-file .env up -d --build api web
@@ -124,3 +174,5 @@ docker compose --env-file .env up -d --build api web
 ```
 
 接入测试 SMTP 时，在 `deploy/compose/.env` 设置 SMTP 变量并重建 API。不要把真实密码提交到仓库，也不要将其写入任何 `VITE_*` 变量。
+
+重建后可在 `/admin/settings` 查看适配器状态、编辑邀请模板并检查审批通知队列。验证真实发送时应使用测试邮箱和专用 SMTP 凭据；SMTP 接受不等于最终送达，测试记录必须在结束后按组织数据清理策略处理。

@@ -16,6 +16,8 @@
 
 001—008 发布期间 API 使用 GORM `AutoMigrate`。检测到已有 `organizations` 表但迁移账本为空时，迁移器会登记 001—008 为历史基线，再从 009 开始执行。这一兼容分支只用于升级旧版数据卷；全新数据库从 001 开始执行。
 
+当前仓库最新版本为 `015_content_revision_backfill.sql`。升级完成后，账本应连续包含 001—015；不能只根据某个新增列存在就跳过后续数据回填。
+
 升级后应检查：
 
 ```sql
@@ -44,6 +46,18 @@ SELECT version, applied_at FROM schema_migrations ORDER BY version;
 012 新增 `activity_plan_evaluations`，以 `(plan_id, reviewer_user_id)` 唯一约束保存五维人工评分；`organization_id` 同时参与所有服务端查询，防止跨组织读取。该表沿用 010 的旧数据卷兼容策略，不新增跨表外键；删除测试方案或执行数据清理时必须先删除对应评分。
 
 013 为 `refresh_tokens` 新增 `organization_id` 与索引。迁移前签发的历史 Refresh Token 使用空字符串兼容值，并在首次轮换时回退到用户最早的 active 组织；迁移后签发和轮换的令牌始终记录当前组织。该列刻意不建立组织外键，以允许历史空值安全过渡；服务端每次 Refresh 和组织切换仍会实时校验用户与目标组织的 active 成员关系。
+
+014 是延期增强的结构基础：
+
+- `users.default_organization_id` 保存用户显式切换后的默认组织偏好；登录时仍会实时验证 active 成员关系，无效偏好自动回退。
+- `organizations` 增加邀请邮件主题/正文模板；模板只允许受控变量，不保存 SMTP 凭据。
+- `media_assets` 增加下载次数与最近下载时间。
+- `agent_citations.source_body` 保存创建运行时的引用正文快照，使 queued 任务可在进程重启后重建上下文。
+- 新增 `content_revisions` 和 `notification_outboxes`，分别承载不可变内容版本与申请审批通知队列。
+
+014 在兼容旧 AutoMigrate 数据卷时必须注意标识列 collation：历史 `contents.id` 可能为 `utf8mb4_0900_ai_ci`，组织和用户标识可能为 `utf8mb4_unicode_ci`。迁移文件已对外键列显式声明匹配 collation；不要删除这些声明或用 `AutoMigrate` 重建表。
+
+015 是幂等数据回填：仅为尚无任何修订的既有 `contents` 写入 version 1 快照，保留原作者、状态、正文、发布时间和创建时间。已有修订的内容不会被重复写入。该迁移必须在 014 完整成功并登记后执行。
 
 5. 在空数据库再次启动，验证 001 至最新版本可完整执行。
 

@@ -1,6 +1,6 @@
 # 信息架构与页面路由 v1.1
 
-> 状态：基于 2026 年 7 月 25 日实现同步
+> 状态：基于 2026 年 8 月 5 日实现同步
 >
 > 关联：[功能地图 v2](feature-map-v2.md)、[需求范围 v1](requirements-v1.md)、[API 文档](../api/API.md)
 
@@ -15,7 +15,7 @@
 
 组织成员
   └─ Admin Layout（认证、RBAC）
-       └─ /admin, /admin/content, /admin/projects, /admin/users, /admin/reviews, /admin/audit, /admin/ai, /admin/settings
+       └─ /admin, /admin/content, /admin/knowledge, /admin/projects, /admin/users, /admin/reviews, /admin/activity-planner, /admin/audit, /admin/ai, /admin/settings
 ```
 
 门户不出现成员邮箱、角色、审核队列、草稿、RCON 面板或“后台管理”入口。后台可提供“查看门户”链接，但不得把它作为权限绕过手段。
@@ -42,13 +42,15 @@
 | 路由 | 页面职责 | 当前 API | 最低权限建议 |
 | --- | --- | --- | --- |
 | `/admin` | 聚合指标、待审申请、近期内容、适配器状态 | `GET /api/v1/admin/dashboard` | 已认证成员。 |
-| `/admin/content` | 内容列表、完整 Markdown 编辑器及“从知识生成”人工确认工作台 | Content API 与 7 条 AI API；AI 结果只应用到表单或创建 draft | `content:read` / `content:create`；AI 读取同时需要 `ai:use` 与 `knowledge:read`。 |
+| `/admin/content` | 内容列表、完整 Markdown 编辑器、修订历史/恢复及“从知识生成”人工确认工作台 | Content/Revision/Asset API 与内容协作 AI API；AI 结果只应用到表单或创建 draft | `content:read` / `content:create`；AI 读取同时需要 `ai:use` 与 `knowledge:read`。 |
+| `/admin/knowledge` | 知识目录创建与编辑 | Knowledge Directory API | `knowledge:read`；写操作需要 `knowledge:manage`。 |
 | `/admin/projects` | 项目、公开范围、成员与里程碑 | projects / members / milestones endpoints | `project:read`；写操作需要 `project:manage`，成员/里程碑 UI 已接入。 |
-| `/admin/users` | 成员、角色与状态 | `GET /api/v1/admin/users` | `membership:read`。 |
+| `/admin/users` | 成员、角色/状态、单个/批量邀请与投递结果 | Users / Invitations API | `membership:read`；成员与邀请写操作需要 `membership:manage`。 |
 | `/admin/reviews` | 申请审核、服务器状态、受限命令 | applications / server endpoints | `application:read`、`server:read_status`。 |
-| `/admin/audit` | 管理操作审计与 Request ID 排错 | `GET /api/v1/admin/audit-events` | `audit:read`，服务端强制当前组织范围。 |
+| `/admin/activity-planner` | 结构化活动需求、知识引用、历史方案、人工评分与受控批准 | Activity Plan / Evaluation API | 生成/读取需要 `ai:use`；生成同时需要 `knowledge:read`；批准还需 `project:manage` 与 `content:create`。 |
+| `/admin/audit` | 管理操作审计与 Request ID 排错 | `GET /api/v1/admin/audit` | `audit:read`，服务端强制当前组织范围。 |
 | `/admin/ai` | 智能体供应商状态与组织运行策略 | `GET/PATCH /api/v1/admin/ai/config`、`GET /api/v1/admin/ai/agents` | 查看需要 `ai:use`；保存需要 `organization:configure`。 |
-| `/admin/settings` | 门户 Manifest 草稿、启用、默认 MD3 恢复与邮件适配器状态 | Admin Portal Configuration API；服务端 SMTP 状态只读 API，不暴露凭据 | `organization:configure`。 |
+| `/admin/settings` | 组织公开资料、门户 Manifest、默认 MD3 恢复、邮件状态、邀请模板和审批通知队列 | Organization / Portal Configuration / Notification API；不暴露 SMTP 凭据 | `organization:configure`。 |
 
 管理页面在服务端返回 `401` 时进入认证流程，在 `403` 时展示权限拒绝状态并停止后续写操作；不能仅靠前端路由守卫隐藏页面。
 

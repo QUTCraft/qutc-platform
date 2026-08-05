@@ -6,11 +6,11 @@
 
 申请审批、服务器同步、失败重试、Mock 语义和受限命令的完整状态规范见 [申请审批与 ServerAdapter API 规范](server-adapter.md)。
 
-成员邀请的 SMTP 配置、投递状态、token 轮换重试和凭据边界见 [邀请邮件适配器规范](email-adapter.md)。
+成员邀请的 SMTP 配置、组织级邀请模板、token 轮换重试、申请审批通知 Outbox 和凭据边界见 [邮件与通知适配器规范](email-adapter.md)。
 
 Request ID、结构化日志、存活/就绪探针和组织隔离审计查询见 [API 可观测性与审计规范](observability.md)。
 
-组织运营智能体的 7 条已实现接口、组织配置页、RBAC、异步状态、模型供应商配置、错误码与审计见 [组织运营智能体 API 规范](ai-agent.md)。
+组织运营智能体的 14 条已实现接口、组织配置页、持久化单机 worker、活动策划/评分/人工批准、RBAC、模型供应商配置、错误码与审计见 [组织运营智能体 API 规范](ai-agent.md)。
 
 门户 Manifest 的字段、安全边界、草稿/启用 API 与默认 MD3 回退规则见 [自定义门户 Manifest v1](../product/portal-manifest-v1.md)。
 

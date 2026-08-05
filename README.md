@@ -4,7 +4,7 @@ QUTCraft Platform 是“社团智枢 Commons Agent”的工程底座：一套面
 
 青岛理工大学 QUTCraft Minecraft 社团是本项目的首个真实落地场景。它验证了平台既可以保持通用的组织数字化能力，也可以通过公开 API 构建具有社团特色的门户，而不会让 Minecraft 服务器能力污染通用业务核心。
 
-> 当前仓库处于 MVP 开发阶段。前端支持契约 Mock 与远程 API 两种模式；Go API、MySQL 基础迁移、JWT/RBAC、Compose 开发环境以及内容、资源、项目、成员邀请和申请审核的基础业务端点已经落地，真实服务器适配与全链路收口仍按项目排期推进。
+> 当前仓库处于比赛版收口阶段。前端支持契约 Mock 与远程 API 两种模式；Go API、001—015 版本化迁移、JWT/RBAC、Compose 环境，以及内容、资源、项目、成员邀请、申请审核和 AI 活动策划闭环均已落地。真实 Minecraft RCON 明确延期，当前重点是新机器复现、视觉/故障回归和交付冻结。
 
 ## 核心原则
 
@@ -28,15 +28,17 @@ QUTCraft Platform 是“社团智枢 Commons Agent”的工程底座：一套面
 
 - 独立的后台侧边导航与工作台布局，入口为 `/admin`。
 - Dashboard：组织概览、待办申请与近期内容；QUTCraft 展示服务器适配状态，通用组织展示活动运营入口。
-- 内容工作区：查看内容状态并创建草稿。
-- 成员与权限：查看成员、组织角色和状态，创建邀请，并显示可选 SMTP 的真实投递结果与失败重试。
+- 内容工作区：标准 Markdown 编辑、实时预览、Markdown 导入、图片/附件插入、发布/下线，以及不可变修订历史和恢复为新草稿。
+- 成员与权限：查看成员、组织角色和状态，创建单个/批量邀请，并显示可选 SMTP 的真实投递结果、组织级邀请模板与失败重试。
 - 审核与服务器：处理白名单/成员申请，演示受限 RCON 命令入口。
 - 审计记录：按动作、对象、结果、Request ID 与日期查询当前组织的管理操作。
 - 组织公开资料：维护名称、简称、标语、介绍、公开邮箱、社交链接和公开状态，修改立即作用于门户并留存审计。
-- 门户 Manifest 设置：真实读取、草稿保存、JSON 导入、同源预览、独立启用与 Portal/Admin 安全边界提示。
+- 门户 Manifest 与通知设置：真实读取、草稿保存、JSON 导入、同源预览、独立启用、邀请邮件模板，以及申请审批通知 Outbox 的状态与重试。
 - AI 活动策划：结构化活动需求、组织知识检索、带引用方案、建议操作审查，以及人工批准创建非公开项目、里程碑和公告草稿。
 - 质量证据：活动方案历史恢复、按评审人保存的五维人工评分、组织级模型/Prompt 质量汇总，以及不保存生成正文的真实模型稳定性演练。
 - 内容协作智能体：从选定知识生成 Markdown，支持预览、对比、引用核对和人工确认创建草稿。
+- 多组织会话：同一账户可切换有效组织，Access/Refresh 上下文随之轮换，并持久化默认组织偏好。
+- 资源运营数据：受控下载累计次数与最近下载时间，按组织隔离并由后台查询。
 
 > 前端仍保留契约 Mock 供离线演示；Compose 默认使用 remote 模式连接真实 API/MySQL。服务器操作使用明确标识的 Mock ServerAdapter，不会连接真实 Minecraft RCON；邀请邮件使用可选 SMTP Adapter，默认关闭且不会伪报发送成功。
 
@@ -98,8 +100,13 @@ http://localhost:8082
 | `/register` | 注册账户并接受邀请 |
 | `/admin` | 管理工作台概览 |
 | `/admin/content` | 内容工作区 |
+| `/admin/knowledge` | 知识目录管理 |
+| `/admin/projects` | 项目、成员与里程碑 |
 | `/admin/users` | 成员与权限 |
 | `/admin/reviews` | 申请审核与服务器适配 |
+| `/admin/activity-planner` | AI 活动策划、历史方案与人工评分 |
+| `/admin/ai` | 智能体供应商与组织策略 |
+| `/admin/audit` | 审计查询 |
 | `/admin/settings` | 门户 Manifest 与通知设置 |
 
 访问 `/admin` 会先进入登录页。默认 Mock 演示账号为：
@@ -221,11 +228,12 @@ docker compose up -d --build api
 
 - [完整 API 文档](docs/api/API.md)：认证、RBAC、响应封装、字段说明、错误语义、示例与安全边界。
 - [申请审批与 ServerAdapter API 规范](docs/api/server-adapter.md)：审批事务、外部同步状态、失败重试、错误码与审计约束。
-- [邀请邮件适配器规范](docs/api/email-adapter.md)：SMTP 服务端配置、投递状态、token 轮换重试与凭据安全边界。
+- [邮件与通知适配器规范](docs/api/email-adapter.md)：SMTP 服务端配置、邀请模板、审批通知 Outbox、失败重试与凭据安全边界。
 - [API 可观测性与审计规范](docs/api/observability.md)：Request ID、结构化日志、存活/就绪探针和审计查询边界。
 - [数据库迁移与回退规范](docs/operations/database-migrations.md)：版本账本、旧数据卷基线、升级演练和备份回退边界。
 - [比赛演示运行手册](docs/product/competition-demo-runbook.md)：通用产品叙事、演示路径、环境门禁和故障回退。
 - [已知限制与延期项](docs/operations/known-issues.md)：RCON、AI 任务、邮件、限流和赛后能力的真实边界。
+- [延期功能评估](docs/product/deferred-work.md)：已提前落地的增强、继续延期的边界和 v0.2 建议顺序。
 - [API 协作说明](docs/api/README.md)：Apifox、Swagger 与契约变更流程。
 - [AI 智能体集成设计](docs/architecture/ai-agent-integration.md)：组织运营智能体的能力边界、架构、权限、工具与分阶段落地方案。
 - [AI 活动策划评测基线](docs/product/ai-activity-evaluation.md)：10 组校园场景、Prompt Injection、引用与真实模型质量门禁。
@@ -234,7 +242,7 @@ docker compose up -d --build api
 
 接口或字段变更必须按以下顺序进行：更新 OpenAPI → 更新文档与示例 → 更新后端 DTO/鉴权/测试 → 更新前端 API client 与页面。禁止在前端猜测尚未定义的 URL 或字段。
 
-仓库内置统一质量门禁，覆盖 OpenAPI 结构与安全语义、84 条 Gin 路由、76 个前端请求、26 个 Apifox 核心请求、Go 测试、前端类型检查和生产构建：
+仓库内置统一质量门禁，覆盖 OpenAPI 结构与安全语义、92 条 Gin 路由、169 个 Schema、84 个前端请求、26 个 Apifox 核心请求、Go 测试、前端类型检查和生产构建：
 
 ```powershell
 .\scripts\run-quality-gate.ps1
@@ -304,7 +312,7 @@ Apifox 集合、环境模板、各检查器的单独运行方式见 [API 协作�
 
 ```text
 apps/
-├── api/                         # Go API 服务（规划骨架）
+├── api/                         # Go API 服务
 │   ├── cmd/server/               # 服务启动入口
 │   ├── internal/                 # 领域、服务、仓储与基础设施
 │   └── migrations/               # 数据库迁移
@@ -332,10 +340,10 @@ tests/integration/                # 集成测试
 
 | 文档 | 用途 |
 | --- | --- |
-| [功能地图 v2](docs/product/feature-map-v2.md) | 截至 2026 年 8 月 1 日的真实完成度、MVP 收口、依赖和 v0.2+ 扩展路线。 |
+| [功能地图 v2](docs/product/feature-map-v2.md) | 截至 2026 年 8 月 5 日的真实完成度、比赛版收口、依赖和 v0.2+ 扩展路线。 |
 | [项目排期 v2](schedule.md) | 从 2026 年 7 月 25 日重排至 8 月 31 日的业务切片、阶段门与延期切线。 |
 | [需求范围 v1](docs/product/requirements-v1.md) | MVP 边界、角色、用户故事、优先级与非功能要求。 |
-| [MVP 验收清单](docs/product/mvp-acceptance.md) | 截至 7 月 17 日的冻结检查点及后续可执行验收用例。 |
+| [MVP 验收清单](docs/product/mvp-acceptance.md) | 截至 8 月 5 日同步的比赛版可执行验收用例。 |
 | [比赛叙事一页纸](docs/product/competition-narrative.md) | 产品价值、技术亮点与演示路径。 |
 | [平台统一规范](docs/architecture/platform-standard.md) | 前后端、接口、权限、门户扩展和质量规范。 |
 | [RBAC 权限矩阵](docs/architecture/rbac-matrix.md) | 角色、权限名称、范围限制和后台路由建议。 |
@@ -347,9 +355,10 @@ tests/integration/                # 集成测试
 | [媒体存储适配规范](docs/api/storage-adapter.md) | 本地卷与 MinIO/S3 驱动、配置安全、对象迁移和真实集成测试。 |
 | [API 可观测性与审计规范](docs/api/observability.md) | Request ID、结构化访问日志、存活/就绪探针与组织隔离审计查询。 |
 | [Compose 备份与恢复手册](docs/operations/backup-restore.md) | MySQL/本地媒体备份、校验清单、隔离恢复演练与 S3 边界。 |
+| [项目部署/维护/开发者手册](PROJECT_GUIDE.md) | 从 Compose 部署、环境变量、迁移、备份、故障排查到开发和发布门禁的统一操作说明。 |
 | [OpenAPI 契约](docs/api/openapi.yaml) | 可导入 Apifox / Swagger 的事实来源。 |
 | [AI 智能体集成设计](docs/architecture/ai-agent-integration.md) | 比赛版组织运营智能体的架构、安全边界与分阶段实现状态。 |
-| [组织运营智能体 API 规范](docs/api/ai-agent.md) | 已实现 AI-0 接口、权限、状态机、模型配置、错误码、审计与验证。 |
+| [组织运营智能体 API 规范](docs/api/ai-agent.md) | 已实现内容协作、活动策划、持久化运行队列、人工批准与质量评估接口。 |
 | [MD3 门户演示](docs/product/style_demo.html) | 默认门户视觉演示。 |
 
 ## 开发约定
@@ -363,7 +372,7 @@ tests/integration/                # 集成测试
 
 ## 路线图
 
-比赛版本的目标完成时间为 **2026 年 8 月 31 日**。当前先按三个可验收闭环收口：内容发布到门户、申请审批到服务器适配器、自定义门户加载与 MD3 回退；核心功能和质量阶段通过后，再接入比赛要求的 AI 内容协作闭环，最后完成交付冻结。
+比赛版本的目标完成时间为 **2026 年 8 月 31 日**。当前按四条已贯通的闭环收口：内容发布到门户、申请审批到可选服务器适配器、自定义门户加载与 MD3 回退，以及“组织知识 → AI 活动方案 → 人工批准 → 项目/里程碑/公告草稿”。剩余工作以部署复现、真实模型稳定性、视觉/故障回归和交付冻结为主，不再扩张成通用 OA、真实 RCON 或通用智能体工作流平台。
 
 实时模块状态、未完成错位和中长期扩展见 [功能地图 v2](docs/product/feature-map-v2.md)；日期、阶段门和延期规则见 [项目排期 v2](schedule.md)。
 

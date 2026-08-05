@@ -195,7 +195,7 @@ Authorization: Bearer <JWT>
 | `editor` | 编辑者 | 维护内容工作区的角色。 |
 | `member` | 成员 | 普通组织成员。 |
 
-OpenAPI 当前将具体权限决策留给服务端 RBAC 策略，因此不能把下面的建议视为已实现的强制授权表：内容读取/新建通常至少需 `editor`，成员读取、审批、RCON 通常至少需 `administrator`，组织最高风险设置通常需 `owner`。后端实现时应把精确的 `permission` 常量及审计规则写入架构规范并补充测试。
+OpenAPI 描述每个操作的认证要求，具体授权由服务端数据库 RBAC 实时执行。当前内置角色和精确权限已经落地：`editor` 具备内容/资产基础能力、知识读取和 `ai:use`；`administrator` 额外具备发布、成员、项目、知识目录、申请、审计与服务器状态权限；只有 `owner` 默认拥有 `organization:configure` 和 `server:command`。完整事实矩阵见 [RBAC 权限矩阵](../architecture/rbac-matrix.md)，前端菜单和按钮隐藏不能替代这些检查。
 
 ### 4.3 组织隔离
 
@@ -505,6 +505,8 @@ Operation ID：`listAdminContent`
 | `excerpt` | string | 可选门户摘要，最长 500 字符。 |
 | `body` | string | 可选正文；管理端可见，Portal 列表不返回正文。 |
 | `knowledge_directory_id` | string 或 null | 知识库内容所属目录。 |
+| `revision_count` | integer | 当前内容已有的不可变修订数量。 |
+| `asset` | object 或 null | 内容关联资产的管理端元数据、受控下载地址和下载统计。 |
 
 #### 获取单条后台内容
 
@@ -542,7 +544,7 @@ Operation ID：`createAdminContent`
 - `GET /api/v1/admin/content/{content_id}/revisions` 与 `GET /api/v1/admin/content/{content_id}/revisions/{revision_id}`：读取当前组织的不可变修订摘要或完整 Markdown，需要 `content:read`。
 - `POST /api/v1/admin/content/{content_id}/revisions/{revision_id}/restore`：把指定快照恢复为新的 `draft`，不会直接发布，需要 `content:update`，并写入 `content.revision_restore` 审计。
 
-草稿创建、草稿更新、发布、下线和恢复都会生成版本号递增的快照；恢复操作保留当前内容 ID，并通过新版本记录恢复事实。当前版本接口提供完整快照，不承诺行级 diff。
+草稿创建、草稿更新、发布、下线和恢复都会生成版本号递增的快照；恢复操作保留当前内容 ID，并通过新版本记录恢复事实。015 迁移会为升级前已经存在且尚无修订的内容补齐 version 1 基线，不覆盖已有历史。当前版本接口提供完整快照，不承诺行级 diff。
 
 #### 媒体资源
 
@@ -754,7 +756,7 @@ Operation ID：`executeRestrictedServerCommand`
 - **配置状态**：`GET /api/v1/admin/notifications/email/status` 只返回驱动、发件人和安全模式，不返回连接与认证凭据。
 - **邀请模板**：`GET/PATCH /api/v1/admin/notifications/invitation-template` 读取或更新当前组织模板；允许变量只有 `{{organization}}`、`{{role}}`、`{{invite_url}}`、`{{expires_at}}`，主题最长 255、正文最长 4000 字符，留空恢复默认模板。
 - **审批通知**：审批成功/拒绝在审批事务内写入唯一 `notification_outboxes` 事件；`GET /api/v1/admin/notifications/outbox` 查看队列，`POST /api/v1/admin/notifications/outbox/{notification_id}/retry` 重新排队失败或禁用通知。通知 worker 失败不会回滚审批决定，最多 5 次自动尝试并使用退避。
-- **安全约束**：SMTP 授权码严格保存在后端受控环境变量中，绝不可暴露或持久化到前端静态代码或 UI 中。完整配置、模型和错误语义见 [邀请邮件适配器规范](email-adapter.md)。
+- **安全约束**：SMTP 授权码严格保存在后端受控环境变量中，绝不可暴露或持久化到前端静态代码或 UI 中。完整配置、模板、审批通知 Outbox 和错误语义见 [邮件与通知适配器规范](email-adapter.md)。
 
 #### 2. Minecraft RCON 隔离与审计规范
 - **当前状态**：真实 RCON 暂时搁置，默认使用明确标记的 Mock Adapter。
@@ -801,7 +803,7 @@ Manifest 必须符合 `qutc.portal/v1`，入口与自定义主题 Token 必须�
 
 ### 7.10 审计查询
 
-`GET /api/v1/admin/audit-events`
+`GET /api/v1/admin/audit`
 Operation ID：`listAdminAuditEvents`
 
 需要 `audit:read` 权限。服务端始终把查询绑定到当前会话的 `organization_id`，接口不接受组织参数。支持通用分页和 `action`、`target_type`、`result`、`actor_user_id`、`request_id` 精确筛选；`date_from`、`date_to` 使用 `YYYY-MM-DD` UTC 自然日并包含边界日期。
@@ -855,7 +857,8 @@ Operation ID：`listAdminAuditEvents`
 | `/admin/users` | 成员与权限 | `GET/PATCH /admin/users`、单个/批量邀请、邀请列表/撤销及邮件失败重试。 |
 | `/admin/projects` | 项目管理 | 项目、项目成员和里程碑管理接口。 |
 | `/admin/reviews` | 申请审核与可选服务器适配 | 所有组织可处理成员申请；仅 QUTCraft 场景展示服务器状态、同步记录与受限命令。 |
-| `/admin/audit` | 审计记录 | `GET /admin/audit-events`，按组织、权限和筛选条件查询。 |
+| `/admin/activity-planner` | AI 活动策划 | 结构化活动需求、知识引用、历史方案、五维评分和人工批准。 |
+| `/admin/audit` | 审计记录 | `GET /admin/audit`，按组织、权限和筛选条件查询。 |
 | `/admin/ai` | 智能体配置 | 读取脱敏供应商状态；组织所有者保存启停、配额、超时和上下文策略。 |
 | `/admin/settings` | 门户与通知设置 | 门户 Manifest、邮件适配器状态、邀请模板和审批通知队列；不接收 SMTP 密码。 |
 

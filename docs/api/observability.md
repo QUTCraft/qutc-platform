@@ -61,7 +61,7 @@ API 将每次请求输出为单行 JSON。固定字段如下：
 
 ## 4. 审计查询
 
-`GET /api/v1/admin/audit-events` 需要 Bearer JWT 与 `audit:read`。服务端从当前认证主体取得 `organization_id` 并强制加入数据库条件；请求不接受组织参数，不能查询其他组织。
+`GET /api/v1/admin/audit` 需要 Bearer JWT 与 `audit:read`。服务端从当前认证主体取得 `organization_id` 并强制加入数据库条件；请求不接受组织参数，不能查询其他组织。
 
 支持分页与下列精确筛选：
 
