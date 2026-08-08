@@ -407,6 +407,49 @@ h1, h2, h3, h4, h5, h6, p {
   font-weight: 700 !important;
 }
 
+/* Element Plus masks and skeletons should stay inside the active surface
+   palette instead of flashing a default white layer over the page. */
+.el-loading-mask {
+  background-color: color-mix(in srgb, var(--md-sys-color-surface-container-low) 86%, transparent) !important;
+  backdrop-filter: blur(2px);
+}
+
+.el-loading-mask.is-fullscreen {
+  background-color: color-mix(in srgb, var(--md-sys-color-surface-container-low) 78%, transparent) !important;
+}
+
+.el-loading-spinner .path {
+  stroke: var(--md-sys-color-primary) !important;
+}
+
+.el-loading-spinner .el-loading-text {
+  color: var(--md-sys-color-on-surface-variant) !important;
+  font-weight: 700;
+}
+
+.loading-state {
+  display: flex;
+  min-height: 320px;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: color-mix(in srgb, var(--md-sys-color-surface-container) 72%, transparent);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-xl);
+}
+
+.loading-state .el-skeleton {
+  width: min(100%, 720px);
+}
+
+.loading-state .el-skeleton__item {
+  background: color-mix(in srgb, var(--md-sys-color-primary-container) 42%, var(--md-sys-color-surface-container-high)) !important;
+}
+
+.loading-state .el-skeleton.is-animated .el-skeleton__item::after {
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent), transparent) !important;
+}
+
 /* Application Layout Components */
 
 /* Auth Login Workspace */
@@ -787,7 +830,7 @@ h1, h2, h3, h4, h5, h6, p {
 .page-leave-active,
 .admin-page-enter-active,
 .admin-page-leave-active {
-  transition: opacity 180ms ease, transform 180ms ease;
+  transition: opacity 160ms ease, transform 160ms ease;
 }
 
 .page-enter-from,
@@ -803,11 +846,70 @@ h1, h2, h3, h4, h5, h6, p {
 }
 
 .route-transition-shell {
+  position: relative;
   min-height: 100%;
 }
 
 .admin-route-view {
   min-height: calc(100vh - 72px);
+}
+
+.page-shell,
+.auth-shell,
+.admin-content {
+  position: relative;
+}
+
+/* Keep the outgoing page over the incoming page during in-out transitions.
+   This prevents a temporary white gap while a lazy route chunk is resolving. */
+.page-leave-active,
+.admin-page-leave-active {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  pointer-events: none;
+}
+
+.route-loading-state {
+  display: flex;
+  min-height: clamp(280px, 46vh, 560px);
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+  background: transparent;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.admin-route-view .route-loading-state {
+  min-height: calc(100vh - 72px);
+}
+
+.route-loading-mark {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--md-sys-color-outline-variant);
+  border-top-color: var(--md-sys-color-primary);
+  border-radius: 50%;
+  animation: route-loading-spin 700ms linear infinite;
+}
+
+@keyframes route-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter-active,
+  .page-leave-active,
+  .admin-page-enter-active,
+  .admin-page-leave-active {
+    transition-duration: 1ms;
+  }
+
+  .route-loading-mark {
+    animation: none;
+  }
 }
 
 /* Portal Hero & Features Section */
