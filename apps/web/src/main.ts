@@ -16,5 +16,8 @@ window.addEventListener('qutc:session-expired', () => {
 })
 
 void bootstrapPortalRuntime().finally(() => {
-  createApp(App).use(router).use(ElementPlus).mount('#app')
+  const app = createApp(App).use(router).use(ElementPlus)
+  // Wait for the initial async route and its metadata before rendering. This
+  // prevents a login/admin refresh from briefly showing the public layout.
+  void router.isReady().then(() => app.mount('#app'))
 })

@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { ArrowRight, Files, Notebook, Reading, Tools, VideoCamera } from '@element-plus/icons-vue'
 import AsyncState from '@/components/AsyncState.vue'
 import ContentCard from '@/components/ContentCard.vue'
 import SectionHeading from '@/components/SectionHeading.vue'
 import { portalApi } from '@/api/portal'
 import { useAsyncData } from '@/composables/useAsyncData'
-import { usePageTransition } from '@/composables/usePageTransition'
 import { formatDate } from '@/utils/format'
 
-const { navigateToApply } = usePageTransition()
+const router = useRouter()
 
 const { data, error, loading, refresh } = useAsyncData(async () => {
   const [organization, posts, projects, resources, knowledge, serverStatus] = await Promise.all([
@@ -65,7 +65,7 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
               size="large"
               round
               class="hero-apply-btn"
-              @click="(e: MouseEvent) => navigateToApply(e)"
+              @click="router.push({ name: 'apply' })"
             >
               申请加入服务器 <el-icon class="el-icon--right"><ArrowRight /></el-icon>
             </el-button>
@@ -149,7 +149,7 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
             class="status-button"
             type="primary"
             round
-            @click="(e: MouseEvent) => navigateToApply(e)"
+            @click="router.push({ name: 'apply' })"
           >
             立即提交白名单申请 →
           </el-button>
@@ -237,7 +237,7 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
       </section>
 
       <!-- Latest News Showcase Section -->
-      <section class="portal-section">
+      <section v-if="data.posts.length" class="portal-section">
         <SectionHeading
           eyebrow="LATEST ANNOUNCEMENTS"
           title="最新动态与公告"
@@ -268,7 +268,7 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
       </section>
 
       <!-- Open Projects Showcase Section -->
-      <section class="portal-section">
+      <section v-if="data.projects.length" class="portal-section">
         <SectionHeading
           eyebrow="CREATIVE LABS & PROJECTS"
           title="正在发生的项目"
@@ -290,8 +290,12 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
       </section>
 
       <!-- Resources & Knowledge Split Section -->
-      <section class="split-section">
-        <div class="surface-panel">
+      <section
+        v-if="data.resources.length || data.knowledge.length"
+        class="split-section"
+        :class="{ 'is-single': !data.resources.length || !data.knowledge.length }"
+      >
+        <div v-if="data.resources.length" class="surface-panel">
           <SectionHeading eyebrow="RESOURCES" title="共享资源" action-label="资源中心" action-to="/resources" />
           <div class="compact-list">
             <RouterLink v-for="resource in data.resources" :key="resource.id" to="/resources" class="compact-item">
@@ -306,7 +310,7 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
           </div>
         </div>
 
-        <div class="surface-panel">
+        <div v-if="data.knowledge.length" class="surface-panel">
           <SectionHeading eyebrow="KNOWLEDGE" title="公共知识库" action-label="进入知识库" action-to="/knowledge" />
           <div class="compact-list">
             <RouterLink v-for="article in data.knowledge" :key="article.id" to="/knowledge" class="compact-item">

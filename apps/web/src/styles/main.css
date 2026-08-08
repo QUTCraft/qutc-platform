@@ -415,7 +415,13 @@ h1, h2, h3, h4, h5, h6, p {
 }
 
 .el-loading-mask.is-fullscreen {
-  background-color: color-mix(in srgb, var(--md-sys-color-surface-container-low) 78%, transparent) !important;
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 3000 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  background-color: rgba(3, 20, 19, 0.48) !important;
+  backdrop-filter: blur(3px);
 }
 
 .el-loading-spinner .path {
@@ -425,6 +431,14 @@ h1, h2, h3, h4, h5, h6, p {
 .el-loading-spinner .el-loading-text {
   color: var(--md-sys-color-on-surface-variant) !important;
   font-weight: 700;
+}
+
+.el-loading-mask.is-fullscreen .el-loading-spinner .path {
+  stroke: var(--md-sys-color-primary-container) !important;
+}
+
+.el-loading-mask.is-fullscreen .el-loading-spinner .el-loading-text {
+  color: #ffffff !important;
 }
 
 .loading-state {
@@ -824,92 +838,6 @@ h1, h2, h3, h4, h5, h6, p {
   width: min(100% - 40px, 1260px);
   margin: 0 auto;
   padding: 48px 0 80px;
-}
-
-.page-enter-active,
-.page-leave-active,
-.admin-page-enter-active,
-.admin-page-leave-active {
-  transition: opacity 160ms ease, transform 160ms ease;
-}
-
-.page-enter-from,
-.admin-page-enter-from {
-  opacity: 0;
-  transform: translateY(8px);
-}
-
-.page-leave-to,
-.admin-page-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
-}
-
-.route-transition-shell {
-  position: relative;
-  min-height: 100%;
-}
-
-.admin-route-view {
-  min-height: calc(100vh - 72px);
-}
-
-.page-shell,
-.auth-shell,
-.admin-content {
-  position: relative;
-}
-
-/* Keep the outgoing page over the incoming page during in-out transitions.
-   This prevents a temporary white gap while a lazy route chunk is resolving. */
-.page-leave-active,
-.admin-page-leave-active {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  pointer-events: none;
-}
-
-.route-loading-state {
-  display: flex;
-  min-height: clamp(280px, 46vh, 560px);
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  color: var(--md-sys-color-on-surface-variant);
-  background: transparent;
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.admin-route-view .route-loading-state {
-  min-height: calc(100vh - 72px);
-}
-
-.route-loading-mark {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--md-sys-color-outline-variant);
-  border-top-color: var(--md-sys-color-primary);
-  border-radius: 50%;
-  animation: route-loading-spin 700ms linear infinite;
-}
-
-@keyframes route-loading-spin {
-  to { transform: rotate(360deg); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .page-enter-active,
-  .page-leave-active,
-  .admin-page-enter-active,
-  .admin-page-leave-active {
-    transition-duration: 1ms;
-  }
-
-  .route-loading-mark {
-    animation: none;
-  }
 }
 
 /* Portal Hero & Features Section */
@@ -1560,6 +1488,10 @@ h1, h2, h3, h4, h5, h6, p {
   margin-top: 72px;
 }
 
+.split-section.is-single {
+  grid-template-columns: 1fr;
+}
+
 .surface-panel {
   padding: 28px;
   background: var(--md-sys-color-surface-container);
@@ -1943,13 +1875,13 @@ h1, h2, h3, h4, h5, h6, p {
   position: fixed;
   z-index: 30;
   inset: 0 auto 0 0;
-  width: 236px;
+  width: 216px;
   top: 0;
   display: flex;
   flex-direction: column;
   height: 100dvh;
   overflow: hidden;
-  padding: 24px 16px;
+  padding: 18px 12px;
   background: var(--md-sys-color-surface-container);
   border-right: 1px solid var(--md-sys-color-outline-variant);
 }
@@ -1958,7 +1890,7 @@ h1, h2, h3, h4, h5, h6, p {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 6px 10px 28px;
+  padding: 4px 8px 18px;
 }
 
 .brand-badge {
@@ -1991,19 +1923,18 @@ h1, h2, h3, h4, h5, h6, p {
 .admin-nav {
   display: grid;
   flex: 1 1 auto;
-  gap: 6px;
+  gap: 2px;
   min-height: 0;
   overflow-y: auto;
-  padding: 2px 2px 12px;
-  scrollbar-gutter: stable;
+  padding: 2px 0 8px;
 }
 
 .rail-link {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 48px;
-  padding: 0 14px;
+  min-height: 40px;
+  padding: 0 12px;
   color: var(--md-sys-color-on-surface-variant);
   border-radius: var(--md-shape-full);
   font-size: 13px;
@@ -2012,7 +1943,7 @@ h1, h2, h3, h4, h5, h6, p {
 }
 
 .rail-link .el-icon {
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .rail-link:hover, .rail-link.router-link-exact-active, .rail-link.is-active {
@@ -2023,9 +1954,9 @@ h1, h2, h3, h4, h5, h6, p {
 .rail-footer {
   display: grid;
   flex: 0 0 auto;
-  gap: 16px;
+  gap: 8px;
   margin-top: 0;
-  padding-top: 16px;
+  padding-top: 10px;
   border-top: 1px solid var(--md-sys-color-outline-variant);
 }
 
@@ -2033,7 +1964,7 @@ h1, h2, h3, h4, h5, h6, p {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
+  padding: 8px 10px;
   color: var(--md-sys-color-on-surface-variant);
   font-size: 13px;
   font-weight: 700;
@@ -2050,7 +1981,7 @@ h1, h2, h3, h4, h5, h6, p {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
+  padding: 8px 10px;
   background: var(--md-sys-color-surface-container-high);
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--md-shape-lg);
@@ -2065,9 +1996,9 @@ h1, h2, h3, h4, h5, h6, p {
 
 .avatar-bubble {
   display: grid;
-  flex: 0 0 36px;
-  width: 36px;
-  height: 36px;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
   place-items: center;
   color: var(--md-sys-color-on-primary);
   background: var(--md-sys-color-primary);
@@ -2116,7 +2047,7 @@ h1, h2, h3, h4, h5, h6, p {
 .admin-workspace {
   min-width: 0;
   min-height: 100vh;
-  margin-left: 236px;
+  margin-left: 216px;
 }
 
 .admin-topbar {

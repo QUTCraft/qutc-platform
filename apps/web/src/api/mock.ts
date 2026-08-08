@@ -500,12 +500,12 @@ export async function mockGet<T>(path: string): Promise<T> {
   }
   const organizationMatch = requestUrl.pathname.match(/\/organizations\/([^/]+)$/)
   if (organizationMatch) return structuredClone(organizationMatch[1] === campusOrganization.slug ? campusOrganization : organization) as T
-  if (path.endsWith('/posts')) return page(posts) as T
-  if (path.endsWith('/projects')) return page(projects) as T
-  if (path.endsWith('/resources')) return page(resources) as T
-  if (path.endsWith('/knowledge/articles')) return page(knowledge) as T
-  if (path.endsWith('/knowledge/directories')) return page(knowledgeDirectories) as T
-  if (path.endsWith('/server-status')) return serverStatus as T
+  if (requestUrl.pathname.endsWith('/posts')) return page(posts) as T
+  if (requestUrl.pathname.endsWith('/projects')) return page(projects) as T
+  if (requestUrl.pathname.endsWith('/resources')) return page(resources) as T
+  if (requestUrl.pathname.endsWith('/knowledge/articles')) return page(knowledge) as T
+  if (requestUrl.pathname.endsWith('/knowledge/directories')) return page(knowledgeDirectories) as T
+  if (requestUrl.pathname.endsWith('/server-status')) return serverStatus as T
   throw new Error(`Mock endpoint not implemented: ${path}`)
 }
 

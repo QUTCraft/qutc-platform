@@ -6,13 +6,41 @@ async function clickAdminNavigation(page: Page, label: string) {
   await page.getByRole('link', { name: label, exact: true }).click()
 }
 
+async function clickPublicNavigation(page: Page, label: string) {
+  const desktopLink = page.locator('.desktop-nav').getByRole('link', { name: label, exact: true })
+  if (await desktopLink.isVisible()) {
+    await desktopLink.click()
+    return
+  }
+  await page.getByRole('button', { name: '打开导航' }).click()
+  await page.locator('.mobile-nav').getByRole('link', { name: label, exact: true }).click()
+}
+
 test('public portal routes remain navigable', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { level: 1 })).toContainText('社团')
-  for (const path of ['/posts', '/projects', '/resources', '/knowledge', '/apply']) {
-    await page.goto(path)
+  for (const [label, path, heading] of [
+    ['动态', '/posts', '社团动态'],
+    ['项目', '/projects', '正在发生的项目'],
+    ['资源', '/resources', '共享资源'],
+    ['知识库', '/knowledge', '公共知识库'],
+  ] as const) {
+    await clickPublicNavigation(page, label)
+    await expect(page).toHaveURL(new RegExp(`${path}$`))
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
+    await expect(page.locator('body')).not.toContainText(/正在打开(?:管理)?页面/)
     await expect(page.locator('body')).not.toContainText('页面不存在')
   }
+
+  const joinButton = page.getByRole('button', { name: '加入我们' })
+  if (await joinButton.isVisible()) {
+    await joinButton.click()
+  } else {
+    await clickPublicNavigation(page, '首页')
+    await page.getByRole('button', { name: /申请加入服务器/ }).first().click()
+  }
+  await expect(page).toHaveURL(/\/apply$/)
+  await expect(page.locator('body')).not.toContainText(/正在打开(?:管理)?页面/)
 })
 
 test('owner can open dashboard and organization settings', async ({ page }) => {
@@ -20,6 +48,12 @@ test('owner can open dashboard and organization settings', async ({ page }) => {
   await page.getByRole('button', { name: /登录工作台/ }).click()
   await expect(page).toHaveURL(/\/admin$/)
   await expect(page.getByRole('heading', { name: '工作台概览' })).toBeVisible()
+
+  if ((page.viewportSize()?.width ?? 0) > 900) {
+    const rail = page.locator('.admin-rail')
+    await expect.poll(async () => (await rail.boundingBox())?.width ?? 0).toBeLessThanOrEqual(216)
+    await expect.poll(() => page.locator('.admin-nav').evaluate((element) => element.scrollHeight <= element.clientHeight + 1)).toBe(true)
+  }
 
   await clickAdminNavigation(page, '内容管理')
   await expect(page).toHaveURL(/\/admin\/content$/)

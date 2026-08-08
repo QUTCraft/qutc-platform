@@ -3,10 +3,8 @@ import { Menu, UserFilled } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { organizationSlug } from '@/api/portal'
-import { usePageTransition } from '@/composables/usePageTransition'
 import { usePortalIdentity } from '@/composables/usePortalIdentity'
 
-const { navigateToApply } = usePageTransition()
 const router = useRouter()
 const mobileOpen = ref(false)
 const { organization, loadPortalOrganization } = usePortalIdentity()
@@ -15,7 +13,7 @@ const organizationName = computed(() => organization.value?.name ?? (organizatio
 const organizationSubtitle = computed(() => organization.value?.short_name ? `${organization.value.short_name} · 公共门户` : '公共门户')
 
 const goToLogin = () => router.push({ name: 'login' })
-const runPrimaryAction = (event: MouseEvent) => isQutcraftPortal ? navigateToApply(event) : router.push({ name: 'projects' })
+const runPrimaryAction = () => router.push({ name: isQutcraftPortal ? 'apply' : 'projects' })
 
 const links = [
   { to: '/', label: '首页' },
