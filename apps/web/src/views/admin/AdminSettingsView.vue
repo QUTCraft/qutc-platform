@@ -19,6 +19,7 @@ const organization = reactive<Pick<Organization, 'name' | 'short_name' | 'taglin
 })
 const organizationLoading = ref(false)
 const organizationSaving = ref(false)
+const initialLoading = ref(true)
 
 async function loadOrganization() {
   organizationLoading.value = true
@@ -249,12 +250,23 @@ async function retryNotification(item: NotificationOutbox) {
   }
 }
 
+async function loadInitialSettings() {
+  initialLoading.value = true
+  try {
+    await Promise.all([
+      loadOrganization(),
+      loadPortalConfiguration(),
+      loadEmailStatus(),
+      loadInvitationTemplate(),
+      loadNotifications(),
+    ])
+  } finally {
+    initialLoading.value = false
+  }
+}
+
 onMounted(() => {
-	void loadOrganization()
-  void loadPortalConfiguration()
-  void loadEmailStatus()
-	void loadInvitationTemplate()
-	void loadNotifications()
+  void loadInitialSettings()
 })
 </script>
 
@@ -266,7 +278,7 @@ onMounted(() => {
     </div>
   </section>
 
-  <section class="settings-layout">
+  <section v-loading.fullscreen.lock="initialLoading" class="settings-layout">
     <div class="settings-main-column">
 	  <article v-loading="organizationLoading" class="admin-panel">
 		<div class="panel-heading">

@@ -9,7 +9,7 @@
 
 当前实现包含两条受控闭环，不是聊天装饰，也不会绕过 CMS、项目权限或人工批准：
 
-1. 成员读取当前组织的运行策略与脱敏供应商状态；组织所有者可在 `/admin/ai` 保存策略。
+1. 成员读取当前组织的运行策略与脱敏供应商状态；组织所有者可在 `/admin/ai` 保存策略、OpenAI 兼容接口地址、模型名和 API Key。
 2. 管理员或编辑读取当前组织可用的 `content-copilot`。
 3. 使用 `knowledge:read` 在当前组织内检索知识内容。
 4. 显式选择策略允许数量的知识资料并创建异步运行。
@@ -89,6 +89,14 @@ Authorization: Bearer <access-token>
       "enabled": true,
       "configured": true
     },
+    "provider_config": {
+      "driver": "mock",
+      "base_url": "",
+      "model": "mock-content-v1",
+      "api_key_configured": true,
+      "api_key_hint": "••••••mock",
+      "source": "server"
+    },
     "updated_by": "owner-user-id",
     "updated_at": "2026-07-30T08:00:00Z"
   },
@@ -106,7 +114,11 @@ Authorization: Bearer <owner-access-token>
   "run_limit_per_hour": 20,
   "request_timeout_seconds": 30,
   "max_sources": 10,
-  "max_context_characters": 30000
+  "max_context_characters": 30000,
+  "provider": "openai_compatible",
+  "base_url": "https://api.example.com/v1",
+  "api_key": "sk-example",
+  "model": "example-model"
 }
 ```
 
@@ -119,8 +131,12 @@ Authorization: Bearer <owner-access-token>
 | `request_timeout_seconds` | 5—120 | 创建运行时固定到该次模型调用。 |
 | `max_sources` | 1—10 | 创建运行时限制显式引用数量。 |
 | `max_context_characters` | 1,000—100,000 | 服务端按字符截取发送给模型的知识正文总量。 |
+| `provider` | `disabled` / `openai_compatible` | 当前组织使用的驱动；生产环境不允许通过页面选择 Mock。 |
+| `base_url` | 有效 HTTP(S) 根地址 | 只填写供应商根地址，服务端追加 `/chat/completions`；生产环境必须 HTTPS。 |
+| `model` | 1—120 字符 | 供应商支持的模型标识。 |
+| `api_key` | 由供应商定义 | 新 Key 会在服务端加密保存；留空表示保留已保存 Key 或服务端环境变量。 |
 
-供应商驱动、模型标识、上游地址和 API Key 不是组织配置字段，只能由部署人员在 API 服务环境变量中设置。页面只显示 `provider` 脱敏状态，不能读取或修改密钥。
+组织配置优先于服务端默认环境变量。GET 响应会返回非敏感的 `provider_config.base_url`、模型名、来源和 `api_key_hint`，但永远不会返回 API Key 原文。服务端使用应用的 `JWT_ACCESS_SECRET` 派生加密密钥保存组织 Key；因此更换该应用密钥后，既有组织 Key 需要重新录入。
 
 ### 3.2 获取智能体目录
 
@@ -158,7 +174,7 @@ Authorization: Bearer <access-token>
 }
 ```
 
-`mode=mock` 是开发结果，不能在比赛演示中冒充真实模型；真实兼容模型返回 `provider=openai_compatible`、`mode=real`。响应永远不返回模型 API Key 或上游地址。
+`mode=mock` 是开发结果，不能在比赛演示中冒充真实模型；真实兼容模型返回 `provider=openai_compatible`、`mode=real`。响应永远不返回模型 API Key，但组织配置响应会返回经过校验的非敏感上游根地址。
 
 ### 3.3 检索授权知识
 
@@ -376,7 +392,7 @@ Content-Type: application/json
 
 兼容驱动使用 `POST {AI_BASE_URL}/chat/completions`，发送 `model`、`messages`、`temperature`，读取 `choices[0].message.content` 与标准 `usage` 字段。
 
-组织策略保存在 `agent_configurations`，只保存启停和资源限制，不保存供应商地址、模型 API Key 或其他部署凭据。每次创建运行都会重新读取组织策略，因此保存后无需重启 API。
+组织策略和组织级 Provider 配置保存在 `agent_configurations`。API Key 以 AES-GCM 密文保存，日志、审计和响应均不包含原文。每次创建运行都会重新读取组织策略和 Provider 配置，因此保存后无需重启 API；留空 API Key 不会覆盖已有密钥。
 
 ## 5. 错误码
 
@@ -400,7 +416,7 @@ Content-Type: application/json
 
 | action | result | 时机 |
 | --- | --- | --- |
-| `ai.config_update` | `success` | 组织所有者保存运行策略。 |
+| `ai.config_update` | `success` | 组织所有者保存运行策略或 Provider 配置。 |
 | `ai.run_create` | `accepted` | 运行和引用快照已在事务内创建。 |
 | `ai.run_create` | `failed` / `quota_exceeded` | 模型关闭或小时配额拒绝。 |
 | `ai.run_result` | `succeeded` / `failed` | 异步运行进入终态。 |

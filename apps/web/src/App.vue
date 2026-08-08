@@ -22,15 +22,37 @@ const portalFallback = readPortalFallback()
 
 <template>
   <el-config-provider :locale="zhCn">
-    <AdminLayout v-if="isAdmin"><RouterView /></AdminLayout>
-    <main v-else-if="isAuth" class="auth-shell"><RouterView /></main>
-    <RouterView v-else-if="isFull" />
+    <AdminLayout v-if="isAdmin">
+      <RouterView v-slot="{ Component, route: viewRoute }">
+        <Transition name="admin-page" mode="out-in">
+          <component :is="Component" :key="viewRoute.fullPath" />
+        </Transition>
+      </RouterView>
+    </AdminLayout>
+    <main v-else-if="isAuth" class="auth-shell">
+      <RouterView v-slot="{ Component, route: viewRoute }">
+        <Transition name="page" mode="out-in">
+          <component :is="Component" :key="viewRoute.fullPath" />
+        </Transition>
+      </RouterView>
+    </main>
+    <RouterView v-else-if="isFull" v-slot="{ Component, route: viewRoute }">
+      <Transition name="page" mode="out-in">
+        <component :is="Component" :key="viewRoute.fullPath" />
+      </Transition>
+    </RouterView>
     <template v-else>
       <div v-if="portalFallback" class="portal-fallback-notice" role="status">
         自定义门户暂时不可用，已安全切换至默认 MD3 门户。
       </div>
       <AppHeader />
-      <main class="page-shell"><RouterView /></main>
+      <main class="page-shell">
+        <RouterView v-slot="{ Component, route: viewRoute }">
+          <Transition name="page" mode="out-in">
+            <component :is="Component" :key="viewRoute.fullPath" />
+          </Transition>
+        </RouterView>
+      </main>
       <AppFooter />
     </template>
   </el-config-provider>

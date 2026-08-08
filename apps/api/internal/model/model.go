@@ -300,6 +300,10 @@ type AgentDefinition struct {
 type AgentConfiguration struct {
 	ID                    string `gorm:"primaryKey;type:char(36)"`
 	OrganizationID        string `gorm:"uniqueIndex;type:char(36);not null"`
+	Provider              string `gorm:"size:32;not null;default:''"`
+	ProviderBaseURL       string `gorm:"column:provider_base_url;size:500;not null;default:''"`
+	ProviderAPIKey        string `gorm:"column:provider_api_key_encrypted;type:text;not null"`
+	ProviderModel         string `gorm:"column:provider_model;size:120;not null;default:''"`
 	Enabled               bool   `gorm:"index;not null"`
 	RunLimitPerHour       int    `gorm:"not null;default:20"`
 	RequestTimeoutSeconds int    `gorm:"not null;default:30"`

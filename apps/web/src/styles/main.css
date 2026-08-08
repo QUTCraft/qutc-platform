@@ -777,9 +777,34 @@ h1, h2, h3, h4, h5, h6, p {
 
 /* Page Shell */
 .page-shell {
+  position: relative;
   width: min(100% - 40px, 1260px);
   margin: 0 auto;
   padding: 48px 0 80px;
+}
+
+.page-enter-active,
+.page-leave-active,
+.admin-page-enter-active,
+.admin-page-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.page-enter-from,
+.admin-page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-leave-to,
+.admin-page-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.admin-page-enter-active,
+.admin-page-leave-active {
+  min-height: calc(100vh - 72px);
 }
 
 /* Portal Hero & Features Section */
@@ -1380,12 +1405,14 @@ h1, h2, h3, h4, h5, h6, p {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
+  align-items: start;
 }
 
 .content-card {
   display: flex;
   flex-direction: column;
-  min-height: 260px;
+  min-height: 0;
+  height: fit-content;
   padding: 26px;
   background: var(--md-sys-color-surface-container);
   border: 1px solid var(--md-sys-color-outline-variant);
@@ -1406,7 +1433,8 @@ h1, h2, h3, h4, h5, h6, p {
 }
 
 .content-card p {
-  flex: 1;
+  flex: 0 1 auto;
+  min-height: 0;
   margin-bottom: 20px;
   color: var(--md-sys-color-on-surface-variant);
   font-size: 14px;
@@ -1810,7 +1838,7 @@ h1, h2, h3, h4, h5, h6, p {
   position: fixed;
   z-index: 30;
   inset: 0 auto 0 0;
-  width: 270px;
+  width: 236px;
   top: 0;
   display: flex;
   flex-direction: column;
@@ -1868,12 +1896,12 @@ h1, h2, h3, h4, h5, h6, p {
 .rail-link {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   min-height: 48px;
-  padding: 0 18px;
+  padding: 0 14px;
   color: var(--md-sys-color-on-surface-variant);
   border-radius: var(--md-shape-full);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   transition: all 180ms ease;
 }
@@ -1983,7 +2011,7 @@ h1, h2, h3, h4, h5, h6, p {
 .admin-workspace {
   min-width: 0;
   min-height: 100vh;
-  margin-left: 270px;
+  margin-left: 236px;
 }
 
 .admin-topbar {

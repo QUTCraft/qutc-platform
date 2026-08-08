@@ -63,18 +63,32 @@ type AgentConfigurationInput struct {
 	RequestTimeoutSeconds int
 	MaxSources            int
 	MaxContextCharacters  int
+	Provider              string
+	BaseURL               string
+	APIKey                string
+	Model                 string
+}
+
+type AgentProviderConfigurationView struct {
+	Driver           string `json:"driver"`
+	BaseURL          string `json:"base_url"`
+	Model            string `json:"model"`
+	APIKeyConfigured bool   `json:"api_key_configured"`
+	APIKeyHint       string `json:"api_key_hint,omitempty"`
+	Source           string `json:"source"`
 }
 
 type AgentConfigurationView struct {
-	ID                    string               `json:"id,omitempty"`
-	Enabled               bool                 `json:"enabled"`
-	RunLimitPerHour       int                  `json:"run_limit_per_hour"`
-	RequestTimeoutSeconds int                  `json:"request_timeout_seconds"`
-	MaxSources            int                  `json:"max_sources"`
-	MaxContextCharacters  int                  `json:"max_context_characters"`
-	Provider              modelprovider.Status `json:"provider"`
-	UpdatedBy             string               `json:"updated_by,omitempty"`
-	UpdatedAt             *time.Time           `json:"updated_at,omitempty"`
+	ID                    string                         `json:"id,omitempty"`
+	Enabled               bool                           `json:"enabled"`
+	RunLimitPerHour       int                            `json:"run_limit_per_hour"`
+	RequestTimeoutSeconds int                            `json:"request_timeout_seconds"`
+	MaxSources            int                            `json:"max_sources"`
+	MaxContextCharacters  int                            `json:"max_context_characters"`
+	Provider              modelprovider.Status           `json:"provider"`
+	ProviderConfig        AgentProviderConfigurationView `json:"provider_config"`
+	UpdatedBy             string                         `json:"updated_by,omitempty"`
+	UpdatedAt             *time.Time                     `json:"updated_at,omitempty"`
 }
 
 type AgentKnowledgeResult struct {
@@ -131,18 +145,26 @@ type agentExecution struct {
 	task           string
 	sources        []modelprovider.Source
 	timeout        time.Duration
+	provider       modelprovider.Provider
 }
 
 type AgentService struct {
-	db         *gorm.DB
-	provider   modelprovider.Provider
-	runLimit   int
-	timeout    time.Duration
-	cancelMu   sync.Mutex
-	cancelRuns map[string]context.CancelFunc
+	db             *gorm.DB
+	provider       modelprovider.Provider
+	providerConfig modelprovider.Config
+	credentialKey  []byte
+	production     bool
+	runLimit       int
+	timeout        time.Duration
+	cancelMu       sync.Mutex
+	cancelRuns     map[string]context.CancelFunc
 }
 
 func NewAgentService(db *gorm.DB, provider modelprovider.Provider, runLimit int, timeout time.Duration) *AgentService {
+	return NewAgentServiceWithProviderConfig(db, provider, modelprovider.Config{}, "development-only-agent-credential-key", false, runLimit, timeout)
+}
+
+func NewAgentServiceWithProviderConfig(db *gorm.DB, provider modelprovider.Provider, providerConfig modelprovider.Config, credentialSecret string, production bool, runLimit int, timeout time.Duration) *AgentService {
 	if runLimit <= 0 {
 		runLimit = 20
 	}
@@ -150,7 +172,9 @@ func NewAgentService(db *gorm.DB, provider modelprovider.Provider, runLimit int,
 		timeout = 30 * time.Second
 	}
 	return &AgentService{
-		db: db, provider: provider, runLimit: runLimit, timeout: timeout,
+		db: db, provider: provider, providerConfig: providerConfig,
+		credentialKey: deriveAgentCredentialKey(credentialSecret), production: production,
+		runLimit: runLimit, timeout: timeout,
 		cancelRuns: make(map[string]context.CancelFunc),
 	}
 }
@@ -273,22 +297,39 @@ func (s *AgentService) executionForRun(run model.AgentRun) (agentExecution, erro
 	if configuration, err := s.Configuration(run.OrganizationID); err == nil && configuration.RequestTimeoutSeconds > 0 {
 		timeout = time.Duration(configuration.RequestTimeoutSeconds) * time.Second
 	}
-	return agentExecution{runID: run.ID, organizationID: run.OrganizationID, actorUserID: run.ActorUserID, requestID: run.RequestID, agentKey: definition.Key, promptVersion: definition.SystemPolicyVersion, task: run.Task, sources: sources, timeout: timeout}, nil
+	provider, status, _, err := s.providerForOrganization(run.OrganizationID)
+	if err != nil || provider == nil || !status.Enabled || !status.Configured {
+		return agentExecution{}, ErrAgentProviderDisabled
+	}
+	return agentExecution{runID: run.ID, organizationID: run.OrganizationID, actorUserID: run.ActorUserID, requestID: run.RequestID, agentKey: definition.Key, promptVersion: definition.SystemPolicyVersion, task: run.Task, sources: sources, timeout: timeout, provider: provider}, nil
 }
 
 func (s *AgentService) ProviderStatus() modelprovider.Status {
-	return s.provider.Status()
+	return s.ProviderStatusForOrganization("")
+}
+
+func (s *AgentService) ProviderStatusForOrganization(organizationID string) modelprovider.Status {
+	_, status, _, err := s.providerForOrganization(organizationID)
+	if err == nil {
+		return status
+	}
+	return s.defaultProviderStatus()
 }
 
 func (s *AgentService) Configuration(organizationID string) (AgentConfigurationView, error) {
 	var configuration model.AgentConfiguration
 	err := s.db.Where("organization_id = ?", organizationID).First(&configuration).Error
+	provider, status, providerConfig, providerErr := s.providerForOrganization(organizationID)
+	_ = provider
+	if providerErr != nil {
+		return AgentConfigurationView{}, providerErr
+	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return AgentConfigurationView{
 			Enabled: true, RunLimitPerHour: s.runLimit,
 			RequestTimeoutSeconds: int(s.timeout / time.Second),
 			MaxSources:            10, MaxContextCharacters: 30000,
-			Provider: s.provider.Status(),
+			Provider: status, ProviderConfig: providerConfig,
 		}, nil
 	}
 	if err != nil {
@@ -305,7 +346,7 @@ func (s *AgentService) Configuration(organizationID string) (AgentConfigurationV
 	return AgentConfigurationView{
 		ID: configuration.ID, Enabled: configuration.Enabled, RunLimitPerHour: configuration.RunLimitPerHour,
 		RequestTimeoutSeconds: configuration.RequestTimeoutSeconds, MaxSources: configuration.MaxSources,
-		MaxContextCharacters: configuration.MaxContextCharacters, Provider: s.provider.Status(),
+		MaxContextCharacters: configuration.MaxContextCharacters, Provider: status, ProviderConfig: providerConfig,
 		UpdatedBy: configuration.UpdatedBy, UpdatedAt: &updatedAt,
 	}, nil
 }
@@ -318,28 +359,48 @@ func (s *AgentService) UpdateConfiguration(principal Principal, input AgentConfi
 	var configuration model.AgentConfiguration
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		err := tx.Where("organization_id = ?", principal.OrganizationID).First(&configuration).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		isNew := errors.Is(err, gorm.ErrRecordNotFound)
+		if err != nil && !isNew {
+			return err
+		}
+
+		driver, baseURL, modelName, apiKey, err := s.resolveConfigurationInput(configuration, isNew, input)
+		if err != nil || !validAgentProviderConfiguration(driver, baseURL, apiKey, modelName, s.production) {
+			return ErrAgentConfigValidation
+		}
+		encryptedAPIKey := configuration.ProviderAPIKey
+		if strings.TrimSpace(input.APIKey) != "" {
+			encryptedAPIKey, err = encryptAgentCredential(s.credentialKey, apiKey)
+			if err != nil {
+				return err
+			}
+		}
+		if isNew {
 			configuration = model.AgentConfiguration{
 				ID: uuid.NewString(), OrganizationID: principal.OrganizationID,
 				Enabled: input.Enabled, RunLimitPerHour: input.RunLimitPerHour,
 				RequestTimeoutSeconds: input.RequestTimeoutSeconds, MaxSources: input.MaxSources,
 				MaxContextCharacters: input.MaxContextCharacters, UpdatedBy: principal.UserID,
+				Provider: driver, ProviderBaseURL: baseURL, ProviderAPIKey: encryptedAPIKey, ProviderModel: modelName,
 				CreatedAt: now, UpdatedAt: now,
 			}
 			if err := tx.Create(&configuration).Error; err != nil {
 				return err
 			}
-		} else if err != nil {
-			return err
 		} else {
+			updates := map[string]any{
+				"enabled": input.Enabled, "run_limit_per_hour": input.RunLimitPerHour,
+				"request_timeout_seconds": input.RequestTimeoutSeconds, "max_sources": input.MaxSources,
+				"max_context_characters": input.MaxContextCharacters, "updated_by": principal.UserID,
+				"provider": driver, "provider_base_url": baseURL, "provider_model": modelName,
+				"updated_at": now,
+			}
+			if strings.TrimSpace(input.APIKey) != "" {
+				updates["provider_api_key_encrypted"] = encryptedAPIKey
+			}
 			if err := tx.Model(&model.AgentConfiguration{}).
 				Where("id = ? AND organization_id = ?", configuration.ID, principal.OrganizationID).
-				Updates(map[string]any{
-					"enabled": input.Enabled, "run_limit_per_hour": input.RunLimitPerHour,
-					"request_timeout_seconds": input.RequestTimeoutSeconds, "max_sources": input.MaxSources,
-					"max_context_characters": input.MaxContextCharacters, "updated_by": principal.UserID,
-					"updated_at": now,
-				}).Error; err != nil {
+				Updates(updates).Error; err != nil {
 				return err
 			}
 		}
@@ -353,6 +414,123 @@ func (s *AgentService) UpdateConfiguration(principal Principal, input AgentConfi
 		return AgentConfigurationView{}, err
 	}
 	return s.Configuration(principal.OrganizationID)
+}
+
+func (s *AgentService) defaultProviderStatus() modelprovider.Status {
+	if s.provider != nil {
+		return s.provider.Status()
+	}
+	return modelprovider.Status{Provider: "disabled", Mode: "disabled", Enabled: false, Configured: false}
+}
+
+func (s *AgentService) providerForOrganization(organizationID string) (modelprovider.Provider, modelprovider.Status, AgentProviderConfigurationView, error) {
+	defaultConfig := s.providerConfig
+	if strings.TrimSpace(defaultConfig.Driver) == "" {
+		status := s.defaultProviderStatus()
+		return s.provider, status, AgentProviderConfigurationView{
+			Driver: status.Provider, Model: status.Model, APIKeyConfigured: status.Configured, Source: "server",
+		}, nil
+	}
+
+	effective := defaultConfig
+	providerView := AgentProviderConfigurationView{Driver: effective.Driver, BaseURL: effective.BaseURL, Model: effective.Model, APIKeyConfigured: strings.TrimSpace(effective.APIKey) != "", Source: "server"}
+	var configuration model.AgentConfiguration
+	err := s.db.Where("organization_id = ?", organizationID).First(&configuration).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		providerView.APIKeyHint = agentCredentialHint(effective.APIKey)
+	} else if err != nil {
+		return nil, modelprovider.Status{}, AgentProviderConfigurationView{}, err
+	} else {
+		if strings.TrimSpace(configuration.Provider) != "" {
+			effective.Driver = strings.ToLower(strings.TrimSpace(configuration.Provider))
+			providerView.Source = "organization"
+		}
+		if configuration.ProviderBaseURL != "" {
+			effective.BaseURL = strings.TrimRight(strings.TrimSpace(configuration.ProviderBaseURL), "/")
+		}
+		if configuration.ProviderModel != "" {
+			effective.Model = strings.TrimSpace(configuration.ProviderModel)
+		}
+		if configuration.ProviderAPIKey != "" {
+			decrypted, decryptErr := decryptAgentCredential(s.credentialKey, configuration.ProviderAPIKey)
+			if decryptErr != nil {
+				providerView.APIKeyConfigured = false
+				providerView.APIKeyHint = "已保存但无法解密"
+				return nil, unavailableProviderStatus(effective.Driver, effective.Model), providerView, nil
+			}
+			effective.APIKey = decrypted
+		}
+		providerView.APIKeyConfigured = strings.TrimSpace(effective.APIKey) != ""
+		providerView.APIKeyHint = agentCredentialHint(effective.APIKey)
+	}
+	providerView.Driver = strings.ToLower(strings.TrimSpace(effective.Driver))
+	providerView.BaseURL = strings.TrimRight(strings.TrimSpace(effective.BaseURL), "/")
+	providerView.Model = strings.TrimSpace(effective.Model)
+	if !validAgentProviderConfiguration(providerView.Driver, providerView.BaseURL, effective.APIKey, providerView.Model, s.production) {
+		return nil, unavailableProviderStatus(providerView.Driver, providerView.Model), providerView, nil
+	}
+	provider, err := modelprovider.New(effective)
+	if err != nil {
+		return nil, unavailableProviderStatus(providerView.Driver, providerView.Model), providerView, nil
+	}
+	return provider, provider.Status(), providerView, nil
+}
+
+func unavailableProviderStatus(driver, modelName string) modelprovider.Status {
+	driver = strings.ToLower(strings.TrimSpace(driver))
+	mode := "real"
+	if driver == "disabled" || driver == "" {
+		driver = "disabled"
+		mode = "disabled"
+	} else if driver == "mock" {
+		mode = "mock"
+	}
+	return modelprovider.Status{Provider: driver, Mode: mode, Model: strings.TrimSpace(modelName), Enabled: false, Configured: false}
+}
+
+func (s *AgentService) resolveConfigurationInput(configuration model.AgentConfiguration, isNew bool, input AgentConfigurationInput) (string, string, string, string, error) {
+	defaultStatus := s.defaultProviderStatus()
+	driver := strings.ToLower(strings.TrimSpace(input.Provider))
+	baseURL := strings.TrimRight(strings.TrimSpace(input.BaseURL), "/")
+	modelName := strings.TrimSpace(input.Model)
+	apiKey := strings.TrimSpace(input.APIKey)
+	if driver == "" {
+		driver = strings.ToLower(strings.TrimSpace(s.providerConfig.Driver))
+		if driver == "" {
+			driver = defaultStatus.Provider
+		}
+	}
+	if baseURL == "" {
+		baseURL = strings.TrimRight(strings.TrimSpace(s.providerConfig.BaseURL), "/")
+	}
+	if modelName == "" {
+		modelName = strings.TrimSpace(s.providerConfig.Model)
+		if modelName == "" {
+			modelName = defaultStatus.Model
+		}
+	}
+	if !isNew {
+		if configuration.Provider != "" {
+			driver = strings.ToLower(strings.TrimSpace(configuration.Provider))
+		}
+		if configuration.ProviderBaseURL != "" && strings.TrimSpace(input.BaseURL) == "" {
+			baseURL = strings.TrimRight(strings.TrimSpace(configuration.ProviderBaseURL), "/")
+		}
+		if configuration.ProviderModel != "" && strings.TrimSpace(input.Model) == "" {
+			modelName = strings.TrimSpace(configuration.ProviderModel)
+		}
+		if apiKey == "" && configuration.ProviderAPIKey != "" {
+			var err error
+			apiKey, err = decryptAgentCredential(s.credentialKey, configuration.ProviderAPIKey)
+			if err != nil {
+				return "", "", "", "", err
+			}
+		}
+	}
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(s.providerConfig.APIKey)
+	}
+	return driver, baseURL, modelName, apiKey, nil
 }
 
 func (s *AgentService) ListAgents(organizationID string) ([]AgentDefinitionView, error) {
@@ -419,13 +597,16 @@ func (s *AgentService) CreateRun(principal Principal, input AgentRunCreateInput,
 	if err != nil {
 		return AgentRunView{}, err
 	}
+	_, status, _, err := s.providerForOrganization(principal.OrganizationID)
+	if err != nil {
+		return AgentRunView{}, err
+	}
 	if !configuration.Enabled {
 		return AgentRunView{}, ErrAgentFeatureDisabled
 	}
 	if len(input.ContextRefs) > configuration.MaxSources {
 		return AgentRunView{}, ErrAgentValidation
 	}
-	status := configuration.Provider
 	if !status.Enabled || !status.Configured {
 		s.audit(principal.OrganizationID, principal.UserID, "ai.run_create", "agent_run", "", "failed", requestID)
 		return AgentRunView{}, ErrAgentProviderDisabled
@@ -603,7 +784,22 @@ func (s *AgentService) execute(execution agentExecution) {
 		s.cancelMu.Unlock()
 	}()
 
-	generated, err := s.provider.Generate(ctx, modelprovider.GenerateRequest{
+	provider := execution.provider
+	if provider == nil {
+		provider = s.provider
+	}
+	if provider == nil {
+		completedAt := time.Now().UTC()
+		_ = s.db.Model(&model.AgentRun{}).
+			Where("id = ? AND organization_id = ? AND status = ?", execution.runID, execution.organizationID, AgentRunRunning).
+			Updates(map[string]any{
+				"status": AgentRunFailed, "failure_code": "ai.provider_disabled", "failure_message": "模型供应商未启用。",
+				"completed_at": completedAt,
+			})
+		s.audit(execution.organizationID, execution.actorUserID, "ai.run_result", "agent_run", execution.runID, "failed", execution.requestID)
+		return
+	}
+	generated, err := provider.Generate(ctx, modelprovider.GenerateRequest{
 		AgentKey: execution.agentKey, PromptVersion: execution.promptVersion,
 		Task: execution.task, Sources: execution.sources,
 	})

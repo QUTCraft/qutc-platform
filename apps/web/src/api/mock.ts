@@ -216,6 +216,14 @@ let aiConfiguration: AIConfiguration = {
   max_sources: 10,
   max_context_characters: 30000,
   provider: structuredClone(aiAgentCatalog.provider),
+  provider_config: {
+    driver: 'mock',
+    base_url: '',
+    model: 'mock-content-v1',
+    api_key_configured: true,
+    api_key_hint: '••••••mock',
+    source: 'server',
+  },
 }
 const aiRuns: Record<string, AIAgentRun> = {}
 const activityPlans: Record<string, ActivityPlan> = {}
@@ -907,10 +915,16 @@ export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
 		return structuredClone(invitationTemplate) as T
 	}
   if (path.endsWith('/admin/ai/config')) {
-    const payload = body as Pick<AIConfiguration, 'enabled' | 'run_limit_per_hour' | 'request_timeout_seconds' | 'max_sources' | 'max_context_characters'>
+    const payload = body as Partial<AIConfiguration> & { provider?: AIConfiguration['provider']['provider']; base_url?: string; api_key?: string; model?: string }
     aiConfiguration = {
       ...aiConfiguration,
-      ...payload,
+      enabled: payload.enabled ?? aiConfiguration.enabled,
+      run_limit_per_hour: payload.run_limit_per_hour ?? aiConfiguration.run_limit_per_hour,
+      request_timeout_seconds: payload.request_timeout_seconds ?? aiConfiguration.request_timeout_seconds,
+      max_sources: payload.max_sources ?? aiConfiguration.max_sources,
+      max_context_characters: payload.max_context_characters ?? aiConfiguration.max_context_characters,
+      provider: payload.provider ? { ...aiConfiguration.provider, provider: payload.provider, mode: payload.provider === 'openai_compatible' ? 'real' : payload.provider, enabled: payload.provider !== 'disabled', configured: true } : aiConfiguration.provider,
+      provider_config: payload.provider ? { ...aiConfiguration.provider_config, driver: payload.provider, base_url: payload.base_url ?? aiConfiguration.provider_config.base_url, model: payload.model ?? aiConfiguration.provider_config.model, api_key_configured: Boolean(payload.api_key) || aiConfiguration.provider_config.api_key_configured, api_key_hint: payload.api_key ? '••••••' + payload.api_key.slice(-4) : aiConfiguration.provider_config.api_key_hint } : aiConfiguration.provider_config,
       id: aiConfiguration.id ?? 'ai_config_mock',
       updated_by: mockUser?.id,
       updated_at: new Date().toISOString(),

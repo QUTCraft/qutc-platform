@@ -817,7 +817,7 @@ Operation ID：`listAdminAuditEvents`
 | 方法 | 路径 | 权限 | 作用 |
 | --- | --- | --- | --- |
 | `GET` | `/api/v1/admin/ai/config` | `ai:use` | 读取当前组织策略与脱敏供应商状态。 |
-| `PATCH` | `/api/v1/admin/ai/config` | `organization:configure` | 保存组织启停、配额、超时、引用与上下文限制。 |
+| `PATCH` | `/api/v1/admin/ai/config` | `organization:configure` | 保存组织启停、配额、超时、引用与上下文限制，也可保存 OpenAI 兼容接口地址、模型名和加密 API Key。 |
 | `GET` | `/api/v1/admin/ai/agents` | `ai:use` | 获取当前组织的智能体与供应商模式。 |
 | `POST` | `/api/v1/admin/ai/knowledge/search` | `ai:use` ∩ `knowledge:read` | 在当前组织的知识内容中检索引用资料。 |
 | `POST` | `/api/v1/admin/ai/runs` | `ai:use` ∩ `knowledge:read` | 创建异步 Markdown 提案运行。 |
@@ -859,7 +859,7 @@ Operation ID：`listAdminAuditEvents`
 | `/admin/reviews` | 申请审核与可选服务器适配 | 所有组织可处理成员申请；仅 QUTCraft 场景展示服务器状态、同步记录与受限命令。 |
 | `/admin/activity-planner` | AI 活动策划 | 结构化活动需求、知识引用、历史方案、五维评分和人工批准。 |
 | `/admin/audit` | 审计记录 | `GET /admin/audit`，按组织、权限和筛选条件查询。 |
-| `/admin/ai` | 智能体配置 | 读取脱敏供应商状态；组织所有者保存启停、配额、超时和上下文策略。 |
+| `/admin/ai` | 智能体配置 | 读取脱敏供应商状态；组织所有者保存接口地址、模型名、API Key 和运行策略。 |
 | `/admin/settings` | 门户与通知设置 | 门户 Manifest、邮件适配器状态、邀请模板和审批通知队列；不接收 SMTP 密码。 |
 
 ## 9. 自定义门户接入规范

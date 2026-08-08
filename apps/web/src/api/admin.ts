@@ -1,5 +1,5 @@
 import { del, get, getPage, patch, post, put, upload } from '@/api/client'
-import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminInvitationSummary, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, BatchInvitationResponse, ContentRevision, EmailAdapterStatus, Invitation, InvitationRole, InvitationStatus, InvitationTemplate, MediaAsset, NotificationOutbox, Organization, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
+import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminInvitationSummary, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIConfigurationUpdate, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, BatchInvitationResponse, ContentRevision, EmailAdapterStatus, Invitation, InvitationRole, InvitationStatus, InvitationTemplate, MediaAsset, NotificationOutbox, Organization, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
 
 const adminBase = '/api/v1/admin'
 
@@ -54,7 +54,7 @@ export const adminApi = {
   updateUser: (id: string, payload: { state: AdminMembershipWriteState; role: AdminUser['role'] }) => patch<AdminUser>(`${adminBase}/users/${id}`, payload),
   getAuditEvents: (params: AuditEventFilters = {}) => getPage<AuditEvent>(withQuery(`${adminBase}/audit`, params)),
   getAIConfiguration: () => get<AIConfiguration>(`${adminBase}/ai/config`),
-  updateAIConfiguration: (payload: Pick<AIConfiguration, 'enabled' | 'run_limit_per_hour' | 'request_timeout_seconds' | 'max_sources' | 'max_context_characters'>) => patch<AIConfiguration>(`${adminBase}/ai/config`, payload),
+  updateAIConfiguration: (payload: AIConfigurationUpdate) => patch<AIConfiguration>(`${adminBase}/ai/config`, payload),
   getAIAgents: () => get<AIAgentCatalog>(`${adminBase}/ai/agents`),
   searchAIKnowledge: (payload: { query: string; limit?: number }) => post<AIKnowledgeResult[]>(`${adminBase}/ai/knowledge/search`, payload),
   createAIRun: (payload: { agent_key: 'content-copilot' | 'activity-planner'; task: string; context_refs: AISourceReference[]; output_mode: 'proposal' }) => post<AIAgentRun>(`${adminBase}/ai/runs`, payload),

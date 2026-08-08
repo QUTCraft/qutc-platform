@@ -223,6 +223,15 @@ export interface AIProviderStatus {
   configured: boolean
 }
 
+export interface AIProviderConfiguration {
+  driver: AIProviderStatus['provider']
+  base_url: string
+  model: string
+  api_key_configured: boolean
+  api_key_hint?: string
+  source: 'server' | 'organization'
+}
+
 export interface AIAgentDefinition {
   id: string
   key: 'content-copilot' | 'activity-planner'
@@ -247,8 +256,16 @@ export interface AIConfiguration {
   max_sources: number
   max_context_characters: number
   provider: AIProviderStatus
+  provider_config: AIProviderConfiguration
   updated_by?: string
   updated_at?: string
+}
+
+export type AIConfigurationUpdate = Pick<AIConfiguration, 'enabled' | 'run_limit_per_hour' | 'request_timeout_seconds' | 'max_sources' | 'max_context_characters'> & {
+  provider: AIProviderStatus['provider']
+  base_url: string
+  api_key: string
+  model: string
 }
 
 export interface AIKnowledgeResult {

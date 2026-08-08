@@ -301,7 +301,7 @@ queued/running/waiting_approval ───────────────→
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` | `/api/v1/admin/ai/config` | ✅ 已实现：读取组织策略与脱敏供应商状态。 |
-| `PATCH` | `/api/v1/admin/ai/config` | ✅ 已实现：保存组织启停、配额、超时、引用与上下文限制。 |
+| `PATCH` | `/api/v1/admin/ai/config` | ✅ 已实现：保存组织启停、配额、超时、引用与上下文限制，并支持网页配置 OpenAI 兼容接口。 |
 | `GET` | `/api/v1/admin/ai/agents` | ✅ 已实现：获取当前组织可用智能体与供应商状态。 |
 | `POST` | `/api/v1/admin/ai/runs` | ✅ 已实现：创建异步内容提案运行。 |
 | `GET` | `/api/v1/admin/ai/runs/{run_id}` | ✅ 已实现：查询状态、引用和输出。 |
@@ -407,7 +407,7 @@ Object Storage（媒体文件）
 
 - API 负责鉴权、创建运行、领域专用批准，以及在同一进程内原子领取 `queued` 任务并调用模型。
 - `queued` 任务在进程重启后保留并重新领取；遗留的 `running` 任务收口为 `failed`，避免把中断执行伪装成成功。
-- 固定引用快照、Prompt 版本、供应商模式、Token 用量和失败原因均落入数据库，模型 API Key 只从服务端环境变量读取。
+- 固定引用快照、Prompt 版本、供应商模式、Token 用量和失败原因均落入数据库；组织级模型 API Key 以应用密钥派生的 AES-GCM 密文保存，服务端默认 Key 仍可通过环境变量提供。
 - 当前实现不承诺多实例公平调度；如果 v0.2 需要水平扩容，再拆分独立 Worker，并评估 Redis Streams 或专用消息系统。
 - Worker 不开放公网入口，模型写操作仍必须进入既有 RBAC、事务和审计边界。
 

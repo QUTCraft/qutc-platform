@@ -1066,7 +1066,7 @@ paths:
       tags: [AI]
       operationId: getAdminAIConfiguration
       summary: 获取当前组织的智能体运行策略与模型供应商状态
-      description: 需要 `ai:use`。组织尚未保存配置时返回服务端默认策略；模型凭据、上游地址和环境变量值永远不会进入响应。
+      description: 需要 `ai:use`。组织尚未保存配置时返回服务端默认策略；响应可以返回非敏感的上游根地址、模型名和密钥脱敏提示，但永远不会返回 API Key 原文或环境变量内容。
       security: [{ BearerAuth: [] }]
       responses:
         '200':
@@ -1080,7 +1080,7 @@ paths:
       tags: [AI]
       operationId: updateAdminAIConfiguration
       summary: 更新当前组织的智能体运行策略
-      description: 需要 `organization:configure`。配置按组织持久化并立即应用于后续新建运行；关闭功能不会删除历史运行、引用或审计。模型供应商和凭据仍只能通过服务端部署变量配置。
+      description: 需要 `organization:configure`。配置按组织持久化并立即应用于后续新建运行；关闭功能不会删除历史运行、引用或审计。组织所有者可以提交 OpenAI 兼容接口地址、模型名和 API Key，Key 在服务端加密保存且不会回显。
       security: [{ BearerAuth: [] }]
       requestBody:
         required: true
@@ -2407,6 +2407,22 @@ components:
         model: { type: string, maxLength: 120 }
         enabled: { type: boolean }
         configured: { type: boolean }
+    AIProviderConfiguration:
+      type: object
+      required: [driver, base_url, model, api_key_configured, source]
+      properties:
+        driver: { type: string, enum: [disabled, mock, openai_compatible] }
+        base_url:
+          type: string
+          maxLength: 500
+          description: 非敏感的供应商 API 根地址；服务端会追加 /chat/completions。
+        model: { type: string, maxLength: 120 }
+        api_key_configured: { type: boolean }
+        api_key_hint:
+          type: string
+          maxLength: 32
+          description: 仅返回掩码和末四位，不返回 API Key 原文。
+        source: { type: string, enum: [server, organization] }
     AIConfigurationWriteRequest:
       type: object
       required: [enabled, run_limit_per_hour, request_timeout_seconds, max_sources, max_context_characters]
@@ -2435,9 +2451,26 @@ components:
           minimum: 1000
           maximum: 100000
           description: 每次运行发送给模型的知识正文字符总上限。
+        provider:
+          type: string
+          enum: [disabled, openai_compatible]
+          description: 组织级驱动；留空时沿用已保存值或服务端默认值。
+        base_url:
+          type: string
+          maxLength: 500
+          description: OpenAI 兼容 API 根地址，不要包含 /chat/completions。
+        api_key:
+          type: string
+          writeOnly: true
+          maxLength: 4096
+          description: 新 API Key；留空表示保留已有密钥或服务端默认密钥，响应永不返回。
+        model:
+          type: string
+          maxLength: 120
+          description: OpenAI 兼容接口使用的模型标识。
     AIConfiguration:
       type: object
-      required: [enabled, run_limit_per_hour, request_timeout_seconds, max_sources, max_context_characters, provider]
+      required: [enabled, run_limit_per_hour, request_timeout_seconds, max_sources, max_context_characters, provider, provider_config]
       properties:
         id: { type: string, maxLength: 36, description: 组织首次保存配置后才返回。 }
         enabled: { type: boolean }
@@ -2446,6 +2479,7 @@ components:
         max_sources: { type: integer, minimum: 1, maximum: 10 }
         max_context_characters: { type: integer, minimum: 1000, maximum: 100000 }
         provider: { $ref: '#/components/schemas/AIProviderStatus' }
+        provider_config: { $ref: '#/components/schemas/AIProviderConfiguration' }
         updated_by: { type: string, maxLength: 36 }
         updated_at: { type: string, format: date-time }
     AIAgentDefinition:

@@ -334,7 +334,7 @@ function statusType(status: ActivityPlanSummary['status']) {
 </script>
 
 <template>
-  <div class="activity-planner-page" v-loading="loadingFoundation">
+  <div class="activity-planner-page" v-loading.fullscreen.lock="loadingFoundation">
     <section class="admin-page-heading activity-heading">
       <div>
         <span class="eyebrow">COMMONS AGENT · SERVICE INNOVATION</span>

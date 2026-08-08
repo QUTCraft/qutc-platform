@@ -102,7 +102,14 @@ func main() {
 	workspaceHandler := handler.NewWorkspaceHandlerWithDependenciesAndNotifications(db, publicCache, cfg.AppEnv, serveradapter.NewMock(), cfg.ServerAdapterTimeout, mediaStorage, notificationService)
 	portalConfigHandler := handler.NewPortalConfigHandler(db)
 	auditHandler := handler.NewAuditHandler(db)
-	agentService := service.NewAgentService(db, modelProvider, cfg.AIRunLimitPerHour, cfg.AIRequestTimeout)
+	agentService := service.NewAgentServiceWithProviderConfig(
+		db, modelProvider,
+		modelprovider.Config{
+			Driver: cfg.AIProvider, BaseURL: cfg.AIBaseURL, APIKey: cfg.AIAPIKey,
+			Model: cfg.AIModel, Timeout: cfg.AIRequestTimeout,
+		},
+		cfg.JWTAccessSecret, cfg.AppEnv == "production", cfg.AIRunLimitPerHour, cfg.AIRequestTimeout,
+	)
 	if err := agentService.RecoverInterruptedRuns(); err != nil {
 		log.Fatalf("recover interrupted agent runs: %v", err)
 	}

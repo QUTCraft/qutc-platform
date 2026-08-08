@@ -11,7 +11,11 @@ const loading = ref(false)
 const saving = ref(false)
 
 const form = reactive({
-  enabled: true,
+	provider: 'disabled' as AIConfiguration['provider']['provider'],
+	base_url: '',
+	api_key: '',
+	model: '',
+	enabled: true,
   run_limit_per_hour: 20,
   request_timeout_seconds: 30,
   max_sources: 10,
@@ -33,8 +37,12 @@ const providerTagType = computed<'success' | 'warning' | 'info'>(() => {
 
 function applyConfiguration(value: AIConfiguration) {
   configuration.value = value
-  Object.assign(form, {
-    enabled: value.enabled,
+	Object.assign(form, {
+		provider: value.provider_config?.driver ?? value.provider.provider,
+		base_url: value.provider_config?.base_url ?? '',
+		api_key: '',
+		model: value.provider_config?.model ?? value.provider.model ?? '',
+		enabled: value.enabled,
     run_limit_per_hour: value.run_limit_per_hour,
     request_timeout_seconds: value.request_timeout_seconds,
     max_sources: value.max_sources,
@@ -101,13 +109,13 @@ onMounted(() => {
     <el-button round :loading="loading" @click="loadConfiguration">刷新状态</el-button>
   </section>
 
-  <section v-loading="loading" class="settings-layout ai-settings-layout">
+  <section v-loading.fullscreen.lock="loading" class="settings-layout ai-settings-layout">
     <div class="settings-main-column">
       <article class="admin-panel">
         <div class="panel-heading">
           <div>
             <h2>模型供应商</h2>
-            <p>这里显示当前 API 实例实际加载的驱动，不返回上游地址、API Key 或环境变量内容。</p>
+            <p>这里显示当前组织实际使用的驱动；API Key 只显示脱敏状态，不会返回原文。</p>
           </div>
           <el-tag :type="providerTagType" round>{{ providerLabel }}</el-tag>
         </div>
@@ -119,8 +127,48 @@ onMounted(() => {
           :closable="false"
           show-icon
         />
+
+        <el-form :model="form" label-position="top" class="ai-provider-form">
+          <div class="ai-provider-form-heading">
+            <div>
+              <strong>网页端连接配置</strong>
+              <p>组织所有者可以在这里填写 OpenAI 兼容接口。服务端会自动请求接口根地址下的 <code>/chat/completions</code>。</p>
+            </div>
+            <el-tag v-if="configuration?.provider_config?.source === 'organization'" type="success" round>组织配置</el-tag>
+            <el-tag v-else round>服务端默认</el-tag>
+          </div>
+          <div class="form-grid">
+            <el-form-item label="模型驱动">
+              <el-select v-model="form.provider" :disabled="!canEdit" class="full-width-control">
+                <el-option label="未启用" value="disabled" />
+                <el-option label="开发 Mock（仅开发）" value="mock" />
+                <el-option label="OpenAI 兼容接口" value="openai_compatible" />
+              </el-select>
+              <small>生产环境不允许使用开发 Mock；停用后不会删除历史运行记录。</small>
+            </el-form-item>
+            <el-form-item label="模型名称">
+              <el-input v-model="form.model" :disabled="!canEdit || form.provider !== 'openai_compatible'" placeholder="例如：agnes-2.0-flash" />
+              <small>填写供应商实际支持的 model 标识。</small>
+            </el-form-item>
+          </div>
+          <el-form-item label="API 调用链接">
+            <el-input v-model="form.base_url" :disabled="!canEdit || form.provider !== 'openai_compatible'" placeholder="例如：https://api.example.com/v1" />
+            <small>只填写接口根地址，不要追加 <code>/chat/completions</code>；生产环境必须使用 HTTPS。</small>
+          </el-form-item>
+          <el-form-item label="API Key">
+            <el-input
+              v-model="form.api_key"
+              :disabled="!canEdit || form.provider !== 'openai_compatible'"
+              type="password"
+              show-password
+              autocomplete="new-password"
+              :placeholder="configuration?.provider_config?.api_key_configured ? `已配置 ${configuration.provider_config.api_key_hint || '密钥'}，留空保持不变` : '请输入供应商 API Key'"
+            />
+            <small>密钥只在提交时发送到 API，服务端使用应用密钥加密保存；GET 接口永远不会返回原文。</small>
+          </el-form-item>
+        </el-form>
         <el-alert
-          v-else-if="!provider?.enabled"
+          v-if="!provider?.enabled"
           title="模型供应商未启用；可以保存组织策略，但创建运行会返回 503"
           type="info"
           :closable="false"
@@ -144,8 +192,8 @@ onMounted(() => {
 
         <div class="deployment-note">
           <div>
-            <strong>服务端部署配置</strong>
-            <p>修改以下变量并重启 API 后生效。前端不会读取或保存这些值。</p>
+            <strong>配置优先级</strong>
+            <p>当前组织的网页配置优先于服务端环境变量；留空 API Key 会保留已保存的密钥。</p>
           </div>
           <div class="deployment-variables" aria-label="模型服务端环境变量">
             <code>AI_PROVIDER</code>
@@ -233,7 +281,7 @@ onMounted(() => {
 
           <div class="ai-policy-actions">
             <el-button type="primary" round :loading="saving" :disabled="!canEdit" @click="saveConfiguration">
-              保存组织策略
+              保存智能体配置
             </el-button>
             <span v-if="configuration?.updated_at">
               最近更新：{{ new Date(configuration.updated_at).toLocaleString('zh-CN') }}
@@ -281,7 +329,7 @@ onMounted(() => {
 
     <aside class="admin-panel settings-note ai-security-note">
       <h2>配置边界</h2>
-      <p>模型地址、API Key 和供应商凭据只能通过 API 服务环境变量注入，页面只能看到脱敏状态。</p>
+      <p>模型地址、模型名和 API Key 可以由组织所有者在本页配置；API Key 会在服务端加密保存，页面只显示脱敏状态。</p>
       <p>组织策略只影响后续运行；运行创建后会固定引用版本、模型模式和 Prompt 版本。</p>
       <p>有效权限仍是用户 RBAC 与智能体工具白名单的交集。关闭限制不会授予发布、审批、角色修改或服务器命令权限。</p>
       <p>开发 Mock 始终显示为 <code>mode=mock</code>，生产环境启动校验禁止使用 Mock。</p>
@@ -304,6 +352,40 @@ onMounted(() => {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-top: 18px;
+}
+
+.ai-provider-form {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.ai-provider-form-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+
+.ai-provider-form-heading p {
+  margin: 5px 0 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ai-provider-form :deep(.el-form-item) {
+  margin-bottom: 16px;
+}
+
+.ai-provider-form :deep(.el-input),
+.ai-provider-form :deep(.el-select) {
+  width: 100%;
+}
+
+.full-width-control {
+  width: 100%;
 }
 
 .ai-provider-metrics > div {

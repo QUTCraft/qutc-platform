@@ -28,11 +28,15 @@ type createAgentRunRequest struct {
 }
 
 type agentConfigurationRequest struct {
-	Enabled               bool `json:"enabled"`
-	RunLimitPerHour       int  `json:"run_limit_per_hour"`
-	RequestTimeoutSeconds int  `json:"request_timeout_seconds"`
-	MaxSources            int  `json:"max_sources"`
-	MaxContextCharacters  int  `json:"max_context_characters"`
+	Enabled               bool   `json:"enabled"`
+	RunLimitPerHour       int    `json:"run_limit_per_hour"`
+	RequestTimeoutSeconds int    `json:"request_timeout_seconds"`
+	MaxSources            int    `json:"max_sources"`
+	MaxContextCharacters  int    `json:"max_context_characters"`
+	Provider              string `json:"provider"`
+	BaseURL               string `json:"base_url"`
+	APIKey                string `json:"api_key"`
+	Model                 string `json:"model"`
 }
 
 type createActivityPlanRequest struct {
@@ -93,7 +97,8 @@ func (h *AIHandler) UpdateConfiguration(c *gin.Context) {
 	configuration, err := h.agents.UpdateConfiguration(principal, service.AgentConfigurationInput{
 		Enabled: request.Enabled, RunLimitPerHour: request.RunLimitPerHour,
 		RequestTimeoutSeconds: request.RequestTimeoutSeconds, MaxSources: request.MaxSources,
-		MaxContextCharacters: request.MaxContextCharacters,
+		MaxContextCharacters: request.MaxContextCharacters, Provider: request.Provider,
+		BaseURL: request.BaseURL, APIKey: request.APIKey, Model: request.Model,
 	}, ensureRequestID(c))
 	if err != nil {
 		if errors.Is(err, service.ErrAgentConfigValidation) {
@@ -117,7 +122,7 @@ func (h *AIHandler) ListAgents(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "ai.agents_load_failed", "智能体列表暂时无法加载。")
 		return
 	}
-	respond(c, http.StatusOK, gin.H{"agents": agents, "provider": h.agents.ProviderStatus()})
+	respond(c, http.StatusOK, gin.H{"agents": agents, "provider": h.agents.ProviderStatusForOrganization(principal.OrganizationID)})
 }
 
 func (h *AIHandler) SearchKnowledge(c *gin.Context) {
