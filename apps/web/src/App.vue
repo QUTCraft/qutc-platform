@@ -25,20 +25,26 @@ const portalFallback = readPortalFallback()
     <AdminLayout v-if="isAdmin">
       <RouterView v-slot="{ Component, route: viewRoute }">
         <Transition name="admin-page" mode="out-in">
-          <component :is="Component" :key="viewRoute.fullPath" />
+          <div :key="viewRoute.fullPath" class="route-transition-shell admin-route-view">
+            <component :is="Component" />
+          </div>
         </Transition>
       </RouterView>
     </AdminLayout>
     <main v-else-if="isAuth" class="auth-shell">
       <RouterView v-slot="{ Component, route: viewRoute }">
         <Transition name="page" mode="out-in">
-          <component :is="Component" :key="viewRoute.fullPath" />
+          <div :key="viewRoute.fullPath" class="route-transition-shell">
+            <component :is="Component" />
+          </div>
         </Transition>
       </RouterView>
     </main>
     <RouterView v-else-if="isFull" v-slot="{ Component, route: viewRoute }">
       <Transition name="page" mode="out-in">
-        <component :is="Component" :key="viewRoute.fullPath" />
+        <div :key="viewRoute.fullPath" class="route-transition-shell">
+          <component :is="Component" />
+        </div>
       </Transition>
     </RouterView>
     <template v-else>
@@ -49,7 +55,9 @@ const portalFallback = readPortalFallback()
       <main class="page-shell">
         <RouterView v-slot="{ Component, route: viewRoute }">
           <Transition name="page" mode="out-in">
-            <component :is="Component" :key="viewRoute.fullPath" />
+            <div :key="viewRoute.fullPath" class="route-transition-shell">
+              <component :is="Component" />
+            </div>
           </Transition>
         </RouterView>
       </main>

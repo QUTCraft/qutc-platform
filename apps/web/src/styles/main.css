@@ -802,8 +802,11 @@ h1, h2, h3, h4, h5, h6, p {
   transform: translateY(-4px);
 }
 
-.admin-page-enter-active,
-.admin-page-leave-active {
+.route-transition-shell {
+  min-height: 100%;
+}
+
+.admin-route-view {
   min-height: calc(100vh - 72px);
 }
 
