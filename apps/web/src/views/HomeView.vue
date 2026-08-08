@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
 import { ArrowRight, Files, Notebook, Reading, Tools, VideoCamera } from '@element-plus/icons-vue'
 import AsyncState from '@/components/AsyncState.vue'
 import ContentCard from '@/components/ContentCard.vue'
 import SectionHeading from '@/components/SectionHeading.vue'
 import { portalApi } from '@/api/portal'
+import { useApplyTransition } from '@/composables/useApplyTransition'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDate } from '@/utils/format'
 
-const router = useRouter()
+const { navigateToApply } = useApplyTransition()
 
 const { data, error, loading, refresh } = useAsyncData(async () => {
   const [organization, posts, projects, resources, knowledge, serverStatus] = await Promise.all([
@@ -65,7 +65,7 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
               size="large"
               round
               class="hero-apply-btn"
-              @click="router.push({ name: 'apply' })"
+              @click="(event: MouseEvent) => navigateToApply(event)"
             >
               申请加入服务器 <el-icon class="el-icon--right"><ArrowRight /></el-icon>
             </el-button>
@@ -149,7 +149,7 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
             class="status-button"
             type="primary"
             round
-            @click="router.push({ name: 'apply' })"
+            @click="(event: MouseEvent) => navigateToApply(event)"
           >
             立即提交白名单申请 →
           </el-button>
