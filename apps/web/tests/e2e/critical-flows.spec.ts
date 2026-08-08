@@ -16,6 +16,24 @@ async function clickPublicNavigation(page: Page, label: string) {
   await page.locator('.mobile-nav').getByRole('link', { name: label, exact: true }).click()
 }
 
+test('stale dynamic imports trigger one controlled reload', async ({ page }) => {
+  await page.goto('/')
+  const initialTimeOrigin = await page.evaluate(() => performance.timeOrigin)
+
+  const recoveryLoad = page.waitForEvent('load')
+  await page.evaluate(() => {
+    window.setTimeout(() => window.dispatchEvent(new Event('vite:preloadError', { cancelable: true })), 0)
+  })
+  await recoveryLoad
+
+  const recoveredTimeOrigin = await page.evaluate(() => performance.timeOrigin)
+  expect(recoveredTimeOrigin).not.toBe(initialTimeOrigin)
+  await expect.poll(() => page.evaluate(() => Number(sessionStorage.getItem('qutc:stale-chunk-recovery') ?? 0))).toBeGreaterThan(0)
+  await page.evaluate(() => window.dispatchEvent(new Event('vite:preloadError', { cancelable: true })))
+  await page.waitForTimeout(250)
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(recoveredTimeOrigin)
+})
+
 test('public portal routes remain navigable', async ({ page }) => {
   await page.addInitScript(() => {
     sessionStorage.setItem('qutc.portal.runtime_fallback', JSON.stringify({

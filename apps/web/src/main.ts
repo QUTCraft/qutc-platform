@@ -7,6 +7,29 @@ import router from '@/router'
 import { expireSession } from '@/stores/session'
 import { bootstrapPortalRuntime } from '@/portal/runtime'
 
+const staleChunkRecoveryKey = 'qutc:stale-chunk-recovery'
+const staleChunkRecoveryWindowMs = 30_000
+
+function recoverFromStaleChunk(): void {
+  const now = Date.now()
+  const lastRecovery = Number(window.sessionStorage.getItem(staleChunkRecoveryKey) ?? 0)
+  if (now - lastRecovery < staleChunkRecoveryWindowMs) return
+
+  window.sessionStorage.setItem(staleChunkRecoveryKey, String(now))
+  window.location.reload()
+}
+
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault()
+  recoverFromStaleChunk()
+})
+
+router.onError((error) => {
+  if (/dynamically imported module|importing a module script failed|failed to fetch module/i.test(String(error))) {
+    recoverFromStaleChunk()
+  }
+})
+
 window.addEventListener('qutc:session-expired', () => {
   const redirect = router.currentRoute.value.fullPath
   expireSession()
