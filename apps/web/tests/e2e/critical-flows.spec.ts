@@ -67,6 +67,7 @@ test('owner can open dashboard and organization settings', async ({ page }) => {
     const rail = page.locator('.admin-rail')
     await expect.poll(async () => (await rail.boundingBox())?.width ?? 0).toBeLessThanOrEqual(216)
     await expect.poll(() => page.locator('.admin-nav').evaluate((element) => element.scrollHeight <= element.clientHeight + 1)).toBe(true)
+    await expect.poll(() => page.locator('.rail-link').evaluateAll((links) => Math.max(...links.map((link) => link.getBoundingClientRect().height)))).toBeLessThanOrEqual(40)
   }
 
   await clickAdminNavigation(page, '内容管理')
@@ -81,6 +82,16 @@ test('owner can open dashboard and organization settings', async ({ page }) => {
   await expect(page).toHaveURL(/\/admin\/settings$/)
   await expect(page.getByRole('heading', { name: '组织公开资料' })).toBeVisible()
   await expect(page.getByLabel('组织全称')).toHaveValue('QUTCraft Commons')
+  const characterCount = page.locator('.el-input__count').first()
+  await expect(characterCount).toBeVisible()
+  await expect.poll(() => characterCount.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe('rgb(255, 255, 255)')
+
+  await clickAdminNavigation(page, '智能体配置')
+  await expect(page).toHaveURL(/\/admin\/ai$/)
+  await expect(page.getByRole('heading', { level: 2, name: '智能体配置', exact: true })).toBeVisible()
+  const numberControl = page.locator('.el-input-number__increase').first()
+  await expect(numberControl).toBeVisible()
+  await expect.poll(() => numberControl.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe('rgb(255, 255, 255)')
 })
 
 test('account can switch organization and keep the selected session context', async ({ page }) => {
@@ -165,9 +176,9 @@ test('batch invitations preserve per-item success and failure results', async ({
   await dialog.getByRole('button', { name: '开始批量邀请' }).click()
 
   await expect(page.getByText('处理完成：1 条成功，1 条失败', { exact: true })).toBeVisible()
-  await expect(page.getByRole('row').filter({ hasText: email })).toContainText('已创建')
-  await expect(page.getByRole('row').filter({ hasText: 'not-an-email' })).toContainText('邮箱、角色或邀请有效期不符合要求。')
   const resultDialog = page.getByRole('dialog', { name: '批量邀请结果' })
+  await expect(resultDialog.getByRole('row').filter({ hasText: email })).toContainText('已创建')
+  await expect(resultDialog.getByRole('row').filter({ hasText: 'not-an-email' })).toContainText('邮箱、角色或邀请有效期不符合要求。')
   await resultDialog.getByRole('button', { name: '关闭', exact: true }).click()
   await expect(resultDialog).toBeHidden()
   await expect(page.locator('.invitation-panel').getByRole('row').filter({ hasText: email })).toBeVisible()

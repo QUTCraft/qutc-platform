@@ -297,6 +297,34 @@ h1, h2, h3, h4, h5, h6, p {
   font-family: inherit !important;
 }
 
+.el-input__count,
+.el-input__count-inner,
+.el-textarea .el-input__count {
+  background-color: transparent !important;
+  color: var(--md-sys-color-on-surface-variant) !important;
+  box-shadow: none !important;
+}
+
+.el-input-number__increase,
+.el-input-number__decrease {
+  background-color: var(--md-sys-color-surface-container-highest) !important;
+  border-color: var(--md-sys-color-outline-variant) !important;
+  color: var(--md-sys-color-on-surface-variant) !important;
+  transition: background-color 160ms ease, color 160ms ease !important;
+}
+
+.el-input-number__increase:hover,
+.el-input-number__decrease:hover {
+  background-color: var(--md-sys-color-primary-container) !important;
+  color: var(--md-sys-color-on-primary-container) !important;
+}
+
+.el-input-number__increase.is-disabled,
+.el-input-number__decrease.is-disabled {
+  background-color: var(--md-sys-color-surface-container) !important;
+  color: var(--md-sys-color-outline) !important;
+}
+
 .el-form-item__label {
   color: var(--md-sys-color-on-surface-variant) !important;
   font-weight: 700 !important;
@@ -1951,6 +1979,8 @@ h1, h2, h3, h4, h5, h6, p {
 .admin-nav {
   display: grid;
   flex: 1 1 auto;
+  align-content: start;
+  grid-auto-rows: 40px;
   gap: 2px;
   min-height: 0;
   overflow-y: auto;
@@ -1961,8 +1991,9 @@ h1, h2, h3, h4, h5, h6, p {
   display: flex;
   align-items: center;
   gap: 10px;
+  height: 40px;
   min-height: 40px;
-  padding: 0 12px;
+  padding: 0 10px;
   color: var(--md-sys-color-on-surface-variant);
   border-radius: var(--md-shape-full);
   font-size: 13px;
