@@ -13,14 +13,21 @@ export interface PortalFallbackRecord {
 }
 
 export async function bootstrapPortalRuntime(): Promise<void> {
-  if (!isPublicPlatformRoute(window.location.pathname) || forceDefaultPortal()) return
+  if (!isPublicPlatformRoute(window.location.pathname)) return
+  if (forceDefaultPortal()) {
+    clearPortalFallback()
+    return
+  }
 
   const configurationController = new AbortController()
   const configurationTimer = window.setTimeout(() => configurationController.abort(), runtimeTimeoutMs)
   let manifest: PortalManifest
   try {
     const configuration = await portalApi.getRuntimeConfiguration(configurationController.signal)
-    if (configuration.source !== 'active' || isBuiltInEntry(configuration.manifest.entry)) return
+    if (configuration.source !== 'active' || isBuiltInEntry(configuration.manifest.entry)) {
+      clearPortalFallback()
+      return
+    }
     manifest = configuration.manifest
   } catch (error) {
     recordFallback(

@@ -7,7 +7,6 @@ import AppHeader from '@/components/AppHeader.vue'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import { useRoute } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
-import { readPortalFallback } from '@/portal/runtime'
 
 // Keep Monet seasonal/day-night colors active globally. The manual theme
 // control was removed, so the root app owns the automatic theme lifecycle.
@@ -17,7 +16,6 @@ const route = useRoute()
 const isAdmin = computed(() => route.meta.layout === 'admin')
 const isAuth = computed(() => route.meta.layout === 'auth')
 const isFull = computed(() => route.meta.layout === 'full')
-const portalFallback = readPortalFallback()
 </script>
 
 <template>
@@ -30,9 +28,6 @@ const portalFallback = readPortalFallback()
     </main>
     <RouterView v-else-if="isFull" />
     <template v-else>
-      <div v-if="portalFallback" class="portal-fallback-notice" role="status">
-        自定义门户暂时不可用，已安全切换至默认 MD3 门户。
-      </div>
       <AppHeader />
       <main class="page-shell">
         <RouterView />

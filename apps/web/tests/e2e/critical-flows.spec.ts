@@ -17,8 +17,22 @@ async function clickPublicNavigation(page: Page, label: string) {
 }
 
 test('public portal routes remain navigable', async ({ page }) => {
+  await page.addInitScript(() => {
+    sessionStorage.setItem('qutc.portal.runtime_fallback', JSON.stringify({
+      portal_id: 'legacy-custom-portal',
+      version: '1.0.0',
+      reason: 'entry_unavailable',
+      occurred_at: new Date().toISOString(),
+    }))
+  })
   await page.goto('/')
   await expect(page.getByRole('heading', { level: 1 })).toContainText('社团')
+  await expect(page.locator('body')).not.toContainText('自定义门户暂时不可用')
+  await expect(page.getByRole('heading', { name: '最新动态与公告', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '正在发生的项目', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '共享资源', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '公共知识库', exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('qutc.portal.runtime_fallback'))).toBeNull()
   for (const [label, path, heading] of [
     ['动态', '/posts', '社团动态'],
     ['项目', '/projects', '正在发生的项目'],

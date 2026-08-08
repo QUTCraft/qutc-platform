@@ -1302,6 +1302,27 @@ h1, h2, h3, h4, h5, h6, p {
   margin-top: 72px;
 }
 
+.portal-empty-state {
+  display: grid;
+  gap: 6px;
+  min-height: 96px;
+  padding: 22px 24px;
+  border: 1px dashed var(--md-sys-color-outline);
+  border-radius: var(--md-shape-lg);
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.portal-empty-state strong {
+  color: var(--md-sys-color-on-surface);
+  font-size: 16px;
+}
+
+.portal-empty-state span {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
 .section-heading {
   display: flex;
   align-items: flex-end;
@@ -1488,10 +1509,6 @@ h1, h2, h3, h4, h5, h6, p {
   margin-top: 72px;
 }
 
-.split-section.is-single {
-  grid-template-columns: 1fr;
-}
-
 .surface-panel {
   padding: 28px;
   background: var(--md-sys-color-surface-container);
@@ -1503,6 +1520,17 @@ h1, h2, h3, h4, h5, h6, p {
 .compact-list {
   display: grid;
   gap: 4px;
+}
+
+.compact-empty-state {
+  padding: 18px;
+  border: 1px dashed var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-md);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .compact-item {
@@ -3331,18 +3359,6 @@ h1, h2, h3, h4, h5, h6, p {
 html,
 body {
   overflow-x: hidden;
-}
-
-.portal-fallback-notice {
-  position: relative;
-  z-index: 120;
-  padding: 10px 20px;
-  border-bottom: 1px solid color-mix(in srgb, var(--md-sys-color-tertiary) 36%, transparent);
-  background: color-mix(in srgb, var(--md-sys-color-tertiary-container) 82%, var(--md-sys-color-surface));
-  color: var(--md-sys-color-on-tertiary-container);
-  text-align: center;
-  font-size: 0.9rem;
-  font-weight: 650;
 }
 
 .el-dialog {

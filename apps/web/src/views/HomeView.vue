@@ -237,7 +237,7 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
       </section>
 
       <!-- Latest News Showcase Section -->
-      <section v-if="data.posts.length" class="portal-section">
+      <section class="portal-section">
         <SectionHeading
           eyebrow="LATEST ANNOUNCEMENTS"
           title="最新动态与公告"
@@ -265,10 +265,14 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
             </article>
           </div>
         </div>
+        <div v-if="!data.posts.length" class="portal-empty-state">
+          <strong>动态内容正在整理中</strong>
+          <span>发布后的社团公告与活动记录会出现在这里。</span>
+        </div>
       </section>
 
       <!-- Open Projects Showcase Section -->
-      <section v-if="data.projects.length" class="portal-section">
+      <section class="portal-section">
         <SectionHeading
           eyebrow="CREATIVE LABS & PROJECTS"
           title="正在发生的项目"
@@ -287,15 +291,15 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
             :meta="`公开更新时间：${formatDate(project.updated_at)}`"
           />
         </div>
+        <div v-if="!data.projects.length" class="portal-empty-state">
+          <strong>公开项目正在准备中</strong>
+          <span>项目完成公开设置后会自动进入门户。</span>
+        </div>
       </section>
 
       <!-- Resources & Knowledge Split Section -->
-      <section
-        v-if="data.resources.length || data.knowledge.length"
-        class="split-section"
-        :class="{ 'is-single': !data.resources.length || !data.knowledge.length }"
-      >
-        <div v-if="data.resources.length" class="surface-panel">
+      <section class="split-section">
+        <div class="surface-panel">
           <SectionHeading eyebrow="RESOURCES" title="共享资源" action-label="资源中心" action-to="/resources" />
           <div class="compact-list">
             <RouterLink v-for="resource in data.resources" :key="resource.id" to="/resources" class="compact-item">
@@ -307,10 +311,11 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
                 <small>{{ resource.description }}</small>
               </div>
             </RouterLink>
+            <div v-if="!data.resources.length" class="compact-empty-state">公开资源正在整理中。</div>
           </div>
         </div>
 
-        <div v-if="data.knowledge.length" class="surface-panel">
+        <div class="surface-panel">
           <SectionHeading eyebrow="KNOWLEDGE" title="公共知识库" action-label="进入知识库" action-to="/knowledge" />
           <div class="compact-list">
             <RouterLink v-for="article in data.knowledge" :key="article.id" to="/knowledge" class="compact-item">
@@ -322,6 +327,7 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
                 <small>{{ article.category }} · {{ article.summary }}</small>
               </div>
             </RouterLink>
+            <div v-if="!data.knowledge.length" class="compact-empty-state">知识条目正在整理中。</div>
           </div>
         </div>
       </section>
