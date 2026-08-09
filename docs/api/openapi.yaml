@@ -697,6 +697,31 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/admin/assets:
+    get:
+      tags: [Admin]
+      operationId: listAdminAssets
+      summary: 获取媒体资源列表
+      description: 返回当前组织的媒体资源元数据；不会返回 MinIO/S3 存储密钥或对象存储直链。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: query
+          in: query
+          description: 按原始文件名搜索
+          schema: { type: string, maxLength: 120 }
+      responses:
+        '200':
+          description: 媒体资源列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAssetListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Admin]
       operationId: uploadAdminAsset
@@ -740,6 +765,29 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/admin/assets/{asset_id}:
+    delete:
+      tags: [Admin]
+      operationId: deleteAdminAsset
+      summary: 删除未关联媒体资源
+      description: 仅允许删除没有被内容引用的媒体资源，以避免破坏 Markdown 或门户下载链接。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: asset_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: 媒体资源已删除
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetDeleteResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/admin/assets/{asset_id}/stats:
     get:
@@ -2414,7 +2462,7 @@ components:
         body: { type: string, description: '标准 Markdown 正文；发布后门户客户端会将 CMS 媒体链接转换为公开媒体地址。' }
     MediaAsset:
       type: object
-      required: [id, original_name, mime_type, size_bytes, download_count, download_url]
+      required: [id, original_name, mime_type, size_bytes, download_count, created_at, download_url]
       properties:
         id: { type: string }
         content_id: { type: [string, 'null'] }
@@ -2423,6 +2471,7 @@ components:
         size_bytes: { type: integer, format: int64, minimum: 0 }
         download_count: { type: integer, format: int64, minimum: 0 }
         last_downloaded_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
         download_url: { type: string, format: uri-reference }
     AdminAssetSummary:
       type: object
@@ -3513,6 +3562,24 @@ components:
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/MediaAsset' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    AdminAssetListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/MediaAsset' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    AssetDeleteResult:
+      type: object
+      required: [removed, id]
+      properties:
+        removed: { type: boolean, const: true }
+        id: { type: string }
+    AssetDeleteResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AssetDeleteResult' }
         meta: { $ref: '#/components/schemas/Meta' }
     AuthUserResponse:
       type: object

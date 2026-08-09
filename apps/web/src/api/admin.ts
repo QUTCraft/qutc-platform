@@ -36,6 +36,8 @@ export const adminApi = {
     if (contentId) formData.append('content_id', contentId)
     return upload<MediaAsset>(`${adminBase}/assets`, formData)
   },
+  getAssets: (params: PageQuery & { query?: string } = {}) => getPage<MediaAsset>(withQuery(`${adminBase}/assets`, params)),
+  deleteAsset: (id: string) => del<{ removed: boolean; id: string }>(`${adminBase}/assets/${id}`),
   getKnowledgeDirectories: (params: PageQuery = {}) => getPage<AdminKnowledgeDirectory>(withQuery(`${adminBase}/knowledge/directories`, params)),
   createKnowledgeDirectory: (payload: Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>) => post<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories`, payload),
   updateKnowledgeDirectory: (id: string, payload: Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>) => patch<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories/${id}`, payload),

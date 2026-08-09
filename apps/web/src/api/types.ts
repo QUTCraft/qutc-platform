@@ -82,6 +82,7 @@ export interface MediaAsset {
   size_bytes: number
   download_count: number
   last_downloaded_at?: string | null
+  created_at?: string
   download_url: string
 }
 

@@ -26,6 +26,17 @@
 
 网页接口为 `GET/PATCH /api/v1/admin/integrations`。`POST /api/v1/admin/integrations/test` 传 `{ "section": "storage" }` 时只检查本地目录或现有 S3 Bucket，不创建 Bucket、不上传或删除对象。
 
+### 2.1 后台快捷上传入口
+
+管理端 `/admin/assets` 是独立的资源文件工作区，适合不需要先打开 Markdown 编辑器的日常上传：
+
+- 支持拖拽或多选文件，前端按队列逐个调用 `POST /api/v1/admin/assets`；服务端仍执行登录、组织范围、MIME 签名和 10 MiB 单文件限制。
+- 上传时可选择当前组织的一条内容建立 `content_id` 引用。未关联的文件只对后台管理员可用；关联内容发布后，Portal 才能使用受控公开下载地址。
+- 列表由 `GET /api/v1/admin/assets` 提供，搜索只匹配原始文件名；下载按钮和复制按钮使用 API 返回的管理地址，不拼接 MinIO URL。
+- 只有具备 `asset:manage` 且未被内容引用的文件可由 `DELETE /api/v1/admin/assets/{asset_id}` 清理。已关联文件统一返回 `409 asset.in_use`，避免误删门户正文或资源下载。
+
+这个页面只展示存储驱动、Endpoint 和 Bucket 等非敏感状态；Access Key、Secret Key 和对象键永不下发到浏览器。MinIO 已由 1Panel 等外部系统部署时，只需要确保 API 容器可访问该 Endpoint，然后在“系统设置 → 服务接入”保存并验证，不要让浏览器直接访问 MinIO API。
+
 生产环境拒绝 MinIO 示例账号和包含 `change-me` 的示例密钥。
 
 ## 3. 对象与元数据

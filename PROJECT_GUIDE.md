@@ -138,6 +138,8 @@ docker compose --env-file .env --profile docs up -d swagger
 
 容器内 API 使用 minio:9000；宿主机集成测试使用 localhost:9000。MinIO Console 默认在 http://localhost:9001。STORAGE_DRIVER=s3 时必须启动 storage profile。
 
+如果 MinIO 已由 1Panel 或其他部署系统独立运行，不要在本项目里重复启动 storage profile。先确认 API 容器能够访问 MinIO 的 S3 API 端口，再由组织所有者进入 `/admin/settings` 的“服务接入”保存 S3/MinIO 配置并点击“保存并验证存储”；连接成功后进入 `/admin/assets`，可拖拽或多选上传。Endpoint 填写 API 容器实际可达的 `host:port`，不填写 `http://`、`https://`，也不把 Access Key/Secret Key 写入 `VITE_*` 或网页静态配置。
+
 ### 2.5 远程服务器
 
 当前 Compose 是单机基线，不是高可用生产方案。远程部署至少需要：

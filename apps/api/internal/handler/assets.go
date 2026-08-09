@@ -99,6 +99,48 @@ func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
 	respond(c, http.StatusCreated, assetResponse(asset))
 }
 
+// AdminAssets lists the current organization's media assets without exposing
+// storage keys or S3/MinIO credentials. The browser can use the returned
+// admin download URL, but it never talks to object storage directly.
+func (h *WorkspaceHandler) AdminAssets(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	page, pageSize, ok := listMeta(c, 0)
+	if !ok {
+		return
+	}
+	search, ok := queryMax(c, "query", 120)
+	if !ok {
+		return
+	}
+
+	query := h.db.Model(&model.MediaAsset{}).Where("organization_id = ?", principal.OrganizationID)
+	if search != "" {
+		query = query.Where("original_name LIKE ?", "%"+search+"%")
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "asset.list_failed", "媒体资源列表暂时无法加载。")
+		return
+	}
+	var assets []model.MediaAsset
+	if err := query.Order("created_at DESC").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Find(&assets).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "asset.list_failed", "媒体资源列表暂时无法加载。")
+		return
+	}
+	items := make([]gin.H, 0, len(assets))
+	for _, asset := range assets {
+		items = append(items, assetResponse(asset))
+	}
+	respondWithMeta(c, http.StatusOK, items, gin.H{"page": page, "page_size": pageSize, "total": total})
+}
+
 func (h *WorkspaceHandler) DownloadAsset(c *gin.Context) {
 	var asset model.MediaAsset
 	if err := h.db.Where("id = ?", c.Param("id")).First(&asset).Error; err != nil {
@@ -156,7 +198,7 @@ func assetResponse(asset model.MediaAsset) gin.H {
 	if asset.ContentID != "" {
 		contentID = asset.ContentID
 	}
-	return gin.H{"id": asset.ID, "content_id": contentID, "original_name": asset.OriginalName, "mime_type": asset.MimeType, "size_bytes": asset.SizeBytes, "download_count": asset.DownloadCount, "last_downloaded_at": asset.LastDownloadedAt, "download_url": "/api/v1/admin/assets/" + asset.ID + "/download"}
+	return gin.H{"id": asset.ID, "content_id": contentID, "original_name": asset.OriginalName, "mime_type": asset.MimeType, "size_bytes": asset.SizeBytes, "download_count": asset.DownloadCount, "last_downloaded_at": asset.LastDownloadedAt, "created_at": asset.CreatedAt, "download_url": "/api/v1/admin/assets/" + asset.ID + "/download"}
 }
 
 func (h *WorkspaceHandler) AssetDownloadStats(c *gin.Context) {
@@ -175,6 +217,54 @@ func (h *WorkspaceHandler) AssetDownloadStats(c *gin.Context) {
 		return
 	}
 	respond(c, http.StatusOK, gin.H{"id": asset.ID, "content_id": asset.ContentID, "download_count": asset.DownloadCount, "last_downloaded_at": asset.LastDownloadedAt})
+}
+
+// DeleteAsset only removes assets that are not referenced by a content item.
+// This prevents a convenient cleanup action from silently breaking published
+// Markdown or resource downloads.
+func (h *WorkspaceHandler) DeleteAsset(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var asset model.MediaAsset
+	if err := h.db.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&asset).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fail(c, http.StatusNotFound, "asset.not_found", "媒体资源不存在。")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "asset.delete_failed", "媒体资源暂时无法删除。")
+		return
+	}
+	if asset.ContentID != "" {
+		fail(c, http.StatusConflict, "asset.in_use", "该文件已被内容引用，请先解除引用后再删除。")
+		return
+	}
+	assetStorageDriver := strings.TrimSpace(asset.StorageDriver)
+	if assetStorageDriver == "" {
+		assetStorageDriver = "local"
+	}
+	mediaStorage, storageErr := h.storageFor(c.Request.Context(), asset.OrganizationID, assetStorageDriver)
+	if storageErr != nil {
+		fail(c, http.StatusServiceUnavailable, "asset.storage_driver_unavailable", "该媒体资源所属的存储后端当前不可用，请检查服务接入配置。")
+		return
+	}
+	if err := mediaStorage.Delete(c.Request.Context(), asset.StoragePath); err != nil && !errors.Is(err, storage.ErrNotFound) {
+		fail(c, http.StatusServiceUnavailable, "asset.storage_unavailable", "媒体文件暂时无法删除。")
+		return
+	}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("id = ? AND organization_id = ?", asset.ID, principal.OrganizationID).Delete(&model.MediaAsset{}).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "asset.delete", "asset", asset.ID)
+	}); err != nil {
+		fail(c, http.StatusInternalServerError, "asset.metadata_delete_failed", "媒体资源元数据暂时无法删除。")
+		return
+	}
+	h.invalidatePortalCache(principal.OrganizationID)
+	respond(c, http.StatusOK, gin.H{"removed": true, "id": asset.ID})
 }
 
 func detectAssetType(reader io.Reader) (string, error) {

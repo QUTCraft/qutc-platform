@@ -29,6 +29,7 @@ QUTCraft Platform 是“社团智枢 Commons Agent”的工程底座：一套面
 - 独立的后台侧边导航与工作台布局，入口为 `/admin`。
 - Dashboard：组织概览、待办申请与近期内容；QUTCraft 展示服务器适配状态，通用组织展示活动运营入口。
 - 内容工作区：标准 Markdown 编辑、实时预览、Markdown 导入、图片/附件插入、发布/下线，以及不可变修订历史和恢复为新草稿。
+- 资源文件工作区：后台提供独立的拖拽/多选上传入口、上传队列、文件搜索、受控下载链接复制和未关联文件清理；可选择将文件关联到门户内容。
 - 成员与权限：查看成员、组织角色和状态，创建单个/批量邀请，并显示可选 SMTP 的真实投递结果、组织级邀请模板与失败重试。
 - 审核与服务器：处理白名单/成员申请，演示受限 RCON 命令入口。
 - 审计记录：按动作、对象、结果、Request ID 与日期查询当前组织的管理操作。
@@ -100,6 +101,7 @@ http://localhost:8082
 | `/register` | 注册账户并接受邀请 |
 | `/admin` | 管理工作台概览 |
 | `/admin/content` | 内容工作区 |
+| `/admin/assets` | 资源文件快捷上传与媒体资产管理 |
 | `/admin/knowledge` | 知识目录管理 |
 | `/admin/projects` | 项目、成员与里程碑 |
 | `/admin/users` | 成员与权限 |
@@ -167,7 +169,7 @@ cd deploy/compose
 docker compose --profile storage up --build
 ```
 
-MinIO 启动后，组织所有者可在 Admin 的“系统设置 → 服务接入”选择 S3 / MinIO、填写地址与凭据并验证连接；无需重启 API。默认 `local` 继续使用受控媒体卷。SMTP 与门户公网地址也在同一页面维护，AI 模型接口在“智能体配置”中维护。所有敏感凭据由 API 加密保存且不会回传浏览器；完整边界见 [媒体存储适配规范](docs/api/storage-adapter.md) 与 [邮件适配规范](docs/api/email-adapter.md)。
+MinIO 启动后，组织所有者可在 Admin 的“系统设置 → 服务接入”选择 S3 / MinIO、填写地址与凭据并验证连接；无需重启 API。配置完成后进入“资源文件”即可使用拖拽/多选快捷上传，上传文件由 API 写入 MinIO，浏览器不会直连对象存储。默认 `local` 继续使用受控媒体卷。SMTP 与门户公网地址也在同一页面维护，AI 模型接口在“智能体配置”中维护。所有敏感凭据由 API 加密保存且不会回传浏览器；完整边界见 [媒体存储适配规范](docs/api/storage-adapter.md) 与 [邮件适配规范](docs/api/email-adapter.md)。
 
 ### 备份与恢复演练
 

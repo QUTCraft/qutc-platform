@@ -21,6 +21,7 @@ const router = createRouter({
     { path: '/admin/content', name: 'admin-content', component: () => import('@/views/admin/AdminContentView.vue'), meta: { layout: 'admin', requiresAuth: true } },
     { path: '/admin/content/new', name: 'admin-content-new', component: () => import('@/views/admin/AdminContentEditorView.vue'), meta: { layout: 'admin', requiresAuth: true } },
     { path: '/admin/content/:id/edit', name: 'admin-content-edit', component: () => import('@/views/admin/AdminContentEditorView.vue'), meta: { layout: 'admin', requiresAuth: true } },
+    { path: '/admin/assets', name: 'admin-assets', component: () => import('@/views/admin/AdminAssetsView.vue'), meta: { layout: 'admin', requiresAuth: true } },
     { path: '/admin/knowledge', name: 'admin-knowledge', component: () => import('@/views/admin/AdminKnowledgeDirectoriesView.vue'), meta: { layout: 'admin', requiresAuth: true } },
     { path: '/admin/projects', name: 'admin-projects', component: () => import('@/views/admin/AdminProjectsView.vue'), meta: { layout: 'admin', requiresAuth: true } },
     { path: '/admin/users', name: 'admin-users', component: () => import('@/views/admin/AdminUsersView.vue'), meta: { layout: 'admin', requiresAuth: true } },

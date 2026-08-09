@@ -41,6 +41,7 @@ import type {
   IntegrationSettings,
   IntegrationSettingsUpdate,
   NotificationOutbox,
+  MediaAsset,
 } from '@/api/types'
 
 const organization: Organization = {
@@ -165,6 +166,7 @@ let integrationSettings: IntegrationSettings = {
   ],
 }
 const assetDownloadStats: Record<string, { download_count: number; last_downloaded_at: string | null }> = {}
+let adminAssets: MediaAsset[] = []
 
 function recordContentRevision(content: AdminContent, reason: ContentRevision['reason']) {
   const revisions = contentRevisions[content.id] ?? []
@@ -362,8 +364,16 @@ export async function mockGet<T>(path: string): Promise<T> {
     ensureContentRevisions(content)
     return structuredClone(content) as T
   }
-  if (requestUrl.pathname.endsWith('/admin/content')) return page(adminContent) as T
-  if (requestUrl.pathname.endsWith('/admin/knowledge/directories')) return page(adminKnowledgeDirectories) as T
+	if (requestUrl.pathname.endsWith('/admin/content')) return page(adminContent) as T
+	if (requestUrl.pathname.endsWith('/admin/assets')) {
+		const search = requestUrl.searchParams.get('query')?.trim().toLowerCase() ?? ''
+		const pageNumber = Math.max(1, Number(requestUrl.searchParams.get('page') ?? 1))
+		const pageSize = Math.min(100, Math.max(1, Number(requestUrl.searchParams.get('page_size') ?? 20)))
+		const filtered = adminAssets.filter((item) => !search || item.original_name.toLowerCase().includes(search))
+		const start = (pageNumber - 1) * pageSize
+		return { items: structuredClone(filtered.slice(start, start + pageSize)), page: pageNumber, page_size: pageSize, total: filtered.length } as T
+	}
+	if (requestUrl.pathname.endsWith('/admin/knowledge/directories')) return page(adminKnowledgeDirectories) as T
   if (requestUrl.pathname.endsWith('/admin/users')) return page(adminUsers) as T
   if (requestUrl.pathname.endsWith('/admin/invitations')) {
     const status = requestUrl.searchParams.get('status')
@@ -843,8 +853,24 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
   }
   if (path.endsWith('/admin/assets')) {
     const assetID = `asset_${Date.now()}`
+    const formData = body as FormData
+    const file = formData.get('file') as File | null
+    const contentID = String(formData.get('content_id') ?? '') || null
+    const now = new Date().toISOString()
+    const asset: MediaAsset = {
+      id: assetID,
+      content_id: contentID,
+      original_name: file?.name ?? 'mock-upload.bin',
+      mime_type: file?.type || 'application/octet-stream',
+      size_bytes: file?.size ?? 0,
+      download_count: 0,
+      last_downloaded_at: null,
+      created_at: now,
+      download_url: `/api/v1/admin/assets/${assetID}/download`,
+    }
+    adminAssets = [asset, ...adminAssets]
     assetDownloadStats[assetID] = { download_count: 0, last_downloaded_at: null }
-    return { id: assetID, original_name: 'mock-upload.bin', mime_type: 'application/octet-stream', size_bytes: 0, download_count: 0, last_downloaded_at: null, download_url: '#' } as T
+    return asset as T
   }
   if (path.endsWith('/admin/knowledge/directories')) {
     const payload = body as Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>
@@ -1081,6 +1107,14 @@ export async function mockPut<T>(path: string, body: unknown): Promise<T> {
 export async function mockDelete<T>(path: string): Promise<T> {
   await wait()
   requireMockAdmin()
+  const assetMatch = path.match(/\/admin\/assets\/([^/]+)$/)
+  if (assetMatch) {
+    const assetIndex = adminAssets.findIndex((item) => item.id === assetMatch[1])
+    if (assetIndex < 0) throw new Error('媒体资源不存在。')
+    if (adminAssets[assetIndex].content_id) throw new Error('该文件已被内容引用，请先解除引用后再删除。')
+    adminAssets.splice(assetIndex, 1)
+    return { removed: true, id: assetMatch[1] } as T
+  }
   const invitationMatch = path.match(/\/admin\/invitations\/([^/]+)$/)
   if (invitationMatch) {
     const invitation = adminInvitations.find((item) => item.id === invitationMatch[1])

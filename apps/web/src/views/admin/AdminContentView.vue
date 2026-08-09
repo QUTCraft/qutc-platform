@@ -43,9 +43,14 @@ function statusLabel(status: AdminContent['status']) {
           <h2>内容工作区</h2>
           <p>统一管理门户动态、资源与知识库条目；正文使用标准 Markdown 编写。</p>
         </div>
-        <RouterLink to="/admin/content/new">
-          <el-button type="primary" round>+ 新建内容</el-button>
-        </RouterLink>
+        <div class="content-heading-actions">
+          <RouterLink to="/admin/assets">
+            <el-button plain round>快捷上传文件</el-button>
+          </RouterLink>
+          <RouterLink to="/admin/content/new">
+            <el-button type="primary" round>+ 新建内容</el-button>
+          </RouterLink>
+        </div>
       </section>
 
       <section class="admin-panel">
@@ -91,3 +96,17 @@ function statusLabel(status: AdminContent['status']) {
     </template>
   </AsyncState>
 </template>
+
+<style scoped>
+.content-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .content-heading-actions {
+    width: 100%;
+  }
+}
+</style>

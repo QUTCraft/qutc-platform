@@ -192,6 +192,30 @@ test('content editor keeps the full-page markdown workspace scrollable', async (
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
 })
 
+test('owner can batch upload and manage unlinked media assets', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByRole('button', { name: /登录工作台/ }).click()
+  await expect(page).toHaveURL(/\/admin$/)
+  await page.goto('/admin/assets')
+
+  await expect(page.getByRole('heading', { name: '资源文件', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '快捷上传', exact: true })).toBeVisible()
+  await expect(page.getByText('服务器本地存储', { exact: true })).toBeVisible()
+
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'quick-upload.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+  })
+  await expect(page.getByText('quick-upload.png', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('已完成', { exact: true })).toBeVisible()
+  const row = page.getByRole('row').filter({ hasText: 'quick-upload.png' })
+  await expect(row).toBeVisible()
+  await row.getByRole('button', { name: '删除未关联文件' }).click()
+  await page.getByRole('button', { name: '删除', exact: true }).click()
+  await expect(row).toHaveCount(0)
+})
+
 test('owner can create, revisit, and revoke a pending invitation', async ({ page }) => {
   await page.goto('/login')
   await page.getByRole('button', { name: /登录工作台/ }).click()

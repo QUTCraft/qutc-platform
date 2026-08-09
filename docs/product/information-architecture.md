@@ -15,7 +15,7 @@
 
 组织成员
   └─ Admin Layout（认证、RBAC）
-       └─ /admin, /admin/content, /admin/knowledge, /admin/projects, /admin/users, /admin/reviews, /admin/activity-planner, /admin/audit, /admin/ai, /admin/settings
+       └─ /admin, /admin/content, /admin/assets, /admin/knowledge, /admin/projects, /admin/users, /admin/reviews, /admin/activity-planner, /admin/audit, /admin/ai, /admin/settings
 ```
 
 门户不出现成员邮箱、角色、审核队列、草稿、RCON 面板或“后台管理”入口。后台可提供“查看门户”链接，但不得把它作为权限绕过手段。
@@ -43,6 +43,7 @@
 | --- | --- | --- | --- |
 | `/admin` | 聚合指标、待审申请、近期内容、适配器状态 | `GET /api/v1/admin/dashboard` | 已认证成员。 |
 | `/admin/content` | 内容列表、完整 Markdown 编辑器、修订历史/恢复及“从知识生成”人工确认工作台 | Content/Revision/Asset API 与内容协作 AI API；AI 结果只应用到表单或创建 draft | `content:read` / `content:create`；AI 读取同时需要 `ai:use` 与 `knowledge:read`。 |
+| `/admin/assets` | 拖拽/多选媒体上传、内容关联、文件搜索、受控下载链接和未关联文件清理 | Media Asset API、组织级 Storage Integration | 查看需要 `asset:read`；上传需要 `asset:upload`；删除需要 `asset:manage`。 |
 | `/admin/knowledge` | 知识目录创建与编辑 | Knowledge Directory API | `knowledge:read`；写操作需要 `knowledge:manage`。 |
 | `/admin/projects` | 项目、公开范围、成员与里程碑 | projects / members / milestones endpoints | `project:read`；写操作需要 `project:manage`，成员/里程碑 UI 已接入。 |
 | `/admin/users` | 成员、角色/状态、单个/批量邀请与投递结果 | Users / Invitations API | `membership:read`；成员与邀请写操作需要 `membership:manage`。 |
