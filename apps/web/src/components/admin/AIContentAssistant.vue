@@ -46,7 +46,6 @@ const open = computed({
 const provider = computed(() => configuration.value?.provider)
 const providerLabel = computed(() => {
   if (provider.value?.mode === 'real') return '真实模型'
-  if (provider.value?.mode === 'mock') return '开发 Mock'
   return '未启用'
 })
 const maxSources = computed(() => configuration.value?.max_sources ?? 10)
@@ -321,14 +320,7 @@ onBeforeUnmount(() => {
       </section>
 
       <el-alert
-        v-if="provider?.mode === 'mock'"
-        title="当前使用开发 Mock，结果仅用于验证流程，不能作为真实模型能力演示。"
-        type="warning"
-        :closable="false"
-        show-icon
-      />
-      <el-alert
-        v-else-if="configuration && (!configuration.enabled || !provider?.enabled)"
+        v-if="configuration && (!configuration.enabled || !provider?.enabled || provider.mode !== 'real')"
         :title="!configuration.enabled ? '当前组织已停用智能体，请由所有者在智能体配置页启用。' : '模型供应商尚未启用或配置不完整。'"
         type="info"
         :closable="false"

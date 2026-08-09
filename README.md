@@ -130,14 +130,14 @@ pnpm check
 复制 [`apps/web/.env.example`](apps/web/.env.example) 为 `apps/web/.env.local` 后配置：
 
 ```dotenv
-# mock：使用仓库内契约 fixture；remote：请求后端 API
-VITE_API_MODE=mock
+# remote：请求真实后端 API；仅本地 Vite 开发可显式改为 mock
+VITE_API_MODE=remote
 # 生产与 Compose 留空，使用 Web 内置同源 /api；本地分端口联调可填 http://localhost:8080
 VITE_API_BASE_URL=
 VITE_ORGANIZATION_SLUG=qutcraft
 ```
 
-只有后端实现并可用后才应切换为 `VITE_API_MODE=remote`。不要将生产 token、数据库连接、RCON 凭据或对象存储密钥写入任何 `VITE_*` 变量；这些变量会被打包到浏览器端。
+生产构建始终强制使用真实 API，即使构建命令遗漏 `VITE_API_MODE` 也不会回退到 Fixture。`mock` 仅供显式启动的本地 Vite 开发服务器使用。不要将生产 token、数据库连接、RCON 凭据或对象存储密钥写入任何 `VITE_*` 变量；这些变量会被打包到浏览器端。
 
 ### 启动 API（本机 Go）
 

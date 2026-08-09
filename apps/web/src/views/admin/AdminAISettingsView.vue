@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/admin'
-import type { AIAgentCatalog, AIConfiguration } from '@/api/types'
+import type { AIAgentCatalog, AIConfiguration, AIConfigurationUpdate } from '@/api/types'
 import { session } from '@/stores/session'
 
 const configuration = ref<AIConfiguration | null>(null)
@@ -11,7 +11,7 @@ const loading = ref(false)
 const saving = ref(false)
 
 const form = reactive({
-	provider: 'disabled' as AIConfiguration['provider']['provider'],
+	provider: 'disabled' as AIConfigurationUpdate['provider'],
 	base_url: '',
 	api_key: '',
 	model: '',
@@ -26,19 +26,18 @@ const canEdit = computed(() => session.user?.roles.includes('owner') ?? false)
 const provider = computed(() => configuration.value?.provider)
 const providerLabel = computed(() => {
   if (provider.value?.mode === 'real') return '真实模型'
-  if (provider.value?.mode === 'mock') return '开发 Mock'
   return '未启用'
 })
 const providerTagType = computed<'success' | 'warning' | 'info'>(() => {
   if (provider.value?.mode === 'real') return 'success'
-  if (provider.value?.mode === 'mock') return 'warning'
   return 'info'
 })
+const providerDisplay = computed(() => provider.value?.mode === 'real' ? 'OpenAI Compatible' : '未启用')
 
 function applyConfiguration(value: AIConfiguration) {
   configuration.value = value
 	Object.assign(form, {
-		provider: value.provider_config?.driver ?? value.provider.provider,
+		provider: value.provider_config?.driver === 'openai_compatible' ? 'openai_compatible' : 'disabled',
 		base_url: value.provider_config?.base_url ?? '',
 		api_key: '',
 		model: value.provider_config?.model ?? value.provider.model ?? '',
@@ -120,14 +119,6 @@ onMounted(() => {
           <el-tag :type="providerTagType" round>{{ providerLabel }}</el-tag>
         </div>
 
-        <el-alert
-          v-if="provider?.mode === 'mock'"
-          title="当前为开发 Mock，生成结果不能作为真实模型能力演示"
-          type="warning"
-          :closable="false"
-          show-icon
-        />
-
         <el-form :model="form" label-position="top" class="ai-provider-form">
           <div class="ai-provider-form-heading">
             <div>
@@ -141,10 +132,9 @@ onMounted(() => {
             <el-form-item label="模型驱动">
               <el-select v-model="form.provider" :disabled="!canEdit" class="full-width-control">
                 <el-option label="未启用" value="disabled" />
-                <el-option label="开发 Mock（仅开发）" value="mock" />
                 <el-option label="OpenAI 兼容接口" value="openai_compatible" />
               </el-select>
-              <small>生产环境不允许使用开发 Mock；停用后不会删除历史运行记录。</small>
+              <small>生产页面只允许停用或接入真实的 OpenAI 兼容接口。</small>
             </el-form-item>
             <el-form-item label="模型名称">
               <el-input v-model="form.model" :disabled="!canEdit || form.provider !== 'openai_compatible'" placeholder="例如：agnes-2.0-flash" />
@@ -178,7 +168,7 @@ onMounted(() => {
         <div class="ai-provider-metrics">
           <div>
             <span>驱动</span>
-            <strong>{{ provider?.provider ?? 'disabled' }}</strong>
+            <strong>{{ providerDisplay }}</strong>
           </div>
           <div>
             <span>模型</span>
@@ -332,7 +322,7 @@ onMounted(() => {
       <p>模型地址、模型名和 API Key 可以由组织所有者在本页配置；API Key 会在服务端加密保存，页面只显示脱敏状态。</p>
       <p>组织策略只影响后续运行；运行创建后会固定引用版本、模型模式和 Prompt 版本。</p>
       <p>有效权限仍是用户 RBAC 与智能体工具白名单的交集。关闭限制不会授予发布、审批、角色修改或服务器命令权限。</p>
-      <p>开发 Mock 始终显示为 <code>mode=mock</code>，生产环境启动校验禁止使用 Mock。</p>
+      <p>生产页面不提供模拟模型入口；停用供应商时不会删除已有运行记录。</p>
     </aside>
   </section>
 </template>

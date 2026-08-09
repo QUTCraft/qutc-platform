@@ -46,6 +46,7 @@ try {
     finally {
         Pop-Location
     }
+    Invoke-Checked "Production web fixture guard" { python scripts/check-production-web-build.py }
 
     if ($Runtime -or $Integration) {
         Invoke-Checked "Compose route smoke" { & scripts/run-route-smoke.ps1 }

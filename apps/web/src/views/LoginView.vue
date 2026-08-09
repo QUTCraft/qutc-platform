@@ -3,13 +3,14 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ArrowLeft, Key, User } from '@element-plus/icons-vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
+import { isMockApiMode } from '@/api/client'
 import { organizationSlug } from '@/api/portal'
 import { usePortalIdentity } from '@/composables/usePortalIdentity'
 import { signIn } from '@/stores/session'
 
 const route = useRoute()
 const router = useRouter()
-const mockMode = (import.meta.env.VITE_API_MODE ?? 'mock') === 'mock'
+const mockMode = isMockApiMode
 const isQutcraftPortal = organizationSlug === 'qutcraft'
 const { organization, loadPortalOrganization } = usePortalIdentity()
 const organizationName = computed(() => organization.value?.name ?? (isQutcraftPortal ? 'QUTCraft Commons' : 'Campus Commons'))

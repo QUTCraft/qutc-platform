@@ -344,7 +344,7 @@ onMounted(() => {
 
   <section class="settings-layout" :aria-busy="initialLoading">
     <div class="settings-main-column">
-	  <article v-loading="organizationLoading" class="admin-panel">
+	  <article v-loading="organizationLoading && !initialLoading" class="admin-panel">
 		<div class="panel-heading">
 		  <div>
 			<h2>组织公开资料</h2>
@@ -374,7 +374,7 @@ onMounted(() => {
 		</el-form>
 	  </article>
 
-	  <article v-loading="loading" class="admin-panel" style="margin-top: 20px;">
+	  <article v-loading="loading && !initialLoading" class="admin-panel" style="margin-top: 20px;">
         <div class="panel-heading">
           <div>
             <h2>门户 Manifest</h2>
@@ -446,7 +446,7 @@ onMounted(() => {
         </el-form>
       </article>
 
-      <article v-loading="integrationLoading" class="admin-panel integration-panel" style="margin-top: 20px;">
+      <article v-loading="integrationLoading && !initialLoading" class="admin-panel integration-panel" style="margin-top: 20px;">
         <div class="panel-heading">
           <div>
             <h2>服务接入</h2>
@@ -570,7 +570,7 @@ onMounted(() => {
         </div>
       </article>
 
-      <article v-loading="invitationTemplateLoading" class="admin-panel" style="margin-top: 20px;">
+      <article v-loading="invitationTemplateLoading && !initialLoading" class="admin-panel" style="margin-top: 20px;">
         <div class="panel-heading">
           <div>
             <h2>邀请邮件模板</h2>
@@ -584,7 +584,7 @@ onMounted(() => {
         </el-form>
       </article>
 
-      <article v-loading="notificationLoading" class="admin-panel" style="margin-top: 20px;">
+      <article v-loading="notificationLoading && !initialLoading" class="admin-panel" style="margin-top: 20px;">
         <div class="panel-heading">
           <div>
             <h2>通知队列</h2>

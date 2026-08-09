@@ -47,7 +47,6 @@ const selectedSources = computed(() => selectedSourceIds.value.map((id) => sourc
 const maxSources = computed(() => configuration.value?.max_sources ?? 10)
 const providerLabel = computed(() => {
   if (configuration.value?.provider.mode === 'real') return '真实模型'
-  if (configuration.value?.provider.mode === 'mock') return '开发 Mock'
   return '未启用'
 })
 const planHtml = computed(() => renderMarkdown(plan.value?.run.output_markdown ?? ''))
@@ -346,14 +345,6 @@ function statusType(status: ActivityPlanSummary['status']) {
       </div>
     </section>
 
-    <el-alert
-      v-if="configuration?.provider.mode === 'mock'"
-      title="当前使用开发 Mock，只用于验证工作流；比赛正式演示必须连接真实模型。"
-      type="warning"
-      :closable="false"
-      show-icon
-    />
-
     <section class="quality-overview" v-loading="qualitySummaryLoading">
       <div class="quality-copy">
         <span class="eyebrow">HUMAN EVALUATION</span>
@@ -362,7 +353,7 @@ function statusType(status: ActivityPlanSummary['status']) {
         <p v-else>尚无人工评分。生成方案后由真实评审完成五维评价，系统不会用自动分数冒充人工结论。</p>
         <div v-if="qualitySummary?.by_model.length" class="model-summary-list">
           <span v-for="item in qualitySummary.by_model" :key="`${item.provider}:${item.model}:${item.prompt_version}`">
-            {{ item.mode === 'real' ? '真实模型' : '开发 Mock' }} · {{ item.model }} · {{ item.prompt_version }} · {{ item.evaluations }} 次
+            {{ item.mode === 'real' ? '真实模型' : '非生产记录' }} · {{ item.model }} · {{ item.prompt_version }} · {{ item.evaluations }} 次
           </span>
         </div>
       </div>
@@ -519,7 +510,7 @@ function statusType(status: ActivityPlanSummary['status']) {
               <el-tag :type="statusType(item.status)" size="small" effect="plain">{{ statusLabel(item.status) }}</el-tag>
             </span>
           </span>
-          <span>{{ item.mode === 'real' ? '真实模型' : '开发 Mock' }} · {{ item.model || '模型未记录' }}</span>
+          <span>{{ item.mode === 'real' ? '真实模型' : '非生产记录' }} · {{ item.model || '模型未记录' }}</span>
           <small>{{ formatDate(item.created_at) }}<template v-if="item.starts_at"> · 活动 {{ formatDate(item.starts_at) }}</template></small>
         </button>
       </div>

@@ -262,7 +262,7 @@ export interface AIConfiguration {
 }
 
 export type AIConfigurationUpdate = Pick<AIConfiguration, 'enabled' | 'run_limit_per_hour' | 'request_timeout_seconds' | 'max_sources' | 'max_context_characters'> & {
-  provider: AIProviderStatus['provider']
+  provider: Exclude<AIProviderStatus['provider'], 'mock'>
   base_url: string
   api_key: string
   model: string

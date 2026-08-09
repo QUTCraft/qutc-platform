@@ -3,6 +3,7 @@ import { useRouter } from 'vue-router'
 const CURTAIN_SIZE = 40
 const ROUTE_DELAY = 650
 const CLEANUP_DELAY = 1_350
+let transitionActive = false
 
 /**
  * Navigate to the application page with a local radial black-mask reveal.
@@ -15,6 +16,8 @@ export function useApplyTransition() {
   const router = useRouter()
 
   const navigateToApply = (event?: MouseEvent) => {
+    if (transitionActive) return
+    transitionActive = true
     const x = event?.clientX || window.innerWidth / 2
     const y = event?.clientY || window.innerHeight / 2
     const farthestCorner = Math.max(
@@ -32,6 +35,11 @@ export function useApplyTransition() {
     curtain.style.setProperty('--apply-transition-scale', String(scaleFactor))
     document.body.appendChild(curtain)
 
+    // Fetch the lazy route underneath the curtain. Navigation still waits for
+    // the intentional reveal delay, while slow networks no longer expose a
+    // blank frame after the animation.
+    void import('@/views/ApplyView.vue')
+
     requestAnimationFrame(() => {
       curtain.classList.add('is-expanding')
     })
@@ -42,7 +50,10 @@ export function useApplyTransition() {
 
     window.setTimeout(() => {
       curtain.classList.add('is-fading')
-      window.setTimeout(() => curtain.remove(), 400)
+      window.setTimeout(() => {
+        curtain.remove()
+        transitionActive = false
+      }, 400)
     }, CLEANUP_DELAY)
   }
 

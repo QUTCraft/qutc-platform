@@ -320,9 +320,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-if="loading" class="content-editor-loading loading-state" aria-live="polite">
-    <el-skeleton :rows="10" />
-  </div>
+  <div v-if="loading" class="async-pending" role="status" aria-live="polite">内容加载中</div>
   <el-result v-else-if="loadError" icon="error" title="内容无法加载" :sub-title="loadError.message">
     <template #extra>
       <el-button type="primary" @click="loadContent">重试</el-button>

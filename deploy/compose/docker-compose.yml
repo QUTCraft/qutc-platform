@@ -70,10 +70,10 @@ services:
       SMTP_FROM_NAME: ${SMTP_FROM_NAME:-QUTCraft Commons}
       SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
       SMTP_TIMEOUT: ${SMTP_TIMEOUT:-8s}
-      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      AI_PROVIDER: ${AI_PROVIDER:-disabled}
       AI_BASE_URL: ${AI_BASE_URL:-}
       AI_API_KEY: ${AI_API_KEY:-}
-      AI_MODEL: ${AI_MODEL:-mock-content-v1}
+      AI_MODEL: ${AI_MODEL:-}
       AI_REQUEST_TIMEOUT: ${AI_REQUEST_TIMEOUT:-30s}
       AI_RUN_LIMIT_PER_HOUR: ${AI_RUN_LIMIT_PER_HOUR:-20}
     ports:

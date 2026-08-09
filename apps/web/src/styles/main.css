@@ -677,23 +677,13 @@ h1, h2, h3, h4, h5, h6, p {
   color: #ffffff !important;
 }
 
-.loading-state {
-  display: flex;
-  min-height: 320px;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
-  background: color-mix(in srgb, var(--md-sys-color-surface-container) 72%, transparent);
-  border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: var(--md-shape-xl);
-}
-
-.loading-state .el-skeleton {
-  width: min(100%, 720px);
-}
-
-.loading-state .el-skeleton__item {
-  background: color-mix(in srgb, var(--md-sys-color-primary-container) 42%, var(--md-sys-color-surface-container-high)) !important;
+.async-pending {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* Application Layout Components */

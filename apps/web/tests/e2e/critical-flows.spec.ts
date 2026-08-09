@@ -64,14 +64,20 @@ test('public portal routes remain navigable', async ({ page }) => {
     await expect(page.locator('body')).not.toContainText('页面不存在')
   }
 
+  let beforeApplyUrl = page.url()
   const joinButton = page.getByRole('button', { name: '加入我们' })
   if (await joinButton.isVisible()) {
     await joinButton.click()
   } else {
     await clickPublicNavigation(page, '首页')
+    beforeApplyUrl = page.url()
     await page.getByRole('button', { name: /申请加入服务器/ }).first().click()
   }
+  await expect(page.locator('.apply-transition-curtain.is-expanding')).toHaveCount(1)
+  await page.waitForTimeout(250)
+  expect(page.url()).toBe(beforeApplyUrl)
   await expect(page).toHaveURL(/\/apply$/)
+  await expect(page.locator('.apply-transition-curtain')).toHaveCount(0, { timeout: 2500 })
   await expect(page.locator('body')).not.toContainText(/正在打开(?:管理)?页面/)
 })
 
@@ -81,7 +87,7 @@ test('owner can open dashboard and organization settings', async ({ page }) => {
   await expect(page).toHaveURL(/\/admin$/)
   await expect(page.getByRole('heading', { name: '工作台概览' })).toBeVisible()
   await expect(page.locator('.el-loading-mask.is-fullscreen')).toHaveCount(0)
-  await expect(page.locator('.el-skeleton.is-animated')).toHaveCount(0)
+  await expect(page.locator('.loading-state, .el-skeleton')).toHaveCount(0)
 
   if ((page.viewportSize()?.width ?? 0) > 900) {
     const rail = page.locator('.admin-rail')
@@ -243,7 +249,7 @@ test('activity planner opens as a structured three-step workspace', async ({ pag
   await expect(page.getByText('审查执行', { exact: true })).toBeVisible()
   await expect(page.getByLabel('活动名称')).toBeVisible()
   await expect(page.locator('.el-loading-mask.is-fullscreen')).toHaveCount(0)
-  await expect(page.locator('.el-skeleton.is-animated')).toHaveCount(0)
+  await expect(page.locator('.loading-state, .el-skeleton')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '活动方案质量证据' })).toBeVisible()
   await expect(page.getByText('尚无人工评分。生成方案后由真实评审完成五维评价，系统不会用自动分数冒充人工结论。')).toBeVisible()
   await expect(page.getByRole('heading', { name: '待评分方案已全部完成' })).toBeVisible()

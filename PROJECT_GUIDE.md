@@ -285,7 +285,7 @@ Copy-Item .env.example .env.local
 pnpm dev
 ```
 
-离线演示设置 VITE_API_MODE=mock；真实 Compose 联调设置：
+本地 Vite 离线调试可显式设置 VITE_API_MODE=mock；生产构建会强制使用 remote。真实 Compose 联调设置：
 
 ```dotenv
 VITE_API_MODE=remote

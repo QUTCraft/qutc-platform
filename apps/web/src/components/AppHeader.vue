@@ -3,9 +3,11 @@ import { Menu, UserFilled } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { organizationSlug } from '@/api/portal'
+import { useApplyTransition } from '@/composables/useApplyTransition'
 import { usePortalIdentity } from '@/composables/usePortalIdentity'
 
 const router = useRouter()
+const { navigateToApply } = useApplyTransition()
 const mobileOpen = ref(false)
 const { organization, loadPortalOrganization } = usePortalIdentity()
 const isQutcraftPortal = organizationSlug === 'qutcraft'
@@ -13,7 +15,13 @@ const organizationName = computed(() => organization.value?.name ?? (organizatio
 const organizationSubtitle = computed(() => organization.value?.short_name ? `${organization.value.short_name} · 公共门户` : '公共门户')
 
 const goToLogin = () => router.push({ name: 'login' })
-const runPrimaryAction = () => router.push({ name: isQutcraftPortal ? 'apply' : 'projects' })
+const runPrimaryAction = (event: MouseEvent) => {
+  if (isQutcraftPortal) {
+    navigateToApply(event)
+    return
+  }
+  void router.push({ name: 'projects' })
+}
 
 const links = [
   { to: '/', label: '首页' },
@@ -44,7 +52,7 @@ onMounted(() => {
 
     <div class="header-actions">
       <el-button class="header-login-btn" text :icon="UserFilled" aria-label="成员登录" @click="goToLogin">成员登录</el-button>
-      <el-button class="header-join-btn" type="primary" round @click="runPrimaryAction">{{ isQutcraftPortal ? '加入我们' : '公开项目' }}</el-button>
+      <el-button class="header-join-btn" type="primary" round @click="(event: MouseEvent) => runPrimaryAction(event)">{{ isQutcraftPortal ? '加入我们' : '公开项目' }}</el-button>
       <el-button class="menu-button" text circle :icon="Menu" aria-label="打开导航" @click="mobileOpen = true" />
     </div>
   </header>

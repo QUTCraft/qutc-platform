@@ -1,8 +1,14 @@
-import { mockDelete, mockGet, mockPatch, mockPost, mockPut } from '@/api/mock'
 import { clearTokens, getAccessToken, saveTokens } from '@/auth/token-storage'
 import type { ApiEnvelope, Page } from '@/api/types'
 
-const apiMode = import.meta.env.VITE_API_MODE ?? 'mock'
+// A production bundle must never silently fall back to fixture data. Mock is
+// available only from the Vite development server when explicitly requested.
+const requestedApiMode = import.meta.env.VITE_API_MODE?.trim().toLowerCase()
+export const isMockApiMode = import.meta.env.DEV && requestedApiMode === 'mock'
+const apiMode = isMockApiMode ? 'mock' : 'remote'
+type MockApi = typeof import('@/api/mock')
+let mockApiPromise: Promise<MockApi> | undefined
+const loadMockApi = () => (mockApiPromise ??= import('@/api/mock'))
 // Production uses the web container's same-origin /api reverse proxy, so the
 // browser never needs an administrator-maintained API hostname. A Vite value
 // remains available for split-port local development only.
@@ -78,7 +84,7 @@ async function fetchWithSessionRetry(path: string, request: () => RequestInit) {
 }
 
 export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
-  if (apiMode === 'mock') return mockGet<T>(path)
+  if (apiMode === 'mock') return (await loadMockApi()).mockGet<T>(path)
 
   const response = await fetchWithSessionRetry(path, () => ({ headers: headers(), credentials: 'include', signal }))
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
@@ -90,7 +96,7 @@ export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
 }
 
 export async function getPage<T>(path: string, signal?: AbortSignal): Promise<Page<T>> {
-  if (apiMode === 'mock') return mockGet<Page<T>>(path)
+  if (apiMode === 'mock') return (await loadMockApi()).mockGet<Page<T>>(path)
 
   const response = await fetchWithSessionRetry(path, () => ({ headers: headers(), credentials: 'include', signal }))
   const payload = await response.json().catch(() => null) as ApiEnvelope<T[]> | { error?: { code?: string; message?: string } } | null
@@ -107,7 +113,7 @@ export async function getPage<T>(path: string, signal?: AbortSignal): Promise<Pa
 }
 
 export async function post<T>(path: string, body?: unknown): Promise<T> {
-  if (apiMode === 'mock') return mockPost<T>(path, body)
+  if (apiMode === 'mock') return (await loadMockApi()).mockPost<T>(path, body)
 
   const response = await fetchWithSessionRetry(path, () => ({ method: 'POST', headers: headers(true), credentials: 'include', body: body === undefined ? undefined : JSON.stringify(body) }))
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
@@ -119,7 +125,7 @@ export async function post<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export async function upload<T>(path: string, formData: FormData): Promise<T> {
-  if (apiMode === 'mock') return mockPost<T>(path, formData)
+  if (apiMode === 'mock') return (await loadMockApi()).mockPost<T>(path, formData)
   const response = await fetchWithSessionRetry(path, () => ({ method: 'POST', headers: headers(), credentials: 'include', body: formData }))
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
   if (!response.ok || !payload || !('data' in payload)) {
@@ -130,7 +136,7 @@ export async function upload<T>(path: string, formData: FormData): Promise<T> {
 }
 
 export async function patch<T>(path: string, body: unknown): Promise<T> {
-  if (apiMode === 'mock') return mockPatch<T>(path, body)
+  if (apiMode === 'mock') return (await loadMockApi()).mockPatch<T>(path, body)
   const response = await fetchWithSessionRetry(path, () => ({ method: 'PATCH', headers: headers(true), credentials: 'include', body: JSON.stringify(body) }))
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
   if (!response.ok || !payload || !('data' in payload)) { const error = payload && 'error' in payload ? payload.error : undefined; throw new ApiClientError(response.status, error?.code ?? 'network.request_failed', error?.message ?? '请求失败，请稍后重试。') }
@@ -138,7 +144,7 @@ export async function patch<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function put<T>(path: string, body: unknown): Promise<T> {
-  if (apiMode === 'mock') return mockPut<T>(path, body)
+  if (apiMode === 'mock') return (await loadMockApi()).mockPut<T>(path, body)
   const response = await fetchWithSessionRetry(path, () => ({ method: 'PUT', headers: headers(true), credentials: 'include', body: JSON.stringify(body) }))
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
   if (!response.ok || !payload || !('data' in payload)) { const error = payload && 'error' in payload ? payload.error : undefined; throw new ApiClientError(response.status, error?.code ?? 'network.request_failed', error?.message ?? '请求失败，请稍后重试。') }
@@ -146,7 +152,7 @@ export async function put<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function del<T>(path: string): Promise<T> {
-  if (apiMode === 'mock') return mockDelete<T>(path)
+  if (apiMode === 'mock') return (await loadMockApi()).mockDelete<T>(path)
   const response = await fetchWithSessionRetry(path, () => ({ method: 'DELETE', headers: headers(), credentials: 'include' }))
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
   if (!response.ok || !payload || !('data' in payload)) { const error = payload && 'error' in payload ? payload.error : undefined; throw new ApiClientError(response.status, error?.code ?? 'network.request_failed', error?.message ?? '请求失败，请稍后重试。') }

@@ -92,7 +92,7 @@ func Load() Config {
 		AIProvider:                strings.ToLower(value("AI_PROVIDER", "disabled")),
 		AIBaseURL:                 strings.TrimRight(strings.TrimSpace(os.Getenv("AI_BASE_URL")), "/"),
 		AIAPIKey:                  os.Getenv("AI_API_KEY"),
-		AIModel:                   value("AI_MODEL", "mock-content-v1"),
+		AIModel:                   strings.TrimSpace(os.Getenv("AI_MODEL")),
 		AIRequestTimeout:          duration("AI_REQUEST_TIMEOUT", 30*time.Second),
 		AIRunLimitPerHour:         positiveInteger("AI_RUN_LIMIT_PER_HOUR", 20),
 		CORSAllowedOrigins:        csv(value("CORS_ALLOWED_ORIGINS", "http://localhost:8082,http://127.0.0.1:8082,http://localhost,http://127.0.0.1")),
