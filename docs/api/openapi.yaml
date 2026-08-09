@@ -1381,6 +1381,75 @@ paths:
               schema: { $ref: '#/components/schemas/EmailAdapterStatusResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/integrations:
+    get:
+      tags: [Admin]
+      operationId: getAdminIntegrationSettings
+      summary: 获取组织服务接入配置
+      description: |
+        返回门户公网地址、SMTP、S3/MinIO 与部署维护项。密码、Access Key 和 Secret Key 永不返回明文，
+        仅返回是否已配置及尾号提示。组织尚未保存网页配置时返回当前部署默认值，并标记 source=deployment。
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 当前组织的有效服务接入配置
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IntegrationSettingsResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      tags: [Admin]
+      operationId: updateAdminIntegrationSettings
+      summary: 保存并即时启用组织服务接入配置
+      description: |
+        需要 organization:configure。SMTP 密码与 S3 凭据使用服务端密钥加密持久化；凭据字段留空时保留原值，
+        只有对应 clear_* 为 true 时才清除。保存后新邀请、通知、上传和下载请求立即使用新配置，无需重启 API。
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IntegrationSettingsRequest' }
+      responses:
+        '200':
+          description: 已保存并生效
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IntegrationSettingsResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /api/v1/admin/integrations/test:
+    post:
+      tags: [Admin]
+      operationId: testAdminIntegration
+      summary: 无副作用验证 SMTP 或存储连接
+      description: |
+        section=email 时验证网络、TLS 与 SMTP 身份认证但不发送邮件；section=storage 时验证本地目录或 S3 存储桶可访问，
+        不创建存储桶、不上传也不删除对象。
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [section]
+              properties:
+                section: { type: string, enum: [email, storage] }
+      responses:
+        '200':
+          description: 连接验证成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IntegrationTestResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/admin/projects:
     get:
       tags: [Admin]
@@ -2851,6 +2920,105 @@ components:
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/EmailAdapterStatus' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    IntegrationSettings:
+      type: object
+      required: [public_web_base_url, source, email, storage, managed_runtime]
+      properties:
+        public_web_base_url: { type: string, format: uri, maxLength: 500 }
+        source: { type: string, enum: [deployment, web] }
+        email:
+          type: object
+          required: [driver, source, enabled, configured, host, port, username, password_configured, from_address, from_name, security, timeout_seconds]
+          properties:
+            driver: { type: string, enum: [disabled, smtp] }
+            source: { type: string, enum: [deployment, web] }
+            enabled: { type: boolean }
+            configured: { type: boolean }
+            host: { type: string, maxLength: 255 }
+            port: { type: integer, minimum: 1, maximum: 65535 }
+            username: { type: string, maxLength: 255 }
+            password_configured: { type: boolean }
+            password_hint: { type: string, maxLength: 16 }
+            from_address: { type: string, maxLength: 254 }
+            from_name: { type: string, maxLength: 160 }
+            security: { type: string, enum: [starttls, tls, none] }
+            timeout_seconds: { type: integer, minimum: 2, maximum: 60 }
+        storage:
+          type: object
+          required: [driver, source, configured, endpoint, access_key_configured, secret_key_configured, bucket, region, use_ssl]
+          properties:
+            driver: { type: string, enum: [local, s3] }
+            source: { type: string, enum: [deployment, web] }
+            configured: { type: boolean }
+            endpoint: { type: string, maxLength: 500 }
+            access_key_configured: { type: boolean }
+            access_key_hint: { type: string, maxLength: 16 }
+            secret_key_configured: { type: boolean }
+            secret_key_hint: { type: string, maxLength: 16 }
+            bucket: { type: string, maxLength: 255 }
+            region: { type: string, maxLength: 120 }
+            use_ssl: { type: boolean }
+        managed_runtime:
+          type: array
+          items:
+            type: object
+            required: [key, label, state, description]
+            properties:
+              key: { type: string, enum: [database, cache, security, server] }
+              label: { type: string }
+              state: { type: string, enum: [deployment, deferred] }
+              description: { type: string }
+        updated_at: { type: string, format: date-time }
+    IntegrationSettingsRequest:
+      type: object
+      required: [public_web_base_url, email, storage]
+      properties:
+        public_web_base_url: { type: string, format: uri, maxLength: 500 }
+        email:
+          type: object
+          required: [driver, host, port, username, password, clear_password, from_address, from_name, security, timeout_seconds]
+          properties:
+            driver: { type: string, enum: [disabled, smtp] }
+            host: { type: string, maxLength: 255 }
+            port: { type: integer, minimum: 1, maximum: 65535 }
+            username: { type: string, maxLength: 255 }
+            password: { type: string, maxLength: 4096, writeOnly: true }
+            clear_password: { type: boolean, default: false }
+            from_address: { type: string, maxLength: 254 }
+            from_name: { type: string, maxLength: 160 }
+            security: { type: string, enum: [starttls, tls, none] }
+            timeout_seconds: { type: integer, minimum: 2, maximum: 60 }
+        storage:
+          type: object
+          required: [driver, endpoint, access_key, secret_key, clear_access_key, clear_secret_key, bucket, region, use_ssl]
+          properties:
+            driver: { type: string, enum: [local, s3] }
+            endpoint: { type: string, maxLength: 500 }
+            access_key: { type: string, maxLength: 4096, writeOnly: true }
+            secret_key: { type: string, maxLength: 4096, writeOnly: true }
+            clear_access_key: { type: boolean, default: false }
+            clear_secret_key: { type: boolean, default: false }
+            bucket: { type: string, maxLength: 255 }
+            region: { type: string, maxLength: 120 }
+            use_ssl: { type: boolean }
+    IntegrationSettingsResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/IntegrationSettings' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    IntegrationTestResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [section, reachable, checked_at]
+          properties:
+            section: { type: string, enum: [email, storage] }
+            reachable: { type: boolean, const: true }
+            checked_at: { type: string, format: date-time }
         meta: { $ref: '#/components/schemas/Meta' }
     InvitationTemplate:
       type: object

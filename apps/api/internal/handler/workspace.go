@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/mail"
 	"regexp"
@@ -24,12 +25,17 @@ import (
 // WorkspaceHandler owns the first content read/write model shared by the
 // public portal and the protected CMS workspace.
 type WorkspaceHandler struct {
-	db             *gorm.DB
-	cache          *cache.Cache
-	cacheNamespace string
-	serverAdapter  serveradapter.Adapter
-	mediaStorage   storage.Store
-	applications   *service.ApplicationDecisionService
+	db              *gorm.DB
+	cache           *cache.Cache
+	cacheNamespace  string
+	serverAdapter   serveradapter.Adapter
+	mediaStorage    storage.Store
+	storageResolver MediaStorageResolver
+	applications    *service.ApplicationDecisionService
+}
+
+type MediaStorageResolver interface {
+	Storage(context.Context, string, string) (storage.Store, error)
 }
 
 var (
@@ -85,6 +91,25 @@ func NewWorkspaceHandlerWithDependenciesAndNotifications(db *gorm.DB, publicCach
 		mediaStorage:   mediaStorage,
 		applications:   service.NewApplicationDecisionServiceWithNotifications(db, adapter, notifications),
 	}
+}
+
+// UseStorageResolver enables organization-scoped runtime storage selection
+// while preserving the existing static constructor for tests and embedders.
+func (h *WorkspaceHandler) UseStorageResolver(resolver MediaStorageResolver) {
+	h.storageResolver = resolver
+}
+
+func (h *WorkspaceHandler) storageFor(ctx context.Context, organizationID, driver string) (storage.Store, error) {
+	if h.storageResolver != nil {
+		return h.storageResolver.Storage(ctx, organizationID, driver)
+	}
+	if h.mediaStorage == nil {
+		return nil, errors.New("media storage is unavailable")
+	}
+	if driver != "" && driver != h.mediaStorage.Driver() {
+		return nil, fmt.Errorf("storage driver %q is unavailable", driver)
+	}
+	return h.mediaStorage, nil
 }
 
 func (h *WorkspaceHandler) cachedPortalPage(c *gin.Context, slug, resource string, loader func() ([]gin.H, error)) {

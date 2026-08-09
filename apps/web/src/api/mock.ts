@@ -38,6 +38,8 @@ import type {
   TokenPair,
   Invitation,
   InvitationTemplate,
+  IntegrationSettings,
+  IntegrationSettingsUpdate,
   NotificationOutbox,
 } from '@/api/types'
 
@@ -142,6 +144,26 @@ const invitationTemplate: InvitationTemplate = {
   variables: ['organization', 'role', 'invite_url', 'expires_at'],
 }
 let notificationOutbox: NotificationOutbox[] = []
+let integrationSettings: IntegrationSettings = {
+  public_web_base_url: window.location.origin,
+  source: 'deployment',
+  email: {
+    driver: 'disabled', source: 'deployment', enabled: false, configured: false,
+    host: '', port: 587, username: '', password_configured: false,
+    from_address: '', from_name: 'QUTCraft', security: 'starttls', timeout_seconds: 8,
+  },
+  storage: {
+    driver: 'local', source: 'deployment', configured: true, endpoint: '',
+    access_key_configured: false, secret_key_configured: false,
+    bucket: '', region: '', use_ssl: false,
+  },
+  managed_runtime: [
+    { key: 'database', label: 'MySQL 数据库', state: 'deployment', description: '启动根基，由部署维护；网页仅使用当前连接。' },
+    { key: 'cache', label: 'Redis 缓存', state: 'deployment', description: '启动根基，由部署维护；可通过健康检查确认状态。' },
+    { key: 'security', label: 'JWT、CORS 与限流', state: 'deployment', description: '安全边界，由部署维护，修改后需要重启 API。' },
+    { key: 'server', label: '服务器命令适配器', state: 'deferred', description: 'RCON 已按项目计划延期，当前保持安全 Mock。' },
+  ],
+}
 const assetDownloadStats: Record<string, { download_count: number; last_downloaded_at: string | null }> = {}
 
 function recordContentRevision(content: AdminContent, reason: ContentRevision['reason']) {
@@ -466,8 +488,9 @@ export async function mockGet<T>(path: string): Promise<T> {
   }
   if (path.endsWith('/admin/server/status')) return adminServer as T
   if (path.endsWith('/admin/notifications/email/status')) {
-    return { driver: 'disabled', enabled: false, configured: false } as EmailAdapterStatus as T
+    return { driver: integrationSettings.email.driver, enabled: integrationSettings.email.enabled, configured: integrationSettings.email.configured, from_address: integrationSettings.email.from_address, from_name: integrationSettings.email.from_name, security: integrationSettings.email.security } as EmailAdapterStatus as T
   }
+	if (path.endsWith('/admin/integrations')) return structuredClone(integrationSettings) as T
 	if (path.endsWith('/admin/notifications/invitation-template')) return structuredClone(invitationTemplate) as T
 	if (requestUrl.pathname.endsWith('/admin/notifications/outbox')) {
 		const status = requestUrl.searchParams.get('status')
@@ -540,6 +563,13 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
   }
 	if (path.endsWith('/apply')) return { id: `application_${Date.now()}`, status: 'pending', submitted_at: new Date().toISOString() } as T
 	if (path.includes('/admin/')) requireMockAdmin()
+	if (path.endsWith('/admin/integrations/test')) {
+		const section = (body as { section?: string }).section
+		if (section !== 'email' && section !== 'storage') throw new Error('未知的服务接入类型。')
+		if (section === 'email' && !integrationSettings.email.configured) throw new Error('请先启用并保存完整的 SMTP 配置。')
+		if (section === 'storage' && !integrationSettings.storage.configured) throw new Error('请先保存完整的存储配置。')
+		return { section, reachable: true, checked_at: new Date().toISOString() } as T
+	}
 	const notificationRetryMatch = path.match(/\/admin\/notifications\/outbox\/([^/]+)\/retry$/)
 	if (notificationRetryMatch) {
 		const item = notificationOutbox.find((notification) => notification.id === notificationRetryMatch[1])
@@ -913,6 +943,37 @@ export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
 	if (path.endsWith('/admin/notifications/invitation-template')) {
 		Object.assign(invitationTemplate, body as Pick<InvitationTemplate, 'subject_template' | 'body_template'>)
 		return structuredClone(invitationTemplate) as T
+	}
+	if (path.endsWith('/admin/integrations')) {
+		const payload = body as IntegrationSettingsUpdate
+		const emailConfigured = payload.email.driver === 'smtp'
+			&& Boolean(payload.email.host && payload.email.port && payload.email.from_address)
+			&& (!payload.email.username || Boolean(payload.email.password || (integrationSettings.email.password_configured && !payload.email.clear_password)))
+		const storageConfigured = payload.storage.driver === 'local' || Boolean(
+			payload.storage.endpoint && payload.storage.bucket
+			&& (payload.storage.access_key || (integrationSettings.storage.access_key_configured && !payload.storage.clear_access_key))
+			&& (payload.storage.secret_key || (integrationSettings.storage.secret_key_configured && !payload.storage.clear_secret_key)),
+		)
+		integrationSettings = {
+			...integrationSettings,
+			public_web_base_url: payload.public_web_base_url,
+			source: 'web',
+			email: {
+				...integrationSettings.email, ...payload.email, source: 'web',
+				enabled: payload.email.driver === 'smtp', configured: payload.email.driver === 'disabled' || emailConfigured,
+				password_configured: payload.email.clear_password ? false : Boolean(payload.email.password) || integrationSettings.email.password_configured,
+				password_hint: payload.email.clear_password ? undefined : payload.email.password ? `••••••${payload.email.password.slice(-4)}` : integrationSettings.email.password_hint,
+			},
+			storage: {
+				...integrationSettings.storage, ...payload.storage, source: 'web', configured: storageConfigured,
+				access_key_configured: payload.storage.clear_access_key ? false : Boolean(payload.storage.access_key) || integrationSettings.storage.access_key_configured,
+				access_key_hint: payload.storage.clear_access_key ? undefined : payload.storage.access_key ? `••••••${payload.storage.access_key.slice(-4)}` : integrationSettings.storage.access_key_hint,
+				secret_key_configured: payload.storage.clear_secret_key ? false : Boolean(payload.storage.secret_key) || integrationSettings.storage.secret_key_configured,
+				secret_key_hint: payload.storage.clear_secret_key ? undefined : payload.storage.secret_key ? `••••••${payload.storage.secret_key.slice(-4)}` : integrationSettings.storage.secret_key_hint,
+			},
+			updated_at: new Date().toISOString(),
+		}
+		return structuredClone(integrationSettings) as T
 	}
   if (path.endsWith('/admin/ai/config')) {
     const payload = body as Partial<AIConfiguration> & { provider?: AIConfiguration['provider']['provider']; base_url?: string; api_key?: string; model?: string }

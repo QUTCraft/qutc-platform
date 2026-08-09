@@ -67,15 +67,16 @@ func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
 		return
 	}
 	id := uuid.NewString()
-	if h.mediaStorage == nil {
+	mediaStorage, storageErr := h.storageFor(c.Request.Context(), principal.OrganizationID, "")
+	if storageErr != nil {
 		fail(c, http.StatusServiceUnavailable, "asset.storage_unavailable", "媒体存储暂不可用。")
 		return
 	}
 	storedName := id + filepath.Ext(originalName)
 	storageKey := principal.OrganizationID + "/" + storedName
-	written, storeErr := h.mediaStorage.Put(c.Request.Context(), storageKey, io.LimitReader(file, maxAssetSize+1), mimeType)
+	written, storeErr := mediaStorage.Put(c.Request.Context(), storageKey, io.LimitReader(file, maxAssetSize+1), mimeType)
 	if storeErr != nil || written > maxAssetSize {
-		_ = h.mediaStorage.Delete(c.Request.Context(), storageKey)
+		_ = mediaStorage.Delete(c.Request.Context(), storageKey)
 		if storeErr != nil {
 			fail(c, http.StatusServiceUnavailable, "asset.storage_unavailable", "媒体存储暂不可用。")
 			return
@@ -83,14 +84,14 @@ func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "asset.file_invalid", "媒体文件保存失败或超过大小限制。")
 		return
 	}
-	asset := model.MediaAsset{ID: id, OrganizationID: principal.OrganizationID, ContentID: contentID, UploadedBy: principal.UserID, OriginalName: originalName, StoredName: storedName, MimeType: mimeType, SizeBytes: written, StorageDriver: h.mediaStorage.Driver(), StoragePath: storageKey}
+	asset := model.MediaAsset{ID: id, OrganizationID: principal.OrganizationID, ContentID: contentID, UploadedBy: principal.UserID, OriginalName: originalName, StoredName: storedName, MimeType: mimeType, SizeBytes: written, StorageDriver: mediaStorage.Driver(), StoragePath: storageKey}
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&asset).Error; err != nil {
 			return err
 		}
 		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "asset.upload", "asset", asset.ID)
 	}); err != nil {
-		_ = h.mediaStorage.Delete(c.Request.Context(), storageKey)
+		_ = mediaStorage.Delete(c.Request.Context(), storageKey)
 		fail(c, http.StatusInternalServerError, "asset.metadata_failed", "媒体元数据保存失败。")
 		return
 	}
@@ -118,19 +119,16 @@ func (h *WorkspaceHandler) DownloadAsset(c *gin.Context) {
 			return
 		}
 	}
-	if h.mediaStorage == nil {
-		fail(c, http.StatusServiceUnavailable, "asset.storage_unavailable", "媒体存储暂不可用。")
-		return
-	}
 	assetStorageDriver := strings.TrimSpace(asset.StorageDriver)
 	if assetStorageDriver == "" {
 		assetStorageDriver = "local"
 	}
-	if assetStorageDriver != h.mediaStorage.Driver() {
-		fail(c, http.StatusServiceUnavailable, "asset.storage_driver_unavailable", "该媒体资源所属的存储后端当前未启用。")
+	mediaStorage, storageErr := h.storageFor(c.Request.Context(), asset.OrganizationID, assetStorageDriver)
+	if storageErr != nil {
+		fail(c, http.StatusServiceUnavailable, "asset.storage_driver_unavailable", "该媒体资源所属的存储后端当前不可用，请检查服务接入配置。")
 		return
 	}
-	source, err := h.mediaStorage.Open(c.Request.Context(), asset.StoragePath)
+	source, err := mediaStorage.Open(c.Request.Context(), asset.StoragePath)
 	if errors.Is(err, storage.ErrNotFound) {
 		fail(c, http.StatusNotFound, "asset.file_missing", "媒体文件不存在。")
 		return

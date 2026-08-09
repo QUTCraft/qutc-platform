@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/admin'
-import type { EmailAdapterStatus, InvitationTemplate, NotificationOutbox, Organization, PortalConfiguration, PortalManifest } from '@/api/types'
+import type { IntegrationSettings, IntegrationSettingsUpdate, InvitationTemplate, NotificationOutbox, Organization, PortalConfiguration, PortalManifest } from '@/api/types'
 import { clearPortalFallback } from '@/portal/runtime'
 
 const allowedCapabilities: Array<{ value: PortalManifest['capabilities'][number]; label: string }> = [
@@ -181,8 +181,40 @@ async function importManifest(file: File) {
   return false
 }
 
-const emailStatus = ref<EmailAdapterStatus | null>(null)
-const emailStatusLoading = ref(false)
+const integrationSettings = ref<IntegrationSettings | null>(null)
+const integrationLoading = ref(false)
+const integrationSaving = ref(false)
+const integrationTesting = ref<'email' | 'storage' | ''>('')
+const browserOrigin = window.location.origin
+const integrationForm = reactive<IntegrationSettingsUpdate>({
+  public_web_base_url: window.location.origin,
+  email: {
+    driver: 'disabled', host: '', port: 587, username: '', password: '', clear_password: false,
+    from_address: '', from_name: '', security: 'starttls', timeout_seconds: 8,
+  },
+  storage: {
+    driver: 'local', endpoint: '', access_key: '', secret_key: '', clear_access_key: false,
+    clear_secret_key: false, bucket: '', region: '', use_ssl: false,
+  },
+})
+
+function applyIntegrationSettings(settings: IntegrationSettings) {
+  integrationSettings.value = settings
+  Object.assign(integrationForm, {
+    public_web_base_url: settings.public_web_base_url,
+    email: {
+      driver: settings.email.driver, host: settings.email.host, port: settings.email.port,
+      username: settings.email.username, password: '', clear_password: false,
+      from_address: settings.email.from_address, from_name: settings.email.from_name,
+      security: settings.email.security, timeout_seconds: settings.email.timeout_seconds,
+    },
+    storage: {
+      driver: settings.storage.driver, endpoint: settings.storage.endpoint, access_key: '', secret_key: '',
+      clear_access_key: false, clear_secret_key: false, bucket: settings.storage.bucket,
+      region: settings.storage.region, use_ssl: settings.storage.use_ssl,
+    },
+  })
+}
 
 const invitationTemplate = reactive<InvitationTemplate>({ subject_template: '', body_template: '', variables: [] })
 const invitationTemplateLoading = ref(false)
@@ -191,14 +223,46 @@ const notificationItems = ref<NotificationOutbox[]>([])
 const notificationLoading = ref(false)
 const invitationTemplateVariablesLabel = computed(() => invitationTemplate.variables.map((item) => `{{${item}}}`).join('、') || '加载中')
 
-async function loadEmailStatus() {
-  emailStatusLoading.value = true
+async function loadIntegrationSettings() {
+	  integrationLoading.value = true
   try {
-    emailStatus.value = await adminApi.getEmailAdapterStatus()
+	    applyIntegrationSettings(await adminApi.getIntegrationSettings())
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '邮件适配器状态加载失败。')
+	    ElMessage.error(error instanceof Error ? error.message : '服务接入配置加载失败。')
   } finally {
-    emailStatusLoading.value = false
+	    integrationLoading.value = false
+  }
+}
+
+async function saveIntegrationSettings(showSuccess = true) {
+  integrationSaving.value = true
+  try {
+    const payload: IntegrationSettingsUpdate = {
+      public_web_base_url: integrationForm.public_web_base_url,
+      email: { ...integrationForm.email },
+      storage: { ...integrationForm.storage },
+    }
+    applyIntegrationSettings(await adminApi.updateIntegrationSettings(payload))
+    if (showSuccess) ElMessage.success('服务接入配置已加密保存并立即生效。')
+    return true
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '服务接入配置保存失败。')
+    return false
+  } finally {
+    integrationSaving.value = false
+  }
+}
+
+async function testIntegration(section: 'email' | 'storage') {
+  if (!await saveIntegrationSettings(false)) return
+  integrationTesting.value = section
+  try {
+    await adminApi.testIntegration(section)
+    ElMessage.success(section === 'email' ? 'SMTP 连接与身份验证成功，未发送测试邮件。' : '存储连接成功，目标存储桶可访问。')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '连接验证失败。')
+  } finally {
+    integrationTesting.value = ''
   }
 }
 
@@ -256,7 +320,7 @@ async function loadInitialSettings() {
     await Promise.all([
       loadOrganization(),
       loadPortalConfiguration(),
-      loadEmailStatus(),
+      loadIntegrationSettings(),
       loadInvitationTemplate(),
       loadNotifications(),
     ])
@@ -274,11 +338,11 @@ onMounted(() => {
   <section class="admin-page-heading">
     <div>
       <h2>系统设置</h2>
-	  <p>管理组织公开资料、门户配置，并检查服务端邀请邮件适配器的运行状态。</p>
+      <p>管理组织资料、门户和外部服务接入；常用配置无需编辑服务器文件。</p>
     </div>
   </section>
 
-  <section v-loading.fullscreen.lock="initialLoading" class="settings-layout">
+  <section class="settings-layout" :aria-busy="initialLoading">
     <div class="settings-main-column">
 	  <article v-loading="organizationLoading" class="admin-panel">
 		<div class="panel-heading">
@@ -382,34 +446,127 @@ onMounted(() => {
         </el-form>
       </article>
 
-      <article v-loading="emailStatusLoading" class="admin-panel" style="margin-top: 20px;">
+      <article v-loading="integrationLoading" class="admin-panel integration-panel" style="margin-top: 20px;">
         <div class="panel-heading">
           <div>
-            <h2>邀请邮件投递</h2>
-            <p>SMTP 凭据仅通过 API 服务环境变量配置，不会传输到浏览器或写入前端存储。</p>
+            <h2>服务接入</h2>
+            <p>在网页中管理门户地址、邮件和文件存储；敏感凭据只加密保存，不会回传明文。</p>
           </div>
-          <el-tag :type="emailStatus?.enabled ? 'success' : 'info'" round>
-            {{ emailStatus?.enabled ? '已启用' : '未启用' }}
+          <el-tag :type="integrationSettings?.source === 'web' ? 'success' : 'info'" round>
+            {{ integrationSettings?.source === 'web' ? '网页配置生效中' : '沿用部署默认值' }}
           </el-tag>
         </div>
-        <el-alert
-          v-if="emailStatus && !emailStatus.enabled"
-          title="邮件未启用，成员邀请仍可通过复制链接完成"
-          type="info"
-          :closable="false"
-          show-icon
-        />
-        <el-descriptions v-if="emailStatus" class="email-status-details" :column="1" border>
-          <el-descriptions-item label="驱动">{{ emailStatus.driver }}</el-descriptions-item>
-          <el-descriptions-item label="配置完整性">{{ emailStatus.configured ? '已通过启动校验' : '未配置' }}</el-descriptions-item>
-          <el-descriptions-item v-if="emailStatus.from_address" label="发件人">
-            {{ emailStatus.from_name ? `${emailStatus.from_name} · ` : '' }}{{ emailStatus.from_address }}
-          </el-descriptions-item>
-          <el-descriptions-item v-if="emailStatus.security" label="传输安全">{{ emailStatus.security }}</el-descriptions-item>
-        </el-descriptions>
-        <div class="email-status-actions">
-          <el-button round :loading="emailStatusLoading" @click="loadEmailStatus">刷新状态</el-button>
-          <span>修改部署环境变量并重启 API 后生效。</span>
+
+        <div class="same-origin-summary">
+          <div>
+            <span>浏览器 API</span>
+            <strong>{{ browserOrigin }}/api</strong>
+            <small>由 Web 容器同源代理自动接入，无需填写服务器 IP。</small>
+          </div>
+          <RouterLink to="/admin/ai" class="integration-link">配置 AI 模型接口 →</RouterLink>
+        </div>
+
+        <el-form :model="integrationForm" label-position="top" class="integration-form">
+          <el-form-item label="门户公网地址" required>
+            <el-input v-model="integrationForm.public_web_base_url" placeholder="https://cms.example.org" />
+            <small class="field-help">用于邀请邮件中的链接。可填当前网站域名，不要包含 /invite 等路径。</small>
+          </el-form-item>
+
+          <section class="adapter-card">
+            <div class="adapter-heading">
+              <div><h3>邮件投递（SMTP）</h3><p>用于成员邀请和申请审批结果通知。</p></div>
+              <el-tag :type="integrationSettings?.email.configured ? 'success' : 'info'" round>
+                {{ integrationForm.email.driver === 'smtp' ? (integrationSettings?.email.configured ? '配置完整' : '待完善') : '未启用' }}
+              </el-tag>
+            </div>
+            <el-form-item label="邮件服务">
+              <el-radio-group v-model="integrationForm.email.driver">
+                <el-radio-button value="disabled">暂不发送</el-radio-button>
+                <el-radio-button value="smtp">SMTP</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            <template v-if="integrationForm.email.driver === 'smtp'">
+              <div class="form-grid integration-grid">
+                <el-form-item label="SMTP 地址" required><el-input v-model="integrationForm.email.host" placeholder="smtp.example.org" /></el-form-item>
+                <el-form-item label="端口" required><el-input-number v-model="integrationForm.email.port" :min="1" :max="65535" controls-position="right" /></el-form-item>
+              </div>
+              <div class="form-grid integration-grid">
+                <el-form-item label="连接安全">
+                  <el-select v-model="integrationForm.email.security">
+                    <el-option label="STARTTLS（常用）" value="starttls" />
+                    <el-option label="TLS" value="tls" />
+                    <el-option label="无加密（仅内网）" value="none" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="超时（秒）"><el-input-number v-model="integrationForm.email.timeout_seconds" :min="2" :max="60" controls-position="right" /></el-form-item>
+              </div>
+              <div class="form-grid integration-grid">
+                <el-form-item label="登录用户名"><el-input v-model="integrationForm.email.username" autocomplete="username" /></el-form-item>
+                <el-form-item label="登录密码">
+                  <el-input v-model="integrationForm.email.password" type="password" show-password autocomplete="new-password" :placeholder="integrationSettings?.email.password_configured ? `留空保留 ${integrationSettings.email.password_hint ?? '已保存密码'}` : '请输入 SMTP 密码'" />
+                  <el-checkbox v-if="integrationSettings?.email.password_configured" v-model="integrationForm.email.clear_password">清除已保存密码</el-checkbox>
+                </el-form-item>
+              </div>
+              <div class="form-grid integration-grid">
+                <el-form-item label="发件邮箱" required><el-input v-model="integrationForm.email.from_address" type="email" placeholder="noreply@example.org" /></el-form-item>
+                <el-form-item label="发件人名称"><el-input v-model="integrationForm.email.from_name" placeholder="社团名称" /></el-form-item>
+              </div>
+              <el-button plain round :loading="integrationTesting === 'email'" :disabled="integrationSaving" @click="testIntegration('email')">保存并验证 SMTP</el-button>
+            </template>
+          </section>
+
+          <section class="adapter-card">
+            <div class="adapter-heading">
+              <div><h3>图片与文件存储</h3><p>本地存储开箱即用；MinIO、阿里云 OSS 等可通过 S3 兼容接口接入。</p></div>
+              <el-tag :type="integrationSettings?.storage.configured ? 'success' : 'warning'" round>
+                {{ integrationSettings?.storage.configured ? '配置完整' : '待完善' }}
+              </el-tag>
+            </div>
+            <el-form-item label="存储方式">
+              <el-radio-group v-model="integrationForm.storage.driver">
+                <el-radio-button value="local">服务器本地</el-radio-button>
+                <el-radio-button value="s3">S3 / MinIO</el-radio-button>
+              </el-radio-group>
+              <small v-if="integrationForm.storage.driver === 'local'" class="field-help">目录由部署安全管理，管理员无需填写服务器路径。</small>
+            </el-form-item>
+            <template v-if="integrationForm.storage.driver === 's3'">
+              <div class="form-grid integration-grid">
+                <el-form-item label="服务地址" required><el-input v-model="integrationForm.storage.endpoint" placeholder="minio.example.org:9000" /></el-form-item>
+                <el-form-item label="存储桶" required><el-input v-model="integrationForm.storage.bucket" placeholder="qutcraft-media" /></el-form-item>
+              </div>
+              <div class="form-grid integration-grid">
+                <el-form-item label="Access Key" required>
+                  <el-input v-model="integrationForm.storage.access_key" type="password" show-password autocomplete="off" :placeholder="integrationSettings?.storage.access_key_configured ? `留空保留 ${integrationSettings.storage.access_key_hint ?? '已保存凭据'}` : '请输入 Access Key'" />
+                  <el-checkbox v-if="integrationSettings?.storage.access_key_configured" v-model="integrationForm.storage.clear_access_key">清除已保存 Access Key</el-checkbox>
+                </el-form-item>
+                <el-form-item label="Secret Key" required>
+                  <el-input v-model="integrationForm.storage.secret_key" type="password" show-password autocomplete="new-password" :placeholder="integrationSettings?.storage.secret_key_configured ? `留空保留 ${integrationSettings.storage.secret_key_hint ?? '已保存凭据'}` : '请输入 Secret Key'" />
+                  <el-checkbox v-if="integrationSettings?.storage.secret_key_configured" v-model="integrationForm.storage.clear_secret_key">清除已保存 Secret Key</el-checkbox>
+                </el-form-item>
+              </div>
+              <div class="form-grid integration-grid">
+                <el-form-item label="区域（可选）"><el-input v-model="integrationForm.storage.region" placeholder="us-east-1" /></el-form-item>
+                <el-form-item label="连接协议"><el-switch v-model="integrationForm.storage.use_ssl" inline-prompt active-text="HTTPS" inactive-text="HTTP" /></el-form-item>
+              </div>
+              <el-button plain round :loading="integrationTesting === 'storage'" :disabled="integrationSaving" @click="testIntegration('storage')">保存并验证存储</el-button>
+            </template>
+          </section>
+
+          <div class="integration-actions">
+            <el-button type="primary" round :loading="integrationSaving" @click="saveIntegrationSettings()">保存服务接入</el-button>
+            <el-button round :loading="integrationLoading" @click="loadIntegrationSettings">放弃修改并重新读取</el-button>
+          </div>
+        </el-form>
+
+        <div v-if="integrationSettings" class="managed-runtime">
+          <h3>部署维护项</h3>
+          <p>以下项目决定进程能否启动，不能在正在运行的网页里热修改。</p>
+          <div class="managed-runtime-grid">
+            <div v-for="item in integrationSettings.managed_runtime" :key="item.key" class="managed-runtime-item">
+              <div><strong>{{ item.label }}</strong><el-tag size="small" :type="item.state === 'deferred' ? 'warning' : 'info'">{{ item.state === 'deferred' ? '已延期' : '部署维护' }}</el-tag></div>
+              <span>{{ item.description }}</span>
+            </div>
+          </div>
         </div>
       </article>
 
@@ -493,10 +650,6 @@ onMounted(() => {
   margin-left: 0;
 }
 
-.email-status-details {
-  margin-top: 16px;
-}
-
 .social-links-editor {
   display: grid;
   gap: 10px;
@@ -509,13 +662,131 @@ onMounted(() => {
   gap: 10px;
 }
 
-.email-status-actions {
+.same-origin-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 22px;
+  padding: 16px 18px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 16px;
+  background: var(--el-fill-color-light);
+}
+
+.same-origin-summary span,
+.same-origin-summary strong,
+.same-origin-summary small {
+  display: block;
+}
+
+.same-origin-summary span,
+.same-origin-summary small,
+.field-help,
+.adapter-heading p,
+.managed-runtime > p,
+.managed-runtime-item span {
+  color: var(--el-text-color-secondary);
+}
+
+.same-origin-summary strong {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+
+.integration-link {
+  flex: 0 0 auto;
+  color: var(--el-color-primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.integration-form {
+  display: grid;
+  gap: 16px;
+}
+
+.adapter-card {
+  padding: 20px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 18px;
+  background: var(--el-fill-color-lighter);
+}
+
+.adapter-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.adapter-heading h3,
+.adapter-heading p,
+.managed-runtime h3,
+.managed-runtime > p {
+  margin: 0;
+}
+
+.adapter-heading p,
+.managed-runtime > p {
+  margin-top: 5px;
+}
+
+.integration-grid :deep(.el-input-number),
+.integration-grid :deep(.el-select) {
+  width: 100%;
+}
+
+.field-help {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.integration-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 10px;
+}
+
+.integration-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+
+.managed-runtime {
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid var(--el-border-color-light);
+}
+
+.managed-runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.managed-runtime-item {
+  padding: 14px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 14px;
+  background: var(--el-fill-color-light);
+}
+
+.managed-runtime-item > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
   align-items: center;
-  margin-top: 16px;
-  color: var(--el-text-color-secondary);
+  margin-bottom: 7px;
+}
+
+.managed-runtime-item span {
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .notification-list {
@@ -556,6 +827,20 @@ onMounted(() => {
 
   .social-link-row {
 	grid-template-columns: 1fr;
+  }
+
+  .same-origin-summary,
+  .adapter-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .managed-runtime-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .adapter-card {
+    padding: 16px;
   }
 
   .notification-row {

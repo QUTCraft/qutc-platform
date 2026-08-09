@@ -9,7 +9,9 @@
 
 存储失败不得创建只有数据库元数据、没有文件对象的资产记录；数据库写入失败时，API 必须尽力删除已经写入的对象。
 
-## 2. 驱动配置
+## 2. 部署默认值与网页配置
+
+下列变量只提供部署默认值。组织管理员可在“系统设置 → 服务接入”选择服务器本地或 S3/MinIO，并保存服务地址、存储桶和凭据；保存后新上传即时使用新驱动，无需重启。Access Key 与 Secret Key 加密保存，读取接口只返回配置状态和尾号提示。本地目录始终由部署方固定，网页不能填写任意服务器路径。
 
 | 变量 | local | s3 | 说明 |
 | --- | --- | --- | --- |
@@ -21,6 +23,8 @@
 | `S3_BUCKET` | 不使用 | 必填 | 默认 `qutcraft-media`，不存在时由 API 创建。 |
 | `S3_REGION` | 不使用 | 可选 | 默认 `us-east-1`。 |
 | `S3_USE_SSL` | 不使用 | 可选 | 生产公网对象存储应使用 `true`。 |
+
+网页接口为 `GET/PATCH /api/v1/admin/integrations`。`POST /api/v1/admin/integrations/test` 传 `{ "section": "storage" }` 时只检查本地目录或现有 S3 Bucket，不创建 Bucket、不上传或删除对象。
 
 生产环境拒绝 MinIO 示例账号和包含 `change-me` 的示例密钥。
 
@@ -34,7 +38,7 @@
 
 `media_assets.storage_driver` 记录对象所属驱动，`storage_path` 只在服务端内部保存对象键或兼容旧版的本地绝对路径。两者均不会进入 Portal API。
 
-切换存储驱动不会自动搬迁已有对象。迁移时必须先复制对象并更新 `storage_driver`/`storage_path`；在对应驱动未启用时读取旧对象返回 `503 asset.storage_driver_unavailable`，不会尝试把本地路径当成 S3 Key。
+切换存储驱动不会自动搬迁已有对象。资产记录会保留实际驱动，API 下载时按记录解析本地或 S3，因此切换后旧对象仍可读取；如果旧驱动的服务或凭据已不可用，则返回 `503 asset.storage_driver_unavailable`，不会尝试把本地路径当成 S3 Key。
 
 ## 4. 上传事务边界
 

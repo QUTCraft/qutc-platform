@@ -36,7 +36,7 @@ https://api.qutcraft.local
 http://localhost:18080
 ```
 
-前端通过 `VITE_API_BASE_URL` 覆盖服务地址；当前前端的默认 `mock` 模式不会发出网络请求。
+生产 Web 容器通过同源 `/api` 反向代理访问 API，普通管理员无需填写服务器地址，也不会因域名或端口变化重新打包前端。`VITE_API_BASE_URL` 仅保留给本地前后端分端口调试；当前前端的默认 `mock` 模式不会发出网络请求。
 
 ### 2.2 导入 Apifox / Swagger
 
@@ -753,15 +753,29 @@ Operation ID：`executeRestrictedServerCommand`
 - **当前状态**：邀请邮件已实现 `disabled`/`smtp` 可替换适配器；默认关闭，关闭时明确返回 `delivery.status=disabled`。
 - **投递边界**：邀请先提交，邮件在事务外同步尝试；失败单独记录为 `failed`，不会回滚邀请。
 - **失败恢复**：Admin 可轮换邀请链接并重试；服务端不保存明文 token，旧链接在重试时立即失效。
-- **配置状态**：`GET /api/v1/admin/notifications/email/status` 只返回驱动、发件人和安全模式，不返回连接与认证凭据。
+- **配置状态**：`GET /api/v1/admin/notifications/email/status` 只返回当前组织的有效驱动、发件人和安全模式，不返回连接与认证凭据。
 - **邀请模板**：`GET/PATCH /api/v1/admin/notifications/invitation-template` 读取或更新当前组织模板；允许变量只有 `{{organization}}`、`{{role}}`、`{{invite_url}}`、`{{expires_at}}`，主题最长 255、正文最长 4000 字符，留空恢复默认模板。
 - **审批通知**：审批成功/拒绝在审批事务内写入唯一 `notification_outboxes` 事件；`GET /api/v1/admin/notifications/outbox` 查看队列，`POST /api/v1/admin/notifications/outbox/{notification_id}/retry` 重新排队失败或禁用通知。通知 worker 失败不会回滚审批决定，最多 5 次自动尝试并使用退避。
-- **安全约束**：SMTP 授权码严格保存在后端受控环境变量中，绝不可暴露或持久化到前端静态代码或 UI 中。完整配置、模板、审批通知 Outbox 和错误语义见 [邮件与通知适配器规范](email-adapter.md)。
+- **网页配置**：`GET/PATCH /api/v1/admin/integrations` 允许组织所有者在系统设置中维护 SMTP；授权码由 API 使用 AES-GCM 加密持久化，响应只返回“已配置”与尾号提示。首次配置前仍可沿用部署默认值。
+- **连接验证**：`POST /api/v1/admin/integrations/test` 传入 `section=email`，只验证网络、TLS 和身份认证，不发送测试邮件。
+- **安全约束**：SMTP 授权码绝不可进入前端静态代码、日志或 API 响应。网页输入只在保存请求中传输，保存后立即从表单清空。完整配置、模板、审批通知 Outbox 和错误语义见 [邮件与通知适配器规范](email-adapter.md)。
 
 #### 2. Minecraft RCON 隔离与审计规范
 - **当前状态**：真实 RCON 暂时搁置，默认使用明确标记的 Mock Adapter。
 - **网络隔离**: RCON 端口（`25575`）与指令下发仅在内部私有网络中打通，不向公网暴露。
 - **强制审计**: 所有受控 RCON 命令下发必须包含操作者身份（`operator_id`）、操作时间戳（`executed_at`）与关联追踪 ID（`request_id`）并生成留存审计日志。
+
+#### 3. 统一服务接入配置
+
+系统设置中的“服务接入”覆盖门户公网地址、SMTP 和媒体存储；AI 模型接口继续由相邻的“智能体配置”页面维护。保存结果按组织隔离并即时生效：
+
+| 方法与路径 | 用途 | 安全边界 |
+| --- | --- | --- |
+| `GET /api/v1/admin/integrations` | 返回有效配置、凭据掩码和部署维护项。 | 不返回任何明文密码或密钥。 |
+| `PATCH /api/v1/admin/integrations` | 保存门户地址、SMTP、本地/S3 存储。 | 凭据留空保留原值；仅显式 `clear_*` 清除；写入审计。 |
+| `POST /api/v1/admin/integrations/test` | 验证 `email` 或 `storage`。 | 不发邮件、不上传对象、不创建存储桶。 |
+
+媒体上传会解析当前组织的活动存储驱动，资产元数据记录实际驱动；下载旧资产时按记录的驱动解析，因此从本地切换到 S3 后不会让已有本地文件失效。MySQL、Redis、JWT、CORS、限流和监听端口属于进程启动根基，只在网页中清楚标记为“部署维护”，不能伪装成可热修改项。RCON 继续按计划延期并保持 Mock。
 
 ### 7.9 门户 Manifest 配置
 

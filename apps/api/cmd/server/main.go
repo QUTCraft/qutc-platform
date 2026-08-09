@@ -49,7 +49,7 @@ func main() {
 	publicCache := cache.New(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.PublicCacheTTL)
 	storageContext, cancelStorageInitialization := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelStorageInitialization()
-	mediaStorage, err := storage.New(storageContext, storage.Config{
+	storageConfig := storage.Config{
 		Driver:    cfg.StorageDriver,
 		LocalRoot: cfg.StorageLocalRoot,
 		Endpoint:  cfg.S3Endpoint,
@@ -58,11 +58,12 @@ func main() {
 		Bucket:    cfg.S3Bucket,
 		Region:    cfg.S3Region,
 		UseSSL:    cfg.S3UseSSL,
-	})
+	}
+	mediaStorage, err := storage.New(storageContext, storageConfig)
 	if err != nil {
 		log.Fatalf("media storage initialization failed: %v", err)
 	}
-	emailSender, err := mailadapter.New(mailadapter.Config{
+	emailConfig := mailadapter.Config{
 		Driver:      cfg.EmailDriver,
 		Host:        cfg.SMTPHost,
 		Port:        cfg.SMTPPort,
@@ -72,7 +73,8 @@ func main() {
 		FromName:    cfg.SMTPFromName,
 		Security:    cfg.SMTPSecurity,
 		Timeout:     cfg.SMTPTimeout,
-	})
+	}
+	emailSender, err := mailadapter.New(emailConfig)
 	if err != nil {
 		log.Fatalf("email adapter initialization failed: %v", err)
 	}
@@ -95,11 +97,16 @@ func main() {
 
 	authService := service.NewAuthService(db, cfg)
 	authHandler := handler.NewAuthHandler(db, authService, cfg.JWTRefreshTTL, cfg.AppEnv == "production")
-	notificationService := service.NewNotificationService(db, emailSender)
+	integrationService := service.NewIntegrationService(db, service.IntegrationDefaults{
+		Environment: cfg.AppEnv, PublicWebBaseURL: cfg.PublicWebBaseURL, Email: emailConfig, Storage: storageConfig,
+	}, emailSender, mediaStorage, cfg.JWTAccessSecret)
+	integrationHandler := handler.NewIntegrationHandler(integrationService)
+	notificationService := service.NewNotificationServiceWithResolver(db, integrationService)
 	notificationService.StartWorker(context.Background(), 2*time.Second)
 	notificationHandler := handler.NewNotificationHandler(db, notificationService)
-	invitationHandler := handler.NewInvitationHandler(db, authService, emailSender, cfg.PublicWebBaseURL)
+	invitationHandler := handler.NewInvitationHandlerWithIntegrations(db, authService, integrationService)
 	workspaceHandler := handler.NewWorkspaceHandlerWithDependenciesAndNotifications(db, publicCache, cfg.AppEnv, serveradapter.NewMock(), cfg.ServerAdapterTimeout, mediaStorage, notificationService)
+	workspaceHandler.UseStorageResolver(integrationService)
 	portalConfigHandler := handler.NewPortalConfigHandler(db)
 	auditHandler := handler.NewAuditHandler(db)
 	agentService := service.NewAgentServiceWithProviderConfig(
@@ -169,6 +176,9 @@ func main() {
 	admin.DELETE("/invitations/:id", middleware.RequirePermission(authService, "membership:manage"), invitationHandler.Revoke)
 	admin.POST("/invitations/:id/email/retry", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "membership:manage"), invitationHandler.RetryEmail)
 	admin.GET("/notifications/email/status", middleware.RequirePermission(authService, "organization:configure"), invitationHandler.EmailStatus)
+	admin.GET("/integrations", middleware.RequirePermission(authService, "organization:configure"), integrationHandler.Get)
+	admin.PATCH("/integrations", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "organization:configure"), integrationHandler.Update)
+	admin.POST("/integrations/test", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "organization:configure"), integrationHandler.Test)
 	admin.GET("/notifications/invitation-template", middleware.RequirePermission(authService, "organization:configure"), notificationHandler.GetInvitationTemplate)
 	admin.PATCH("/notifications/invitation-template", middleware.RequirePermission(authService, "organization:configure"), notificationHandler.UpdateInvitationTemplate)
 	admin.GET("/notifications/outbox", middleware.RequirePermission(authService, "organization:configure"), notificationHandler.ListOutbox)

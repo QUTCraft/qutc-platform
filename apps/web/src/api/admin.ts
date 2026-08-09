@@ -1,5 +1,5 @@
 import { del, get, getPage, patch, post, put, upload } from '@/api/client'
-import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminInvitationSummary, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIConfigurationUpdate, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, BatchInvitationResponse, ContentRevision, EmailAdapterStatus, Invitation, InvitationRole, InvitationStatus, InvitationTemplate, MediaAsset, NotificationOutbox, Organization, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
+import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminInvitationSummary, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIConfigurationUpdate, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, BatchInvitationResponse, ContentRevision, EmailAdapterStatus, IntegrationSettings, IntegrationSettingsUpdate, IntegrationTestResult, Invitation, InvitationRole, InvitationStatus, InvitationTemplate, MediaAsset, NotificationOutbox, Organization, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
 
 const adminBase = '/api/v1/admin'
 
@@ -46,6 +46,9 @@ export const adminApi = {
   revokeInvitation: (id: string) => del<Invitation>(`${adminBase}/invitations/${id}`),
   retryInvitationEmail: (id: string) => post<AdminInvitation>(`${adminBase}/invitations/${id}/email/retry`),
   getEmailAdapterStatus: () => get<EmailAdapterStatus>(`${adminBase}/notifications/email/status`),
+  getIntegrationSettings: () => get<IntegrationSettings>(`${adminBase}/integrations`),
+  updateIntegrationSettings: (payload: IntegrationSettingsUpdate) => patch<IntegrationSettings>(`${adminBase}/integrations`, payload),
+  testIntegration: (section: IntegrationTestResult['section']) => post<IntegrationTestResult>(`${adminBase}/integrations/test`, { section }),
   getInvitationTemplate: () => get<InvitationTemplate>(`${adminBase}/notifications/invitation-template`),
   updateInvitationTemplate: (payload: Pick<InvitationTemplate, 'subject_template' | 'body_template'>) => patch<InvitationTemplate>(`${adminBase}/notifications/invitation-template`, payload),
   getNotificationOutbox: (params: PageQuery & { status?: NotificationOutbox['status'] | '' } = {}) => getPage<NotificationOutbox>(withQuery(`${adminBase}/notifications/outbox`, params)),

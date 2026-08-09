@@ -94,6 +94,31 @@ func New(cfg Config) (Sender, error) {
 	return &smtpSender{cfg: cfg}, nil
 }
 
+// Probe verifies network reachability, transport security and authentication
+// without sending a message. It is used by the administrator-facing
+// integration test action.
+func Probe(ctx context.Context, cfg Config) error {
+	sender, err := New(cfg)
+	if err != nil {
+		return err
+	}
+	smtpAdapter, ok := sender.(*smtpSender)
+	if !ok {
+		return ErrDisabled
+	}
+	ctx, cancel := context.WithTimeout(ctx, smtpAdapter.cfg.Timeout)
+	defer cancel()
+	client, err := smtpAdapter.connect(ctx)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	if err := client.Quit(); err != nil {
+		return fmt.Errorf("finish SMTP probe: %w", err)
+	}
+	return nil
+}
+
 type disabledSender struct{}
 
 func (disabledSender) Status() Status {
@@ -155,42 +180,11 @@ func (s *smtpSender) SendApplicationDecision(ctx context.Context, message Applic
 func (s *smtpSender) sendText(ctx context.Context, recipient, subject, body string) error {
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.Timeout)
 	defer cancel()
-	address := net.JoinHostPort(s.cfg.Host, fmt.Sprintf("%d", s.cfg.Port))
-	connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
+	client, err := s.connect(ctx)
 	if err != nil {
-		return fmt.Errorf("connect SMTP server: %w", err)
-	}
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = connection.SetDeadline(deadline)
-	}
-	if s.cfg.Security == "tls" {
-		tlsConnection := tls.Client(connection, &tls.Config{MinVersion: tls.VersionTLS12, ServerName: s.cfg.Host})
-		if err := tlsConnection.HandshakeContext(ctx); err != nil {
-			_ = connection.Close()
-			return fmt.Errorf("negotiate SMTP TLS: %w", err)
-		}
-		connection = tlsConnection
-	}
-
-	client, err := smtp.NewClient(connection, s.cfg.Host)
-	if err != nil {
-		_ = connection.Close()
-		return fmt.Errorf("initialize SMTP client: %w", err)
+		return err
 	}
 	defer client.Close()
-	if s.cfg.Security == "starttls" {
-		if ok, _ := client.Extension("STARTTLS"); !ok {
-			return errors.New("SMTP server does not support STARTTLS")
-		}
-		if err := client.StartTLS(&tls.Config{MinVersion: tls.VersionTLS12, ServerName: s.cfg.Host}); err != nil {
-			return fmt.Errorf("start SMTP TLS: %w", err)
-		}
-	}
-	if s.cfg.Username != "" {
-		if err := client.Auth(smtp.PlainAuth("", s.cfg.Username, s.cfg.Password, s.cfg.Host)); err != nil {
-			return fmt.Errorf("authenticate SMTP client: %w", err)
-		}
-	}
 	if err := client.Mail(s.cfg.FromAddress); err != nil {
 		return fmt.Errorf("set SMTP sender: %w", err)
 	}
@@ -212,6 +206,48 @@ func (s *smtpSender) sendText(ctx context.Context, recipient, subject, body stri
 		return fmt.Errorf("finish SMTP session: %w", err)
 	}
 	return nil
+}
+
+func (s *smtpSender) connect(ctx context.Context) (*smtp.Client, error) {
+	address := net.JoinHostPort(s.cfg.Host, fmt.Sprintf("%d", s.cfg.Port))
+	connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("connect SMTP server: %w", err)
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = connection.SetDeadline(deadline)
+	}
+	if s.cfg.Security == "tls" {
+		tlsConnection := tls.Client(connection, &tls.Config{MinVersion: tls.VersionTLS12, ServerName: s.cfg.Host})
+		if err := tlsConnection.HandshakeContext(ctx); err != nil {
+			_ = connection.Close()
+			return nil, fmt.Errorf("negotiate SMTP TLS: %w", err)
+		}
+		connection = tlsConnection
+	}
+
+	client, err := smtp.NewClient(connection, s.cfg.Host)
+	if err != nil {
+		_ = connection.Close()
+		return nil, fmt.Errorf("initialize SMTP client: %w", err)
+	}
+	if s.cfg.Security == "starttls" {
+		if ok, _ := client.Extension("STARTTLS"); !ok {
+			_ = client.Close()
+			return nil, errors.New("SMTP server does not support STARTTLS")
+		}
+		if err := client.StartTLS(&tls.Config{MinVersion: tls.VersionTLS12, ServerName: s.cfg.Host}); err != nil {
+			_ = client.Close()
+			return nil, fmt.Errorf("start SMTP TLS: %w", err)
+		}
+	}
+	if s.cfg.Username != "" {
+		if err := client.Auth(smtp.PlainAuth("", s.cfg.Username, s.cfg.Password, s.cfg.Host)); err != nil {
+			_ = client.Close()
+			return nil, fmt.Errorf("authenticate SMTP client: %w", err)
+		}
+	}
+	return client, nil
 }
 
 func buildInvitationMessage(cfg Config, recipient string, message InvitationMessage) string {

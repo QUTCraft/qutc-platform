@@ -314,6 +314,34 @@ type AgentConfiguration struct {
 	UpdatedAt             time.Time
 }
 
+// IntegrationConfiguration contains organization-scoped runtime adapters that
+// administrators can manage without editing deployment files. Credentials are
+// encrypted before persistence and are never serialized directly to clients.
+type IntegrationConfiguration struct {
+	ID                 string `gorm:"primaryKey;type:char(36)"`
+	OrganizationID     string `gorm:"uniqueIndex;type:char(36);not null"`
+	PublicWebBaseURL   string `gorm:"size:500;not null;default:''"`
+	EmailDriver        string `gorm:"size:24;not null;default:disabled"`
+	SMTPHost           string `gorm:"size:255;not null;default:''"`
+	SMTPPort           int    `gorm:"not null;default:587"`
+	SMTPUsername       string `gorm:"size:255;not null;default:''"`
+	SMTPPassword       string `gorm:"column:smtp_password_encrypted;type:text;not null"`
+	SMTPFromAddress    string `gorm:"size:254;not null;default:''"`
+	SMTPFromName       string `gorm:"size:160;not null;default:''"`
+	SMTPSecurity       string `gorm:"size:24;not null;default:starttls"`
+	SMTPTimeoutSeconds int    `gorm:"not null;default:8"`
+	StorageDriver      string `gorm:"size:24;not null;default:local"`
+	S3Endpoint         string `gorm:"size:500;not null;default:''"`
+	S3AccessKey        string `gorm:"column:s3_access_key_encrypted;type:text;not null"`
+	S3SecretKey        string `gorm:"column:s3_secret_key_encrypted;type:text;not null"`
+	S3Bucket           string `gorm:"size:255;not null;default:''"`
+	S3Region           string `gorm:"size:120;not null;default:''"`
+	S3UseSSL           bool   `gorm:"not null;default:true"`
+	UpdatedBy          string `gorm:"index;type:char(36);not null"`
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
 type AgentRun struct {
 	ID                string     `gorm:"primaryKey;type:char(36)"`
 	OrganizationID    string     `gorm:"index;type:char(36);not null"`

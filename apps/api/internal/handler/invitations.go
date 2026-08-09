@@ -18,14 +18,35 @@ import (
 )
 
 type InvitationHandler struct {
-	db               *gorm.DB
-	auth             *service.AuthService
+	db           *gorm.DB
+	auth         *service.AuthService
+	integrations InvitationIntegrationResolver
+}
+
+type InvitationIntegrationResolver interface {
+	MailSender(context.Context, string) (mailadapter.Sender, error)
+	PublicWebBaseURL(context.Context, string) string
+}
+
+type staticInvitationIntegrations struct {
 	mail             mailadapter.Sender
 	publicWebBaseURL string
 }
 
+func (s staticInvitationIntegrations) MailSender(context.Context, string) (mailadapter.Sender, error) {
+	return s.mail, nil
+}
+
+func (s staticInvitationIntegrations) PublicWebBaseURL(context.Context, string) string {
+	return s.publicWebBaseURL
+}
+
 func NewInvitationHandler(db *gorm.DB, auth *service.AuthService, mail mailadapter.Sender, publicWebBaseURL string) *InvitationHandler {
-	return &InvitationHandler{db: db, auth: auth, mail: mail, publicWebBaseURL: strings.TrimRight(publicWebBaseURL, "/")}
+	return NewInvitationHandlerWithIntegrations(db, auth, staticInvitationIntegrations{mail: mail, publicWebBaseURL: strings.TrimRight(publicWebBaseURL, "/")})
+}
+
+func NewInvitationHandlerWithIntegrations(db *gorm.DB, auth *service.AuthService, integrations InvitationIntegrationResolver) *InvitationHandler {
+	return &InvitationHandler{db: db, auth: auth, integrations: integrations}
 }
 
 type createInvitationRequest struct {
@@ -223,7 +244,12 @@ func (h *InvitationHandler) RetryEmail(c *gin.Context) {
 		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
 		return
 	}
-	if !h.mail.Status().Enabled {
+	sender, err := h.integrations.MailSender(c.Request.Context(), principal.OrganizationID)
+	if err != nil {
+		fail(c, http.StatusServiceUnavailable, "notification.email_config_unavailable", "邮件配置暂时无法读取。")
+		return
+	}
+	if sender == nil || !sender.Status().Enabled {
 		fail(c, http.StatusConflict, "notification.email_disabled", "邮件投递未启用，请复制邀请链接发送给成员。")
 		return
 	}
@@ -242,7 +268,17 @@ func (h *InvitationHandler) RetryEmail(c *gin.Context) {
 }
 
 func (h *InvitationHandler) EmailStatus(c *gin.Context) {
-	respond(c, http.StatusOK, h.mail.Status())
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	sender, err := h.integrations.MailSender(c.Request.Context(), principal.OrganizationID)
+	if err != nil {
+		fail(c, http.StatusServiceUnavailable, "notification.email_config_unavailable", "邮件配置暂时无法读取。")
+		return
+	}
+	respond(c, http.StatusOK, sender.Status())
 }
 
 func (h *InvitationHandler) Preview(c *gin.Context) {
@@ -307,7 +343,13 @@ func handleInvitationMutationError(c *gin.Context, err error) {
 }
 
 func (h *InvitationHandler) deliverInvitation(ctx context.Context, invitation service.InvitationCreateResult) emailDeliveryResponse {
-	status := h.mail.Status()
+	sender, resolveErr := h.integrations.MailSender(ctx, invitation.OrganizationID)
+	if resolveErr != nil || sender == nil {
+		delivery := model.InvitationDelivery{ID: uuid.NewString(), InvitationID: invitation.ID, OrganizationID: invitation.OrganizationID, Channel: "email", Adapter: "disabled", Status: "failed", LastError: "邮件配置暂时无法读取"}
+		delivery = h.persistDelivery(delivery, false)
+		return deliveryResponse(delivery)
+	}
+	status := sender.Status()
 	if !status.Enabled {
 		delivery := model.InvitationDelivery{
 			ID:             uuid.NewString(),
@@ -335,11 +377,11 @@ func (h *InvitationHandler) deliverInvitation(ctx context.Context, invitation se
 	delivery = h.persistDelivery(delivery, true)
 	var organization model.Organization
 	_ = h.db.Select("name, invitation_subject_template, invitation_body_template").Where("id = ?", invitation.OrganizationID).First(&organization).Error
-	err := h.mail.SendInvitation(ctx, mailadapter.InvitationMessage{
+	err := sender.SendInvitation(ctx, mailadapter.InvitationMessage{
 		RecipientEmail:  invitation.Email,
 		Organization:    invitation.Organization,
 		Role:            invitation.Role,
-		InvitationURL:   h.publicWebBaseURL + "/invite/" + invitation.Token,
+		InvitationURL:   h.integrations.PublicWebBaseURL(ctx, invitation.OrganizationID) + "/invite/" + invitation.Token,
 		ExpiresAt:       invitation.ExpiresAt,
 		SubjectTemplate: organization.InvitationSubjectTemplate,
 		BodyTemplate:    organization.InvitationBodyTemplate,

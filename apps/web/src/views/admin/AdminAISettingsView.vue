@@ -109,7 +109,7 @@ onMounted(() => {
     <el-button round :loading="loading" @click="loadConfiguration">刷新状态</el-button>
   </section>
 
-  <section v-loading.fullscreen.lock="loading" class="settings-layout ai-settings-layout">
+  <section class="settings-layout ai-settings-layout" :aria-busy="loading">
     <div class="settings-main-column">
       <article class="admin-panel">
         <div class="panel-heading">

@@ -107,15 +107,27 @@
   --el-border-color: var(--md-sys-color-outline-variant);
   --el-border-color-light: var(--md-sys-color-outline-variant);
   --el-border-color-lighter: var(--md-sys-color-surface-container-highest);
+  --el-border-color-extra-light: color-mix(in srgb, var(--md-sys-color-outline-variant) 72%, var(--md-sys-color-surface-container-high));
+  --el-border-color-dark: var(--md-sys-color-outline);
+  --el-border-color-darker: color-mix(in srgb, var(--md-sys-color-outline) 76%, var(--md-sys-color-on-surface));
   --el-text-color-primary: var(--md-sys-color-on-surface);
   --el-text-color-regular: var(--md-sys-color-on-surface-variant);
   --el-text-color-secondary: var(--md-sys-color-on-surface-variant);
   --el-text-color-placeholder: var(--md-sys-color-outline);
 
-  --el-fill-color-blank: var(--md-sys-color-surface-container-lowest);
+  --el-fill-color: var(--md-sys-color-surface-container);
+  --el-fill-color-light: var(--md-sys-color-surface-container-high);
+  --el-fill-color-lighter: color-mix(in srgb, var(--md-sys-color-surface-container-high) 72%, var(--md-sys-color-surface-container));
+  --el-fill-color-extra-light: color-mix(in srgb, var(--md-sys-color-surface-container-high) 42%, var(--md-sys-color-surface-container));
+  --el-fill-color-dark: var(--md-sys-color-surface-container-highest);
+  --el-fill-color-darker: color-mix(in srgb, var(--md-sys-color-surface-container-highest) 72%, var(--md-sys-color-on-surface));
+  --el-fill-color-blank: var(--md-sys-color-surface-container);
   --el-bg-color: var(--md-sys-color-surface-container-low);
   --el-bg-color-page: var(--md-sys-color-surface-container-low);
   --el-bg-color-overlay: var(--md-sys-color-surface-container-high);
+  --el-disabled-bg-color: var(--md-sys-color-surface-container);
+  --el-disabled-border-color: var(--md-sys-color-outline-variant);
+  --el-disabled-text-color: var(--md-sys-color-outline);
   --el-mask-color: rgba(0, 0, 0, 0.6);
 }
 

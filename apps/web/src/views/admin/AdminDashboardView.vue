@@ -57,9 +57,7 @@ const serverLabel = computed(() => data.value?.server.state === 'online' ? '服�
 
         <article v-if="isQutcraftOrganization" class="admin-panel server-panel">
           <div class="server-panel-top">
-            <div>
-              <h2>{{ data.server.label }}</h2>
-            </div>
+            <h2>{{ data.server.label }}</h2>
             <span class="server-state" :class="data.server.state">
               <i />{{ serverLabel }}
             </span>
@@ -71,9 +69,7 @@ const serverLabel = computed(() => data.value?.server.state === 'online' ? '服�
         </article>
         <article v-else class="admin-panel server-panel">
           <div class="server-panel-top">
-            <div>
-              <h2>AI 活动运营</h2>
-            </div>
+            <h2>AI 活动运营</h2>
             <span class="server-state online"><i /> 人工审批保护</span>
           </div>
           <p>从组织知识生成带引用的活动方案，再由成员逐项评分、批准并进入项目与内容工作流。</p>

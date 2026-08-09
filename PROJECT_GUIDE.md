@@ -41,7 +41,7 @@
 | MinIO API | 9000 | 9000 | storage profile，可选 |
 | MinIO Console | 9001 | 9001 | storage profile，可选 |
 
-如果本机 API 使用 18080，必须同步：
+生产和 Compose 默认由 Web 容器将同源 `/api` 代理到 API，浏览器不需要知道 API 宿主机端口。只有本地 Vite 与 API 分端口调试时才设置：
 
 ```dotenv
 API_PORT=18080
@@ -49,7 +49,7 @@ VITE_API_BASE_URL=http://127.0.0.1:18080
 CORS_ALLOWED_ORIGINS=http://localhost:8082,http://127.0.0.1:8082
 ```
 
-VITE_API_BASE_URL 会在 Web 镜像构建时写入浏览器代码，修改后必须重建 Web。
+生产 `VITE_API_BASE_URL` 应留空；这样域名和宿主机端口变化不需要重建 Web。
 
 ## 2. 部署
 
@@ -172,21 +172,21 @@ docker compose --env-file .env --profile docs up -d swagger
 | JWT | JWT_ISSUER、JWT_ACCESS_SECRET、JWT_ACCESS_TTL、JWT_REFRESH_TTL | Access 短时有效，Refresh 为 HttpOnly Cookie 并轮换。 |
 | 跨域/限流 | CORS_ALLOWED_ORIGINS、*_RATE_LIMIT | 当前限流按 API 实例内存计数。 |
 | 引导/演示 | BOOTSTRAP_ADMIN_*、DEMO_SEED_* | 只用于首个所有者和演示资料；生产关闭 Seed。 |
-| 存储 | STORAGE_DRIVER、STORAGE_LOCAL_ROOT、S3_* | local 用媒体卷，s3 用 MinIO/S3。 |
-| 邮件 | EMAIL_DRIVER、SMTP_* | disabled 不伪报 sent；smtp 才连接外部服务。 |
-| AI | AI_PROVIDER、AI_BASE_URL、AI_API_KEY、AI_MODEL | 支持 disabled、mock、openai_compatible。 |
+| 存储默认值 | STORAGE_DRIVER、STORAGE_LOCAL_ROOT、S3_* | 首次启动默认值；日常在系统设置页面管理。 |
+| 邮件默认值 | EMAIL_DRIVER、SMTP_* | 首次启动默认值；日常在系统设置页面管理。 |
+| AI 默认值 | AI_PROVIDER、AI_BASE_URL、AI_API_KEY、AI_MODEL | 首次启动默认值；日常在智能体配置页面管理。 |
 
 安全规则：
 
 - 所有 VITE_* 变量都会进入浏览器构建产物，只能放公开地址和组织 slug，不能放任何密钥。
-- AI_API_KEY、SMTP 密码、数据库密码和对象存储密钥只注入后端。
+- AI、SMTP 和对象存储凭据可通过受保护的 Admin 页面提交，由 API 加密保存且不回传明文；数据库、JWT 与 Redis 密钥仍只由部署注入。
 - PUBLIC_WEB_BASE_URL 用于生成邀请链接，必须是可访问的绝对 HTTP/HTTPS 地址。
 - .env、备份、运行报告和临时文件不得提交；提交前运行 python scripts/scan-secrets.py。
 - Bootstrap 配置只创建不存在的账户，不会替换已有账户密码。
 
 ## 4. 数据库、迁移与数据生命周期
 
-当前迁移为 001—015。SQL 嵌入 API 二进制，按文件名顺序执行并写入 schema_migrations。001—008 兼容旧 AutoMigrate 数据卷；009 以后是显式迁移。014 提供通知、内容修订、下载统计、默认组织和 AI 引用正文基础；015 为既有内容补齐 version 1 修订基线。
+当前迁移为 001—017。SQL 嵌入 API 二进制，按文件名顺序执行并写入 schema_migrations。001—008 兼容旧 AutoMigrate 数据卷；009 以后是显式迁移。014 提供通知、内容修订、下载统计、默认组织和 AI 引用正文基础；015 为既有内容补齐 version 1 修订基线；016 增加模型供应商配置；017 增加组织级加密服务接入配置。
 
 新增表或字段时：
 
@@ -241,7 +241,8 @@ Set-Location D:\qutc-platform
 
 ### 5.3 邮件、通知和 AI Worker
 
-- EMAIL_DRIVER=disabled 时邀请仍可复制链接完成加入，投递应显示 disabled/skipped，不能显示 sent。
+- 组织未保存网页配置时沿用 EMAIL_DRIVER/STORAGE_DRIVER 等部署默认值；保存后按组织即时生效。
+- 邮件关闭时邀请仍可复制链接完成加入，投递应显示 disabled/skipped，不能显示 sent。
 - 审批事务先写唯一 notification_outboxes 事件，再由 API 内单机 Worker 发送；失败不回滚审批事实，管理员可以查看和重试。
 - AI 运行先持久化为 queued；重启后 queued 继续领取，running 明确失败。当前不支持断点续跑、多实例公平调度或独立消息中间件。
 - SMTP、AI、MinIO 故障属于外部依赖故障，先查适配器状态、超时和脱敏错误，再决定重试。
@@ -250,16 +251,16 @@ Set-Location D:\qutc-platform
 
 | 现象 | 检查 | 处理 |
 | --- | --- | --- |
-| 浏览器 Failed to fetch | API 地址、端口、CORS、/readyz | 改 .env 后重建 web；浏览器必须访问宿主机地址，不能使用容器名。 |
-| 页面能打开但没有内容 | VITE_API_MODE、VITE_API_BASE_URL、组织 slug | remote 模式下修正三者并重建 Web；mock 模式只读前端 fixture。 |
+| 浏览器 Failed to fetch | Web 的 `/api` 代理、API 容器、/readyz | Compose 查看 web/api 日志；生产不应给浏览器写死 API 端口。 |
+| 页面能打开但没有内容 | VITE_API_MODE、同源 `/api`、组织 slug | Compose/生产确认 remote 与同源代理；mock 模式只读前端 fixture。 |
 | Admin 返回 401 | 登录、Cookie、Origin、API 地址 | Compose 远程模式使用 BOOTSTRAP_ADMIN_*；跨端口时检查 CORS 和凭据请求。 |
 | Admin 返回 403 | 当前组织、成员状态、RBAC | 切换到正确组织；不要用前端改按钮绕过权限。 |
 | /readyz 非 ready | MySQL/Redis 健康和网络 | 查看 docker compose ps 与依赖日志；API 容器内应使用 mysql:3306、redis:6379。 |
 | API 启动失败并提示迁移 | 迁移日志、账本、旧数据卷 | 先备份，不删 volume；重点检查 014/015 外键 collation。 |
-| 资源上传/下载失败 | 存储驱动、volume 权限、MinIO profile | local 检查媒体卷；s3 确认 --profile storage 和容器内 minio:9000。 |
-| AI 无法生成 | Provider、Key、Base URL、模型、配额 | disabled 是关闭；mock 仅开发；真实 Provider 只由 API 读取。 |
-| 邮件 disabled/failed | EMAIL_DRIVER、SMTP、Outbox | 先保留审批事实/复制链接；修复 SMTP 后重试失败或禁用通知。 |
-| 端口被占用 | .env、容器状态、宿主机进程 | 修改宿主机端口，并同步 API URL、CORS，重新构建 Web。 |
+| 资源上传/下载失败 | 系统设置中的存储连接、volume 权限、MinIO profile | 页面先“保存并验证存储”；local 再查媒体卷，s3 再查 MinIO。 |
+| AI 无法生成 | 智能体配置中的 Provider、Key、Base URL、模型、配额 | disabled 是关闭；mock 仅开发；保存后用页面功能验证。 |
+| 邮件 disabled/failed | 系统设置中的 SMTP、连接验证、Outbox | 先保留审批事实/复制链接；页面修复 SMTP 后重试通知。 |
+| 端口被占用 | .env、容器状态、宿主机进程 | 修改宿主机端口；同源代理下通常无需重建 Web。 |
 
 ## 7. 开发者工作流
 
@@ -407,4 +408,3 @@ Set-Location D:\qutc-platform
 - [比赛演示运行手册](docs/product/competition-demo-runbook.md)：比赛版主路径和故障回退。
 - [贡献指南](CONTRIBUTING.md)：分支、提交和 PR 约定。
 - [安全策略](SECURITY.md)：漏洞报告和敏感信息处理。
-

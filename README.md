@@ -132,7 +132,8 @@ pnpm check
 ```dotenv
 # mock：使用仓库内契约 fixture；remote：请求后端 API
 VITE_API_MODE=mock
-VITE_API_BASE_URL=http://localhost:8080
+# 生产与 Compose 留空，使用 Web 内置同源 /api；本地分端口联调可填 http://localhost:8080
+VITE_API_BASE_URL=
 VITE_ORGANIZATION_SLUG=qutcraft
 ```
 
@@ -163,12 +164,10 @@ docker compose up --build
 
 ```bash
 cd deploy/compose
-# 先在 .env 中设置 STORAGE_DRIVER=s3，并让 S3_ACCESS_KEY/S3_SECRET_KEY
-# 与 MINIO_ROOT_USER/MINIO_ROOT_PASSWORD 对应。
 docker compose --profile storage up --build
 ```
 
-此时 API 会真实将新上传媒体写入 MinIO，而不是只启动一个未被使用的容器。默认 `STORAGE_DRIVER=local` 继续使用受控媒体卷。两种后端都只通过 API 分发文件，浏览器不会获得对象存储凭据；完整变量、迁移限制和验证脚本见 [媒体存储适配规范](docs/api/storage-adapter.md)。
+MinIO 启动后，组织所有者可在 Admin 的“系统设置 → 服务接入”选择 S3 / MinIO、填写地址与凭据并验证连接；无需重启 API。默认 `local` 继续使用受控媒体卷。SMTP 与门户公网地址也在同一页面维护，AI 模型接口在“智能体配置”中维护。所有敏感凭据由 API 加密保存且不会回传浏览器；完整边界见 [媒体存储适配规范](docs/api/storage-adapter.md) 与 [邮件适配规范](docs/api/email-adapter.md)。
 
 ### 备份与恢复演练
 

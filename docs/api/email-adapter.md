@@ -19,7 +19,9 @@
 - SMTP 禁用、失败、重试次数和脱敏错误均可由具有组织配置权限的管理员查看。
 - 当前没有申请人自助状态页、Webhook、企业微信、退信处理或多实例 worker，这些能力继续延期。
 
-## 2. 服务端配置
+## 2. 服务端默认值与网页配置
+
+环境变量只负责首次启动与未保存组织级配置时的默认值。拥有 `organization:configure` 权限的管理员可在“系统设置 → 服务接入”保存 SMTP，配置按组织即时生效，不需要重启 API。SMTP 密码使用服务端密钥派生的 AES-GCM 密钥加密保存；GET 响应只返回掩码提示。
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -132,7 +134,13 @@ API 进程重启不会丢失 `pending`/`failed` 事件。当前 worker 与 API �
 }
 ```
 
-该接口永不返回 `SMTP_HOST`、端口、用户名、密码或授权码。配置修改只能通过受控部署变量完成并重启 API。
+该状态接口永不返回主机、端口、用户名、密码或授权码。完整配置使用：
+
+- `GET /api/v1/admin/integrations`
+- `PATCH /api/v1/admin/integrations`
+- `POST /api/v1/admin/integrations/test`，请求 `{ "section": "email" }`
+
+测试连接验证 DNS/TCP、TLS/STARTTLS 与 SMTP AUTH，但不会发送邮件。网页读取只得到是否已配置与尾号提示，保存后浏览器表单立即清空密码。
 
 ### 4.4 组织级邀请模板
 

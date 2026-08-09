@@ -80,12 +80,31 @@ test('owner can open dashboard and organization settings', async ({ page }) => {
   await page.getByRole('button', { name: /登录工作台/ }).click()
   await expect(page).toHaveURL(/\/admin$/)
   await expect(page.getByRole('heading', { name: '工作台概览' })).toBeVisible()
+  await expect(page.locator('.el-loading-mask.is-fullscreen')).toHaveCount(0)
+  await expect(page.locator('.el-skeleton.is-animated')).toHaveCount(0)
 
   if ((page.viewportSize()?.width ?? 0) > 900) {
     const rail = page.locator('.admin-rail')
     await expect.poll(async () => (await rail.boundingBox())?.width ?? 0).toBeLessThanOrEqual(216)
     await expect.poll(() => page.locator('.admin-nav').evaluate((element) => element.scrollHeight <= element.clientHeight + 1)).toBe(true)
     await expect.poll(() => page.locator('.rail-link').evaluateAll((links) => Math.max(...links.map((link) => link.getBoundingClientRect().height)))).toBeLessThanOrEqual(40)
+  }
+
+  if ((page.viewportSize()?.width ?? 0) > 1100) {
+    const serverHeader = page.locator('.server-panel-top')
+    await expect(serverHeader).toBeVisible()
+    const alignment = await serverHeader.evaluate((header) => {
+      const title = header.querySelector('h2')!.getBoundingClientRect()
+      const state = header.querySelector('.server-state')!.getBoundingClientRect()
+      return {
+        centerDelta: Math.abs((title.top + title.height / 2) - (state.top + state.height / 2)),
+        titleHeight: title.height,
+        overflow: header.scrollWidth > header.clientWidth,
+      }
+    })
+    expect(alignment.centerDelta).toBeLessThan(1)
+    expect(alignment.titleHeight).toBeLessThanOrEqual(30)
+    expect(alignment.overflow).toBe(false)
   }
 
   await clickAdminNavigation(page, '内容管理')
@@ -103,6 +122,14 @@ test('owner can open dashboard and organization settings', async ({ page }) => {
   const characterCount = page.locator('.el-input__count').first()
   await expect(characterCount).toBeVisible()
   await expect.poll(() => characterCount.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe('rgb(255, 255, 255)')
+  await expect(page.getByRole('heading', { name: '服务接入', exact: true })).toBeVisible()
+  await expect(page.getByText(`${new URL(page.url()).origin}/api`, { exact: true })).toBeVisible()
+  const adapterCard = page.locator('.adapter-card').first()
+  await expect(adapterCard).toBeVisible()
+  await expect.poll(() => adapterCard.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe('rgb(255, 255, 255)')
+  await page.getByRole('button', { name: '保存服务接入', exact: true }).click()
+  await expect(page.getByText('服务接入配置已加密保存并立即生效。')).toBeVisible()
+  await expect(page.getByText('网页配置生效中', { exact: true })).toBeVisible()
 
   await clickAdminNavigation(page, '智能体配置')
   await expect(page).toHaveURL(/\/admin\/ai$/)
@@ -215,6 +242,8 @@ test('activity planner opens as a structured three-step workspace', async ({ pag
   await expect(page.getByText('选择依据', { exact: true })).toBeVisible()
   await expect(page.getByText('审查执行', { exact: true })).toBeVisible()
   await expect(page.getByLabel('活动名称')).toBeVisible()
+  await expect(page.locator('.el-loading-mask.is-fullscreen')).toHaveCount(0)
+  await expect(page.locator('.el-skeleton.is-animated')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '活动方案质量证据' })).toBeVisible()
   await expect(page.getByText('尚无人工评分。生成方案后由真实评审完成五维评价，系统不会用自动分数冒充人工结论。')).toBeVisible()
   await expect(page.getByRole('heading', { name: '待评分方案已全部完成' })).toBeVisible()
@@ -223,6 +252,19 @@ test('activity planner opens as a structured three-step workspace', async ({ pag
   await expect(page.getByRole('heading', { name: '活动策划历史' })).toBeVisible()
   await expect(page.getByText('尚无活动策划记录')).toBeVisible()
   await page.keyboard.press('Escape')
+
+  await page.getByRole('combobox', { name: '时间范围', exact: true }).click()
+  const leftCalendarDays = page.locator('.el-date-range-picker__content.is-left td.available:not(.prev-month):not(.next-month)')
+  await leftCalendarDays.nth(8).click()
+  await leftCalendarDays.nth(15).click()
+  const rangeCell = page.locator('.el-date-table td.in-range:not(.start-date):not(.end-date) .el-date-table-cell').first()
+  await expect(rangeCell).toBeVisible()
+  await expect.poll(() => rangeCell.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe('rgb(255, 255, 255)')
+  await expect.poll(() => page.locator('.el-picker__popper').evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe('rgb(255, 255, 255)')
+  await page.keyboard.press('Escape')
+
+  const objectiveInput = page.getByLabel('活动目标')
+  await expect.poll(() => objectiveInput.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe('rgb(255, 255, 255)')
 
   await page.getByLabel('活动名称').fill('校园开源体验日')
   await page.getByLabel('目标受众').fill('全校学生')

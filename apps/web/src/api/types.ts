@@ -468,6 +468,81 @@ export interface AdminInvitationSummary extends Invitation {
   delivery: EmailDelivery
 }
 
+export interface ManagedRuntimeItem {
+  key: 'database' | 'cache' | 'security' | 'server'
+  label: string
+  state: 'deployment' | 'deferred'
+  description: string
+}
+
+export interface IntegrationSettings {
+  public_web_base_url: string
+  source: 'deployment' | 'web'
+  email: {
+    driver: 'disabled' | 'smtp'
+    source: 'deployment' | 'web'
+    enabled: boolean
+    configured: boolean
+    host: string
+    port: number
+    username: string
+    password_configured: boolean
+    password_hint?: string
+    from_address: string
+    from_name: string
+    security: 'starttls' | 'tls' | 'none'
+    timeout_seconds: number
+  }
+  storage: {
+    driver: 'local' | 's3'
+    source: 'deployment' | 'web'
+    configured: boolean
+    endpoint: string
+    access_key_configured: boolean
+    access_key_hint?: string
+    secret_key_configured: boolean
+    secret_key_hint?: string
+    bucket: string
+    region: string
+    use_ssl: boolean
+  }
+  managed_runtime: ManagedRuntimeItem[]
+  updated_at?: string
+}
+
+export interface IntegrationSettingsUpdate {
+  public_web_base_url: string
+  email: {
+    driver: 'disabled' | 'smtp'
+    host: string
+    port: number
+    username: string
+    password: string
+    clear_password: boolean
+    from_address: string
+    from_name: string
+    security: 'starttls' | 'tls' | 'none'
+    timeout_seconds: number
+  }
+  storage: {
+    driver: 'local' | 's3'
+    endpoint: string
+    access_key: string
+    secret_key: string
+    clear_access_key: boolean
+    clear_secret_key: boolean
+    bucket: string
+    region: string
+    use_ssl: boolean
+  }
+}
+
+export interface IntegrationTestResult {
+  section: 'email' | 'storage'
+  reachable: boolean
+  checked_at: string
+}
+
 export interface InvitationTemplate {
   subject_template: string
   body_template: string

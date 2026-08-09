@@ -3,7 +3,10 @@ import { clearTokens, getAccessToken, saveTokens } from '@/auth/token-storage'
 import type { ApiEnvelope, Page } from '@/api/types'
 
 const apiMode = import.meta.env.VITE_API_MODE ?? 'mock'
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080').replace(/\/$/, '')
+// Production uses the web container's same-origin /api reverse proxy, so the
+// browser never needs an administrator-maintained API hostname. A Vite value
+// remains available for split-port local development only.
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL?.trim() || window.location.origin).replace(/\/$/, '')
 
 export function resolveApiUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path

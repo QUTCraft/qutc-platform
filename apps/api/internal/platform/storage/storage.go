@@ -45,6 +45,37 @@ func New(ctx context.Context, cfg Config) (Store, error) {
 	}
 }
 
+// Probe validates that the configured backend is reachable without creating,
+// deleting or overwriting an object. S3 buckets must already exist; creation is
+// intentionally reserved for adapter initialization after the setting is used.
+func Probe(ctx context.Context, cfg Config) error {
+	switch strings.ToLower(strings.TrimSpace(cfg.Driver)) {
+	case "", "local":
+		_, err := NewLocal(cfg.LocalRoot)
+		return err
+	case "s3":
+		if err := validateS3Config(cfg); err != nil {
+			return err
+		}
+		client, err := minio.New(cfg.Endpoint, &minio.Options{
+			Creds: credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""), Secure: cfg.UseSSL, Region: cfg.Region,
+		})
+		if err != nil {
+			return fmt.Errorf("create S3 client: %w", err)
+		}
+		exists, err := client.BucketExists(ctx, cfg.Bucket)
+		if err != nil {
+			return fmt.Errorf("check S3 bucket: %w", err)
+		}
+		if !exists {
+			return fmt.Errorf("S3 bucket %q does not exist", cfg.Bucket)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported storage driver %q", cfg.Driver)
+	}
+}
+
 type Local struct {
 	root string
 }
@@ -140,6 +171,9 @@ type S3 struct {
 }
 
 func NewS3(ctx context.Context, cfg Config) (*S3, error) {
+	if err := validateS3Config(cfg); err != nil {
+		return nil, err
+	}
 	client, err := minio.New(cfg.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
 		Secure: cfg.UseSSL,
@@ -160,6 +194,13 @@ func NewS3(ctx context.Context, cfg Config) (*S3, error) {
 		}
 	}
 	return &S3{client: client, bucket: cfg.Bucket}, nil
+}
+
+func validateS3Config(cfg Config) error {
+	if strings.TrimSpace(cfg.Endpoint) == "" || strings.TrimSpace(cfg.AccessKey) == "" || strings.TrimSpace(cfg.SecretKey) == "" || strings.TrimSpace(cfg.Bucket) == "" {
+		return errors.New("S3 endpoint, access key, secret key and bucket are required")
+	}
+	return nil
 }
 
 func ensureS3Bucket(ctx context.Context, client *minio.Client, bucket, region string) error {

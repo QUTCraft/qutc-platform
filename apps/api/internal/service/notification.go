@@ -28,8 +28,18 @@ var (
 )
 
 type NotificationService struct {
-	db   *gorm.DB
-	mail mailadapter.Sender
+	db           *gorm.DB
+	mailResolver MailSenderResolver
+}
+
+type MailSenderResolver interface {
+	MailSender(context.Context, string) (mailadapter.Sender, error)
+}
+
+type staticMailSenderResolver struct{ sender mailadapter.Sender }
+
+func (r staticMailSenderResolver) MailSender(context.Context, string) (mailadapter.Sender, error) {
+	return r.sender, nil
 }
 
 type NotificationView struct {
@@ -50,7 +60,11 @@ type NotificationView struct {
 }
 
 func NewNotificationService(db *gorm.DB, mail mailadapter.Sender) *NotificationService {
-	return &NotificationService{db: db, mail: mail}
+	return NewNotificationServiceWithResolver(db, staticMailSenderResolver{sender: mail})
+}
+
+func NewNotificationServiceWithResolver(db *gorm.DB, resolver MailSenderResolver) *NotificationService {
+	return &NotificationService{db: db, mailResolver: resolver}
 }
 
 func (s *NotificationService) EnqueueApplicationDecision(tx *gorm.DB, application model.Application) error {
@@ -129,7 +143,14 @@ func (s *NotificationService) claimNext() (model.NotificationOutbox, bool, error
 }
 
 func (s *NotificationService) deliver(ctx context.Context, item model.NotificationOutbox) error {
-	if s.mail == nil || !s.mail.Status().Enabled {
+	if s.mailResolver == nil {
+		return s.finish(item, NotificationStatusDisabled, "邮件适配器未启用", nil, time.Time{})
+	}
+	sender, resolveErr := s.mailResolver.MailSender(ctx, item.OrganizationID)
+	if resolveErr != nil {
+		return s.finish(item, NotificationStatusFailed, "邮件配置暂时无法读取", resolveErr, time.Now().UTC().Add(time.Minute))
+	}
+	if sender == nil || !sender.Status().Enabled {
 		return s.finish(item, NotificationStatusDisabled, "邮件适配器未启用", nil, time.Time{})
 	}
 	var application model.Application
@@ -140,7 +161,7 @@ func (s *NotificationService) deliver(ctx context.Context, item model.Notificati
 	if err := s.db.Where("id = ?", item.OrganizationID).First(&organization).Error; err != nil {
 		return s.finish(item, NotificationStatusFailed, "组织记录不存在", err, time.Now().UTC().Add(24*time.Hour))
 	}
-	err := s.mail.SendApplicationDecision(ctx, mailadapter.ApplicationDecisionMessage{
+	err := sender.SendApplicationDecision(ctx, mailadapter.ApplicationDecisionMessage{
 		RecipientEmail: application.Email, Organization: organization.Name, ApplicantName: application.ApplicantName,
 		ApplicationType: application.Type, Decision: application.Status, Reason: application.DecisionReason,
 	})
