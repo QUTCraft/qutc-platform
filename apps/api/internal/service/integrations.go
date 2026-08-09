@@ -241,6 +241,14 @@ func (s *IntegrationService) Update(ctx context.Context, principal Principal, in
 		}).Create(&configuration).Error; err != nil {
 			return err
 		}
+		// GORM treats a bool field with a database default as omitted when its
+		// value is false during INSERT. Explicitly persist the protocol flag so
+		// an HTTP S3/MinIO endpoint is not silently rewritten to HTTPS.
+		if err := tx.Model(&model.IntegrationConfiguration{}).
+			Where("organization_id = ?", configuration.OrganizationID).
+			Update("s3_use_ssl", storageConfig.UseSSL).Error; err != nil {
+			return err
+		}
 		return tx.Create(&model.AuditEvent{
 			ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ActorUserID: principal.UserID,
 			Action: "organization.integrations_update", TargetType: "integration_configuration", TargetID: configuration.ID,
