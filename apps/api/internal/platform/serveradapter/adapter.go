@@ -10,11 +10,15 @@ import (
 )
 
 const (
-	ModeMock = "mock"
-	ModeRCON = "rcon"
+	ModeDisabled = "disabled"
+	ModeMock     = "mock"
+	ModeRCON     = "rcon"
 )
 
-var ErrCommandNotAllowed = errors.New("server command is not allowed")
+var (
+	ErrAdapterDisabled   = errors.New("server adapter is disabled")
+	ErrCommandNotAllowed = errors.New("server command is not allowed")
+)
 
 var minecraftGameIDPattern = regexp.MustCompile(`^[A-Za-z0-9_]{3,16}$`)
 
@@ -45,6 +49,34 @@ type Adapter interface {
 	Status(context.Context) (Status, error)
 	Execute(context.Context, string) (Result, error)
 	AddWhitelist(context.Context, string) (Result, error)
+}
+
+type DisabledAdapter struct{}
+
+func NewDisabled() *DisabledAdapter { return &DisabledAdapter{} }
+
+func (*DisabledAdapter) Name() string { return "minecraft-disabled" }
+func (*DisabledAdapter) Mode() string { return ModeDisabled }
+
+func (a *DisabledAdapter) Status(context.Context) (Status, error) {
+	return Status{
+		Enabled:       false,
+		Adapter:       a.Name(),
+		Mode:          a.Mode(),
+		Label:         "Minecraft 服务尚未接入",
+		State:         "offline",
+		OnlinePlayers: 0,
+		MaxPlayers:    0,
+		UpdatedAt:     time.Now().UTC(),
+	}, nil
+}
+
+func (*DisabledAdapter) Execute(context.Context, string) (Result, error) {
+	return Result{}, ErrAdapterDisabled
+}
+
+func (*DisabledAdapter) AddWhitelist(context.Context, string) (Result, error) {
+	return Result{}, ErrAdapterDisabled
 }
 
 type timeoutAdapter struct {

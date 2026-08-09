@@ -24,7 +24,10 @@ const { data, error, loading, refresh } = useAsyncData(async () => {
 })
 
 const heroNews = computed(() => data.value?.posts[0])
-const statusLabel = computed(() => ({ online: '运行正常', maintenance: '维护中', offline: '离线' }[data.value?.serverStatus.state ?? 'offline']))
+const statusLabel = computed(() => {
+  if (data.value && !data.value.serverStatus.enabled) return '尚未接入'
+  return ({ online: '运行正常', maintenance: '维护中', offline: '离线' }[data.value?.serverStatus.state ?? 'offline'])
+})
 const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcraft')
 </script>
 
@@ -84,18 +87,18 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
 
           <div v-if="isQutcraftPortal" class="hero-stats-strip">
             <div class="stat-item">
-              <strong>30+</strong>
-              <small>公开协作项目</small>
+              <strong>{{ data.posts.length }}</strong>
+              <small>公开动态</small>
             </div>
             <div class="stat-divider" />
             <div class="stat-item">
-              <strong>100+</strong>
-              <small>沉淀知识条目</small>
+              <strong>{{ data.projects.length }}</strong>
+              <small>公开项目</small>
             </div>
             <div class="stat-divider" />
             <div class="stat-item">
-              <strong>24/7</strong>
-              <small>Minecraft 生态服</small>
+              <strong>{{ data.knowledge.length }}</strong>
+              <small>知识条目</small>
             </div>
           </div>
           <div v-else class="hero-stats-strip">
@@ -125,7 +128,7 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
             </span>
           </div>
 
-          <h2>{{ data.serverStatus.enabled ? data.serverStatus.label : 'QUTCraft 平台' }}</h2>
+          <h2>{{ data.serverStatus.label || 'QUTCraft 平台' }}</h2>
 
           <dl v-if="data.serverStatus.enabled" class="status-dl">
             <div>

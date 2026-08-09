@@ -9,6 +9,7 @@ FORBIDDEN_MARKERS = {
     b"http://mock.local": "fixture API origin",
     b"Mock endpoint not implemented": "fixture API implementation",
     "QUTCraft CMS 项目正式启动".encode(): "fixture content",
+    b"QUTCraft Minecraft Mock": "simulated server status",
     "开发 Mock".encode(): "development model label",
 }
 

@@ -14,7 +14,7 @@
 1. `Application.status` 表示组织是否批准申请。
 2. `ApplicationServerSync.status` 表示批准结果是否已同步到外部服务器。
 3. 外部适配器失败不得回滚已经提交的审批决定。
-4. Mock 必须显式返回 `mode: mock` 和 `executed: false`，不得伪装成真实 RCON。
+4. 生产未接入 RCON 时必须返回 `mode: disabled` 并拒绝外部执行；Mock 只供本地开发和自动化测试。
 5. 浏览器不接触 RCON 地址、端口、密码、原始认证错误或可任意拼接的命令。
 
 ## 2. 权限和响应封装
@@ -58,7 +58,7 @@
 | `id` | string | 同步记录 ID。 |
 | `operation` | enum | 当前为 `whitelist.add`。 |
 | `adapter` | string | 服务端适配器名称，例如 `minecraft-mock`。 |
-| `mode` | enum | `mock` 或 `rcon`。 |
+| `mode` | enum | `disabled`、`mock` 或 `rcon`。 |
 | `status` | enum | `pending`、`succeeded`、`failed`。 |
 | `attempts` | integer | 已完成的适配尝试次数，从 0 开始。 |
 | `message` | string | 可向管理员展示的脱敏结果。 |
@@ -263,7 +263,7 @@ Mock 响应中的 `accepted: true` 只表示模拟适配器接受了请求；`ex
 - 默认超时为 5 秒。
 - 非法或非正持续时间回退到默认值。
 - 超时属于同步失败，不改变已经提交的审批决定。
-- RCON 暂时搁置；当前默认适配器为 Mock。
+- RCON 暂时搁置；生产默认适配器为 `disabled`，Mock 只用于测试和本地开发。
 
 ## 10. 安全边界
 

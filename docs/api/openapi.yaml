@@ -3215,7 +3215,7 @@ components:
         id: { type: string }
         operation: { type: string, enum: [whitelist.add] }
         adapter: { type: string, maxLength: 64 }
-        mode: { type: string, enum: [mock, rcon] }
+        mode: { type: string, enum: [disabled, mock, rcon] }
         status: { type: string, enum: [pending, succeeded, failed] }
         attempts: { type: integer, minimum: 0 }
         message: { type: string, maxLength: 500 }
@@ -3231,11 +3231,11 @@ components:
       properties:
         enabled: { type: boolean }
         adapter: { type: string, maxLength: 64 }
-        mode: { type: string, enum: [mock, rcon] }
+        mode: { type: string, enum: [disabled, mock, rcon] }
         label: { type: string, maxLength: 100 }
         state: { type: string, enum: [online, maintenance, offline] }
         online_players: { type: integer, minimum: 0 }
-        max_players: { type: integer, minimum: 1 }
+        max_players: { type: integer, minimum: 0 }
         updated_at: { type: string, format: date-time }
         last_command_at: { type: [string, 'null'], format: date-time }
         last_error: { type: string, maxLength: 500 }
@@ -3342,7 +3342,7 @@ components:
         executed:
           type: boolean
           description: 是否由真实外部服务执行；Mock 模式固定为 false。
-        mode: { type: string, enum: [mock, rcon] }
+        mode: { type: string, enum: [disabled, mock, rcon] }
         message: { type: string }
         executed_at: { type: string, format: date-time }
     AuthRole:

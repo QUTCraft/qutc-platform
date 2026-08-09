@@ -6,7 +6,7 @@
 
 本文说明当前已开发的认证（Auth）、公开门户（Portal）与后台工作台（Admin）接口。它是对 OpenAPI 契约的可读补充：**路径、字段类型、必填性和状态码以 `openapi.yaml` 为最终事实来源**。本文会明确区分已落地的 CMS、资源、知识目录、成员邀请、多组织会话、门户配置与审计能力和仍在排期中的运行时能力。
 
-> 实现状态：`/api/v1/auth/*`、多组织列举/安全切换、邀请注册/接受、Portal 公开内容读取、Admin 内容生命周期、媒体资产、用户资料、项目/成员/里程碑、知识库目录、申请审批/Mock ServerAdapter、门户配置、审计查询和存活/就绪探针已在 Go API 底座中实现。
+> 实现状态：`/api/v1/auth/*`、多组织列举/安全切换、邀请注册/接受、Portal 公开内容读取、Admin 内容生命周期、媒体资产、用户资料、项目/成员/里程碑、知识库目录、申请审批/可禁用 ServerAdapter、门户配置、审计查询和存活/就绪探针已在 Go API 底座中实现。
 
 ## 1. 设计边界
 
@@ -36,7 +36,7 @@ https://api.qutcraft.local
 http://localhost:18080
 ```
 
-生产 Web 容器通过同源 `/api` 反向代理访问 API，普通管理员无需填写服务器地址，也不会因域名或端口变化重新打包前端。`VITE_API_BASE_URL` 仅保留给本地前后端分端口调试；当前前端的默认 `mock` 模式不会发出网络请求。
+生产 Web 容器通过同源 `/api` 反向代理访问 API，普通管理员无需填写服务器地址，也不会因域名或端口变化重新打包前端。`VITE_API_BASE_URL` 仅保留给本地前后端分端口调试；生产构建始终使用真实 API，`mock` 仅能在显式启用的本地 Vite 开发服务器中使用。
 
 ### 2.2 导入 Apifox / Swagger
 
@@ -687,11 +687,11 @@ Operation ID：`getAdminServerStatus`
 | --- | --- | --- |
 | `enabled` | boolean | 是否启用服务器适配器。 |
 | `adapter` | string | 服务端选择的适配器名称。 |
-| `mode` | enum | `mock` 或 `rcon`；前端必须明确区分模拟与真实执行。 |
+| `mode` | enum | `disabled`、`mock` 或 `rcon`；生产未接入 RCON 时必须返回 `disabled`，不能模拟成功。 |
 | `label` | string，最多 100 字符 | 后台服务器名称。 |
 | `state` | enum | `online`、`maintenance`、`offline`。 |
 | `online_players` | integer，≥0 | 当前在线人数。 |
-| `max_players` | integer，≥1 | 最大人数。 |
+| `max_players` | integer，≥0 | 最大人数；未接入时为 0。 |
 | `last_command_at` | date-time / null | 最近一次受控命令时间。 |
 | `updated_at` | date-time | 适配器状态更新时间。 |
 
@@ -730,7 +730,7 @@ Operation ID：`executeRestrictedServerCommand`
 4. 不在响应、日志错误或前端中泄露 RCON 密码、连接串或原始认证异常。
 5. 离线或维护状态下返回明确错误，不应假装命令已成功执行。
 
-当前 Vue mock 环境只记录命令并返回模拟成功，**不会连接任何 Minecraft 服务器**。
+本地 Vue 开发 Mock 只记录命令并返回模拟成功，**不会连接任何 Minecraft 服务器**。生产环境默认使用 `disabled` 适配器，命令和白名单同步会明确失败，直到接入真实 RCON。
 
 ### 7.7 成员邀请规范
 
@@ -761,7 +761,7 @@ Operation ID：`executeRestrictedServerCommand`
 - **安全约束**：SMTP 授权码绝不可进入前端静态代码、日志或 API 响应。网页输入只在保存请求中传输，保存后立即从表单清空。完整配置、模板、审批通知 Outbox 和错误语义见 [邮件与通知适配器规范](email-adapter.md)。
 
 #### 2. Minecraft RCON 隔离与审计规范
-- **当前状态**：真实 RCON 暂时搁置，默认使用明确标记的 Mock Adapter。
+- **当前状态**：真实 RCON 暂时搁置；生产默认使用 `disabled` Adapter，不生成虚假服务器状态或模拟成功记录。Mock Adapter 仅供自动化测试和本地开发。
 - **网络隔离**: RCON 端口（`25575`）与指令下发仅在内部私有网络中打通，不向公网暴露。
 - **强制审计**: 所有受控 RCON 命令下发必须包含操作者身份（`operator_id`）、操作时间戳（`executed_at`）与关联追踪 ID（`request_id`）并生成留存审计日志。
 
@@ -775,7 +775,7 @@ Operation ID：`executeRestrictedServerCommand`
 | `PATCH /api/v1/admin/integrations` | 保存门户地址、SMTP、本地/S3 存储。 | 凭据留空保留原值；仅显式 `clear_*` 清除；写入审计。 |
 | `POST /api/v1/admin/integrations/test` | 验证 `email` 或 `storage`。 | 不发邮件、不上传对象、不创建存储桶。 |
 
-媒体上传会解析当前组织的活动存储驱动，资产元数据记录实际驱动；下载旧资产时按记录的驱动解析，因此从本地切换到 S3 后不会让已有本地文件失效。MySQL、Redis、JWT、CORS、限流和监听端口属于进程启动根基，只在网页中清楚标记为“部署维护”，不能伪装成可热修改项。RCON 继续按计划延期并保持 Mock。
+媒体上传会解析当前组织的活动存储驱动，资产元数据记录实际驱动；下载旧资产时按记录的驱动解析，因此从本地切换到 S3 后不会让已有本地文件失效。MySQL、Redis、JWT、CORS、限流和监听端口属于进程启动根基，只在网页中清楚标记为“部署维护”，不能伪装成可热修改项。RCON 继续按计划延期，生产保持明确的 `disabled` 状态。
 
 ### 7.9 门户 Manifest 配置
 

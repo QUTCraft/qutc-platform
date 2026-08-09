@@ -26,6 +26,23 @@ func TestMockAdapterMakesSimulationExplicit(t *testing.T) {
 	}
 }
 
+func TestDisabledAdapterNeverSimulatesExternalWork(t *testing.T) {
+	adapter := NewDisabled()
+	status, err := adapter.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if status.Enabled || status.Mode != ModeDisabled || status.State != "offline" || status.MaxPlayers != 0 {
+		t.Fatalf("disabled status = %+v, want an explicit unavailable adapter", status)
+	}
+	if _, err := adapter.Execute(context.Background(), "list"); !errors.Is(err, ErrAdapterDisabled) {
+		t.Fatalf("Execute() error = %v, want ErrAdapterDisabled", err)
+	}
+	if _, err := adapter.AddWhitelist(context.Background(), "PlayerOne"); !errors.Is(err, ErrAdapterDisabled) {
+		t.Fatalf("AddWhitelist() error = %v, want ErrAdapterDisabled", err)
+	}
+}
+
 func TestTimeoutAdapterStopsSlowOperations(t *testing.T) {
 	adapter := WithTimeout(blockingAdapter{}, 10*time.Millisecond)
 	startedAt := time.Now()

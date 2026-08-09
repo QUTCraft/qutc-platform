@@ -105,7 +105,11 @@ func main() {
 	notificationService.StartWorker(context.Background(), 2*time.Second)
 	notificationHandler := handler.NewNotificationHandler(db, notificationService)
 	invitationHandler := handler.NewInvitationHandlerWithIntegrations(db, authService, integrationService)
-	workspaceHandler := handler.NewWorkspaceHandlerWithDependenciesAndNotifications(db, publicCache, cfg.AppEnv, serveradapter.NewMock(), cfg.ServerAdapterTimeout, mediaStorage, notificationService)
+	var serverAdapter serveradapter.Adapter = serveradapter.NewMock()
+	if cfg.AppEnv == "production" {
+		serverAdapter = serveradapter.NewDisabled()
+	}
+	workspaceHandler := handler.NewWorkspaceHandlerWithDependenciesAndNotifications(db, publicCache, cfg.AppEnv, serverAdapter, cfg.ServerAdapterTimeout, mediaStorage, notificationService)
 	workspaceHandler.UseStorageResolver(integrationService)
 	portalConfigHandler := handler.NewPortalConfigHandler(db)
 	auditHandler := handler.NewAuditHandler(db)

@@ -53,6 +53,11 @@ function syncTagType(status: ApplicationServerSync['status']): 'success' | 'dang
   return status === 'succeeded' ? 'success' : status === 'failed' ? 'danger' : 'warning'
 }
 
+function adapterModeLabel(mode: ApplicationServerSync['mode']) {
+  if (mode === 'disabled') return '未接入'
+  return mode === 'mock' ? '开发模拟' : 'RCON'
+}
+
 async function requestDecision(id: string, decision: 'approve' | 'reject') {
   let reason = ''
   try {
@@ -80,7 +85,7 @@ async function requestDecision(id: string, decision: 'approve' | 'reject') {
   const result = await (decision === 'approve' ? adminApi.approveApplication(id, reason) : adminApi.rejectApplication(id, reason))
   if (result.server_sync) {
     const label = result.server_sync.status === 'succeeded' ? '同步已完成' : result.server_sync.status === 'failed' ? '同步失败，可稍后重试' : '等待同步'
-    ElMessage.success(`申请已通过；${label}（${result.server_sync.mode === 'mock' ? 'Mock' : 'RCON'}）。`)
+    ElMessage.success(`申请已通过；${label}（${adapterModeLabel(result.server_sync.mode)}）。`)
   } else {
     ElMessage.success(decision === 'approve' ? '申请已通过。' : '申请已拒绝。')
   }
@@ -191,7 +196,7 @@ async function runCommand() {
                     <el-tag size="small" :type="syncTagType(item.server_sync.status)">
                       {{ syncStatusLabel(item.server_sync.status) }}
                     </el-tag>
-                    <span>{{ item.server_sync.mode === 'mock' ? 'Mock 模拟' : item.server_sync.adapter }}</span>
+                    <span>{{ adapterModeLabel(item.server_sync.mode) }}</span>
                     <span>尝试 {{ item.server_sync.attempts }} 次</span>
                     <span>请求于 {{ formatDate(item.server_sync.requested_at) }}</span>
                   </div>
@@ -205,7 +210,7 @@ async function runCommand() {
               </div>
               <div v-else class="app-item-actions">
                 <el-button
-                  v-if="item.server_sync?.status === 'failed'"
+                  v-if="item.server_sync?.status === 'failed' && item.server_sync.mode !== 'disabled'"
                   :loading="retryingId === item.id"
                   @click="retryServerSync(item.id)"
                 >
@@ -235,18 +240,18 @@ async function runCommand() {
               <h2>{{ data.server.label }}</h2>
             </div>
             <span class="server-state" :class="data.server.state">
-              <i />{{ data.server.mode === 'mock' ? 'Mock 模式' : data.server.state === 'online' ? '已连接' : '未连接' }}
+              <i />{{ data.server.mode === 'disabled' ? '尚未接入' : data.server.mode === 'mock' ? '开发模拟' : data.server.state === 'online' ? '已连接' : '未连接' }}
             </span>
           </div>
 
           <dl class="server-facts">
             <div>
               <dt>适配器</dt>
-              <dd>{{ data.server.adapter }} · {{ data.server.mode === 'mock' ? '模拟执行' : '真实 RCON' }}</dd>
+              <dd>{{ data.server.adapter }} · {{ data.server.mode === 'disabled' ? '等待接入真实服务器' : data.server.mode === 'mock' ? '仅限开发模拟' : '真实 RCON' }}</dd>
             </div>
             <div>
               <dt>在线玩家</dt>
-              <dd>{{ data.server.online_players }} / {{ data.server.max_players }}</dd>
+              <dd>{{ data.server.enabled ? `${data.server.online_players} / ${data.server.max_players}` : '不可用' }}</dd>
             </div>
             <div>
               <dt>上次命令执行</dt>
@@ -267,7 +272,7 @@ async function runCommand() {
               :disabled="!data.server.enabled"
               @click="runCommand"
             >
-              {{ data.server.mode === 'mock' ? '模拟命令' : '执行命令' }}
+              {{ data.server.mode === 'disabled' ? '尚未接入' : data.server.mode === 'mock' ? '模拟命令' : '执行命令' }}
             </el-button>
           </div>
         </article>

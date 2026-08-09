@@ -622,7 +622,7 @@ export interface ApplicationServerSync {
   id: string
   operation: 'whitelist.add'
   adapter: string
-  mode: 'mock' | 'rcon'
+  mode: 'disabled' | 'mock' | 'rcon'
   status: 'pending' | 'succeeded' | 'failed'
   attempts: number
   message: string
@@ -634,7 +634,7 @@ export interface ApplicationServerSync {
 export interface AdminServerStatus {
   enabled: boolean
   adapter: string
-  mode: 'mock' | 'rcon'
+  mode: 'disabled' | 'mock' | 'rcon'
   label: string
   state: 'online' | 'maintenance' | 'offline'
   online_players: number
@@ -647,7 +647,7 @@ export interface AdminServerStatus {
 export interface ServerCommandResult {
   accepted: boolean
   executed: boolean
-  mode: 'mock' | 'rcon'
+  mode: 'disabled' | 'mock' | 'rcon'
   message: string
   executed_at: string
 }
