@@ -1,30 +1,62 @@
 import { reactive } from 'vue'
 import { authApi } from '@/api/auth'
-import { clearTokens, getAccessToken, saveTokens } from '@/auth/token-storage'
+import { clearSessionExpiry, readSessionExpiry, writeSessionExpiry } from '@/auth/session-cookie'
 import type { AuthUser, TokenPair } from '@/api/types'
 
-const userKey = 'qutc.session_user'
-const storedUser = () => { try { return JSON.parse(window.localStorage.getItem(userKey) ?? 'null') as AuthUser | null } catch { return null } }
+const maxTimerDelay = 2_147_000_000
+let expiryTimer: number | undefined
 
-export const session = reactive<{ initialized: boolean; user: AuthUser | null }>({ initialized: false, user: storedUser() })
+export const session = reactive<{ initialized: boolean; user: AuthUser | null; expiresAt: string | null }>({ initialized: false, user: null, expiresAt: null })
 
-function apply(pair: TokenPair) { saveTokens(pair.access_token); window.localStorage.setItem(userKey, JSON.stringify(pair.user)); session.user = pair.user }
-function clear() { clearTokens(); window.localStorage.removeItem(userKey); session.user = null }
+function scheduleExpiry(expiresAt?: string) {
+  if (expiryTimer !== undefined) window.clearTimeout(expiryTimer)
+  if (expiresAt) writeSessionExpiry(expiresAt)
+  const expiry = readSessionExpiry()
+  session.expiresAt = expiry ? new Date(expiry).toISOString() : null
+  if (!expiry) return
+  const remaining = expiry - Date.now()
+  if (remaining <= 0) {
+    void authApi.logout().catch(() => undefined)
+    window.dispatchEvent(new Event('qutc:session-expired'))
+    return
+  }
+  expiryTimer = window.setTimeout(() => {
+    const currentExpiry = readSessionExpiry()
+    if (!currentExpiry || currentExpiry <= Date.now()) {
+      void authApi.logout().catch(() => undefined)
+      window.dispatchEvent(new Event('qutc:session-expired'))
+      return
+    }
+    scheduleExpiry()
+  }, Math.min(remaining, maxTimerDelay))
+}
+
+function apply(pair: TokenPair) {
+  session.user = pair.user
+  scheduleExpiry(pair.session_expires_at)
+}
+
+function clear() {
+  if (expiryTimer !== undefined) window.clearTimeout(expiryTimer)
+  expiryTimer = undefined
+  clearSessionExpiry()
+  session.user = null
+  session.expiresAt = null
+}
 
 export async function restoreSession() {
   if (session.initialized) return
-  const accessToken = getAccessToken()
-	if (!accessToken) {
-		try { apply(await authApi.refresh()) }
-		catch { clear() }
-		session.initialized = true
-		return
-	}
-	try { session.user = await authApi.getMe() }
-  catch {
-	try { apply(await authApi.refresh()) }
-    catch { clear() }
+  const storedExpiry = readSessionExpiry()
+  if (storedExpiry && storedExpiry <= Date.now()) {
+    try { await authApi.logout() } catch { /* Expired server cookies may already be gone. */ }
+    clear()
+    session.initialized = true
+    return
   }
+  try {
+    session.user = await authApi.getMe()
+    scheduleExpiry()
+  } catch { clear() }
   session.initialized = true
 }
 

@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,18 +40,54 @@ type switchOrganizationRequest struct {
 	OrganizationID string `json:"organization_id" binding:"required,max=64"`
 }
 
-const refreshCookieName = "qutc_refresh"
+const (
+	refreshCookieName       = "qutc_refresh"
+	sessionExpiryCookieName = "qutc_session_expires"
+)
 
-func (h *AuthHandler) setRefreshCookie(c *gin.Context, token string) {
-	http.SetCookie(c.Writer, &http.Cookie{Name: refreshCookieName, Value: token, Path: "/api/v1/auth", MaxAge: int(h.refreshTTL.Seconds()), HttpOnly: true, Secure: h.secureCookie, SameSite: http.SameSiteStrictMode})
+func (h *AuthHandler) cookieSecure(c *gin.Context) bool {
+	if !h.secureCookie {
+		return false
+	}
+	if c.Request.TLS != nil {
+		return true
+	}
+	forwardedProto := strings.TrimSpace(strings.Split(c.GetHeader("X-Forwarded-Proto"), ",")[0])
+	return strings.EqualFold(forwardedProto, "https")
 }
 
-func (h *AuthHandler) clearRefreshCookie(c *gin.Context) {
-	http.SetCookie(c.Writer, &http.Cookie{Name: refreshCookieName, Value: "", Path: "/api/v1/auth", MaxAge: -1, HttpOnly: true, Secure: h.secureCookie, SameSite: http.SameSiteStrictMode})
+func (h *AuthHandler) setSessionCookies(c *gin.Context, pair service.TokenPair) time.Time {
+	now := time.Now().UTC()
+	sessionExpiresAt := pair.SessionExpiresAt.UTC()
+	if sessionExpiresAt.IsZero() {
+		sessionExpiresAt = now.Add(h.refreshTTL)
+	}
+	secure := h.cookieSecure(c)
+	accessMaxAge := int(pair.ExpiresIn)
+	if accessMaxAge < 1 {
+		accessMaxAge = 1
+	}
+	refreshMaxAge := int(time.Until(sessionExpiresAt).Seconds())
+	if refreshMaxAge < 1 {
+		refreshMaxAge = 1
+	}
+	http.SetCookie(c.Writer, &http.Cookie{Name: middleware.AccessCookieName, Value: pair.AccessToken, Path: "/api/v1", MaxAge: accessMaxAge, Expires: now.Add(time.Duration(accessMaxAge) * time.Second), HttpOnly: true, Secure: secure, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(c.Writer, &http.Cookie{Name: refreshCookieName, Value: pair.RefreshToken, Path: "/api/v1/auth", MaxAge: refreshMaxAge, Expires: sessionExpiresAt, HttpOnly: true, Secure: secure, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(c.Writer, &http.Cookie{Name: sessionExpiryCookieName, Value: strconv.FormatInt(sessionExpiresAt.Unix(), 10), Path: "/", MaxAge: refreshMaxAge, Expires: sessionExpiresAt, Secure: secure, SameSite: http.SameSiteStrictMode})
+	return sessionExpiresAt
 }
 
-func tokenPairResponse(pair service.TokenPair) gin.H {
-	return gin.H{"access_token": pair.AccessToken, "token_type": pair.TokenType, "expires_in": pair.ExpiresIn, "user": pair.User}
+func (h *AuthHandler) clearSessionCookies(c *gin.Context) {
+	secure := h.cookieSecure(c)
+	expired := time.Unix(1, 0).UTC()
+	http.SetCookie(c.Writer, &http.Cookie{Name: middleware.AccessCookieName, Value: "", Path: "/api/v1", MaxAge: -1, Expires: expired, HttpOnly: true, Secure: secure, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(c.Writer, &http.Cookie{Name: refreshCookieName, Value: "", Path: "/api/v1/auth", MaxAge: -1, Expires: expired, HttpOnly: true, Secure: secure, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(c.Writer, &http.Cookie{Name: sessionExpiryCookieName, Value: "", Path: "/", MaxAge: -1, Expires: expired, Secure: secure, SameSite: http.SameSiteStrictMode})
+}
+
+func (h *AuthHandler) tokenPairResponse(c *gin.Context, pair service.TokenPair) gin.H {
+	sessionExpiresAt := h.setSessionCookies(c, pair)
+	return gin.H{"access_token": pair.AccessToken, "token_type": pair.TokenType, "expires_in": pair.ExpiresIn, "session_expires_at": sessionExpiresAt.Format(time.RFC3339), "user": pair.User}
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -87,8 +124,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		}
 		return
 	}
-	h.setRefreshCookie(c, pair.RefreshToken)
-	respond(c, http.StatusCreated, tokenPairResponse(pair))
+	respond(c, http.StatusCreated, h.tokenPairResponse(c, pair))
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
@@ -106,8 +142,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "auth.login_failed", "登录暂时无法完成。")
 		return
 	}
-	h.setRefreshCookie(c, pair.RefreshToken)
-	respond(c, http.StatusOK, tokenPairResponse(pair))
+	respond(c, http.StatusOK, h.tokenPairResponse(c, pair))
 }
 
 func (h *AuthHandler) Refresh(c *gin.Context) {
@@ -119,14 +154,14 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	pair, err := h.auth.Refresh(refreshToken)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidRefresh) || errors.Is(err, service.ErrInvalidCredentials) {
+			h.clearSessionCookies(c)
 			fail(c, http.StatusUnauthorized, "auth.refresh_invalid", "刷新令牌无效或已过期。")
 			return
 		}
 		fail(c, http.StatusInternalServerError, "auth.refresh_failed", "刷新会话暂时无法完成。")
 		return
 	}
-	h.setRefreshCookie(c, pair.RefreshToken)
-	respond(c, http.StatusOK, tokenPairResponse(pair))
+	respond(c, http.StatusOK, h.tokenPairResponse(c, pair))
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
@@ -135,7 +170,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "auth.logout_failed", "退出会话暂时无法完成。")
 		return
 	}
-	h.clearRefreshCookie(c)
+	h.clearSessionCookies(c)
 	respond(c, http.StatusOK, gin.H{"revoked": strings.TrimSpace(refreshToken) != ""})
 }
 
@@ -189,16 +224,15 @@ func (h *AuthHandler) SwitchOrganization(c *gin.Context) {
 		case errors.Is(err, service.ErrOrganizationUnavailable):
 			fail(c, http.StatusForbidden, "organization.membership_unavailable", "当前账户不是该组织的有效成员。")
 		case errors.Is(err, service.ErrInvalidRefresh):
-			h.clearRefreshCookie(c)
+			h.clearSessionCookies(c)
 			fail(c, http.StatusUnauthorized, "auth.refresh_invalid", "当前会话无法切换组织，请重新登录。")
 		default:
 			fail(c, http.StatusInternalServerError, "organization.switch_failed", "组织暂时无法切换。")
 		}
 		return
 	}
-	h.setRefreshCookie(c, pair.RefreshToken)
 	_ = writeAudit(h.db, c, pair.User.OrganizationID, principal.UserID, "auth.organization_switch", "organization", pair.User.OrganizationID)
-	respond(c, http.StatusOK, tokenPairResponse(pair))
+	respond(c, http.StatusOK, h.tokenPairResponse(c, pair))
 }
 
 func (h *AuthHandler) UpdateMe(c *gin.Context) {

@@ -16,6 +16,17 @@ async function clickPublicNavigation(page: Page, label: string) {
   await page.locator('.mobile-nav').getByRole('link', { name: label, exact: true }).click()
 }
 
+async function enterAdminFromPortal(page: Page) {
+  const desktopLogin = page.getByRole('button', { name: '成员登录' })
+  if (await desktopLogin.isVisible()) {
+    await desktopLogin.click()
+  } else {
+    await page.getByRole('button', { name: '打开导航' }).click()
+    await page.locator('.mobile-nav').getByRole('link', { name: '成员登录', exact: true }).click()
+  }
+  await expect(page).toHaveURL(/\/admin$/)
+}
+
 test('stale dynamic imports trigger one controlled reload', async ({ page }) => {
   await page.goto('/')
   const initialTimeOrigin = await page.evaluate(() => performance.timeOrigin)
@@ -145,6 +156,27 @@ test('owner can open dashboard and organization settings', async ({ page }) => {
   await expect.poll(() => numberControl.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe('rgb(255, 255, 255)')
 })
 
+test('login is restored by a timed cookie and expires without a stored user snapshot', async ({ page, context }) => {
+  await page.goto('/login')
+  await page.getByRole('button', { name: /登录工作台/ }).click()
+  await expect(page).toHaveURL(/\/admin$/)
+
+  const sessionCookie = (await context.cookies()).find((cookie) => cookie.name === 'qutc_session_expires')
+  expect(sessionCookie).toBeTruthy()
+  expect(Number(sessionCookie?.value)).toBeGreaterThan(Math.floor(Date.now() / 1000))
+  expect(await page.evaluate(() => localStorage.getItem('qutc.session_user'))).toBeNull()
+
+  await page.reload()
+  await expect(page).toHaveURL(/\/admin$/)
+  await context.addCookies([{
+    name: 'qutc_session_expires',
+    value: String(Math.floor(Date.now() / 1000) - 1),
+    url: 'http://127.0.0.1:4173',
+  }])
+  await page.reload()
+  await expect(page).toHaveURL(/\/login(?:\?|$)/)
+})
+
 test('account can switch organization and keep the selected session context', async ({ page }) => {
   await page.goto('/?organization=campus-commons')
   await page.goto('/login')
@@ -211,8 +243,8 @@ test('owner can batch upload and manage unlinked media assets', async ({ page })
   await expect(page.getByText('已完成', { exact: true })).toBeVisible()
   const row = page.getByRole('row').filter({ hasText: 'quick-upload.png' })
   await expect(row).toBeVisible()
-  await row.getByRole('button', { name: '删除未关联文件' }).click()
-  await page.getByRole('button', { name: '删除', exact: true }).click()
+  await row.getByRole('button', { name: '永久删除文件' }).click()
+  await page.getByRole('button', { name: '永久删除', exact: true }).click()
   await expect(row).toHaveCount(0)
 })
 
@@ -246,6 +278,40 @@ test('owner can publish an uploaded file into the public resource archive', asyn
   const resourceRow = page.getByRole('row').filter({ hasText: '公开社团手册' })
   await expect(resourceRow).toBeVisible()
   await expect(resourceRow.getByRole('link', { name: '下载' })).toHaveAttribute('href', /\/api\/v1\/portal\/organizations\/qutcraft\/assets\/.+\/download/)
+
+  await enterAdminFromPortal(page)
+  await clickAdminNavigation(page, '资源文件')
+  await expect(page).toHaveURL(/\/admin\/assets$/)
+  const publishedAssetRow = page.getByRole('row').filter({ hasText: 'public-handbook.pdf' })
+  await expect(publishedAssetRow).toBeVisible()
+  if ((page.viewportSize()?.width ?? 0) > 900) {
+    const alignment = await publishedAssetRow.locator('.asset-row-actions').evaluate((element) => {
+      const controls = Array.from(element.querySelectorAll('a, button')).filter((item) => (item as HTMLElement).offsetParent !== null)
+      const centers = controls.map((item) => {
+        const box = item.getBoundingClientRect()
+        return box.top + box.height / 2
+      })
+      return Math.max(...centers) - Math.min(...centers)
+    })
+    expect(alignment).toBeLessThan(1)
+  }
+  await publishedAssetRow.getByRole('button', { name: '下架', exact: true }).click()
+  await page.getByRole('button', { name: '确认下架', exact: true }).click()
+  await expect(page.getByText('资源已下架，文件仍保留在后台。')).toBeVisible()
+  await expect(publishedAssetRow.getByText('已下线', { exact: true })).toBeVisible()
+
+  await page.goBack()
+  await expect(page).toHaveURL(/\/admin$/)
+  await page.goBack()
+  await expect(page).toHaveURL(/\/resources$/)
+  await expect(page.getByRole('row').filter({ hasText: '公开社团手册' })).toHaveCount(0)
+  await enterAdminFromPortal(page)
+  await clickAdminNavigation(page, '资源文件')
+  await expect(page).toHaveURL(/\/admin\/assets$/)
+  const archivedAssetRow = page.getByRole('row').filter({ hasText: 'public-handbook.pdf' })
+  await archivedAssetRow.getByRole('button', { name: '永久删除文件' }).click()
+  await page.getByRole('button', { name: '永久删除', exact: true }).click()
+  await expect(archivedAssetRow).toHaveCount(0)
 })
 
 test('owner can create, revisit, and revoke a pending invitation', async ({ page }) => {

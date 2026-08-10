@@ -54,11 +54,12 @@ type OrganizationMembershipView struct {
 }
 
 type TokenPair struct {
-	AccessToken  string  `json:"access_token"`
-	RefreshToken string  `json:"refresh_token"`
-	TokenType    string  `json:"token_type"`
-	ExpiresIn    int64   `json:"expires_in"`
-	User         Profile `json:"user"`
+	AccessToken      string    `json:"access_token"`
+	RefreshToken     string    `json:"refresh_token"`
+	TokenType        string    `json:"token_type"`
+	ExpiresIn        int64     `json:"expires_in"`
+	SessionExpiresAt time.Time `json:"session_expires_at"`
+	User             Profile   `json:"user"`
 }
 
 type accessClaims struct {
@@ -414,7 +415,7 @@ func (s *AuthService) issueTokenPair(db *gorm.DB, user model.User, organizationI
 	if err != nil {
 		return TokenPair{}, err
 	}
-	return TokenPair{AccessToken: accessToken, RefreshToken: refreshToken, TokenType: "Bearer", ExpiresIn: int64(s.cfg.JWTAccessTTL.Seconds()), User: Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Bio: user.Bio, AvatarURL: user.AvatarURL, OrganizationID: organizationID, DefaultOrganizationID: user.DefaultOrganizationID, Roles: roles}}, nil
+	return TokenPair{AccessToken: accessToken, RefreshToken: refreshToken, TokenType: "Bearer", ExpiresIn: int64(s.cfg.JWTAccessTTL.Seconds()), SessionExpiresAt: now.Add(s.cfg.JWTRefreshTTL), User: Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Bio: user.Bio, AvatarURL: user.AvatarURL, OrganizationID: organizationID, DefaultOrganizationID: user.DefaultOrganizationID, Roles: roles}}, nil
 }
 
 func (s *AuthService) hasActiveMembership(db *gorm.DB, userID, organizationID string) (bool, error) {

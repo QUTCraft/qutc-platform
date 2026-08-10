@@ -303,7 +303,7 @@ const mockUserKey = 'qutc.mock_user'
 const savedMockUser = () => { try { return JSON.parse(window.localStorage.getItem(mockUserKey) ?? 'null') as AuthUser | null } catch { return null } }
 let mockUser: AuthUser | null = savedMockUser()
 const saveMockUser = (user: AuthUser | null) => { mockUser = user; if (user) window.localStorage.setItem(mockUserKey, JSON.stringify(user)); else window.localStorage.removeItem(mockUserKey) }
-const authPair = (user: AuthUser): TokenPair => ({ access_token: 'mock-access-token', token_type: 'Bearer', expires_in: 900, user })
+const authPair = (user: AuthUser): TokenPair => ({ access_token: 'mock-access-token', token_type: 'Bearer', expires_in: 900, session_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), user })
 const requireMockAdmin = () => { if (!mockUser) throw new Error('请先登录后再访问管理工作台。') }
 
 const page = <T>(items: T[]): Page<T> => ({ items, page: 1, page_size: 20, total: items.length })
@@ -973,6 +973,32 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     content.published_at = contentDecision[2] === 'publish' ? new Date().toISOString() : null
     content.updated_at = new Date().toISOString()
     recordContentRevision(content, contentDecision[2] === 'publish' ? 'published' : 'archived')
+    if (content.type === 'resource') {
+      const resourceIndex = resources.findIndex((item) => item.id === content.id)
+      const asset = adminAssets.find((item) => item.content_id === content.id)
+      if (content.status === 'archived') {
+        if (resourceIndex >= 0) resources.splice(resourceIndex, 1)
+        delete contentDetails[content.id]
+      } else if (asset) {
+        const updatedAt = content.updated_at ?? new Date().toISOString()
+        const publishedAt = content.published_at ?? updatedAt
+        const description = content.excerpt ?? ''
+        const category = content.category ?? 'document'
+        const resource: Resource = {
+          id: content.id, title: content.title, description, kind: category as Resource['kind'],
+          size_bytes: asset.size_bytes, updated_at: updatedAt,
+          download_url: `/api/v1/portal/organizations/qutcraft/assets/${asset.id}/download`,
+        }
+        if (resourceIndex >= 0) resources.splice(resourceIndex, 1, resource)
+        else resources.unshift(resource)
+        contentDetails[content.id] = {
+          id: content.id, title: content.title, type: 'resource', category, excerpt: description,
+          body: content.body ?? description, published_at: publishedAt, updated_at: updatedAt, reading_minutes: 1,
+          asset: { id: asset.id, original_name: asset.original_name, mime_type: asset.mime_type, size_bytes: asset.size_bytes },
+          download_url: resource.download_url,
+        }
+      }
+    }
     return content as T
   }
   if (path.endsWith('/admin/projects')) {
@@ -1168,9 +1194,13 @@ export async function mockDelete<T>(path: string): Promise<T> {
   if (assetMatch) {
     const assetIndex = adminAssets.findIndex((item) => item.id === assetMatch[1])
     if (assetIndex < 0) throw new Error('媒体资源不存在。')
-    if (adminAssets[assetIndex].content_id) throw new Error('该文件已被内容引用，请先解除引用后再删除。')
+    const asset = adminAssets[assetIndex]
+    const content = asset.content_id ? adminContent.find((item) => item.id === asset.content_id) : undefined
+    if (content?.status === 'published') throw new Error('该文件仍在门户公开，请先下架后再删除。')
     adminAssets.splice(assetIndex, 1)
-    return { removed: true, id: assetMatch[1] } as T
+    if (content) content.asset = null
+    delete assetDownloadStats[assetMatch[1]]
+    return { removed: true, id: assetMatch[1], detached_content_id: asset.content_id } as T
   }
   const invitationMatch = path.match(/\/admin\/invitations\/([^/]+)$/)
   if (invitationMatch) {

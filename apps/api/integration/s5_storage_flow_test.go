@@ -91,12 +91,22 @@ func TestS5S3MediaUploadAndPublicDownload(t *testing.T) {
 	if !bytes.Equal(responseBody, pngBytes) {
 		t.Fatal("public S3 download differs from uploaded object")
 	}
+	requireStatus(t, client, http.MethodDelete, cfg.apiURL+"/api/v1/admin/assets/"+assetID, token, nil, http.StatusConflict)
 
 	archived := changeContentStatus(t, client, cfg, token, contentID, "archive")
 	if archived.Status != "archived" {
 		t.Fatalf("archive status = %q, want archived", archived.Status)
 	}
 	requireStatus(t, client, http.MethodGet, publicURL, "", nil, http.StatusNotFound)
+	requireStatus(t, client, http.MethodDelete, cfg.apiURL+"/api/v1/admin/assets/"+assetID, token, nil, http.StatusOK)
+	var remaining int64
+	if err := db.Model(&model.MediaAsset{}).Where("id = ?", assetID).Count(&remaining).Error; err != nil {
+		t.Fatalf("count deleted asset metadata: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("deleted asset metadata count = %d, want 0", remaining)
+	}
+	asset.StoragePath = ""
 }
 
 func uploadAssetFixture(t *testing.T, client *http.Client, url, token, contentID string, payload []byte) string {

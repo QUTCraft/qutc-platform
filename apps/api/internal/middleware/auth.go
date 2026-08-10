@@ -11,15 +11,18 @@ import (
 
 const principalKey = "qutc.principal"
 
+// AccessCookieName is the browser session cookie used by the first-party web
+// application. API clients may continue to send the same JWT as a Bearer token.
+const AccessCookieName = "qutc_access"
+
 func RequireAuth(auth *service.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		header := strings.TrimSpace(c.GetHeader("Authorization"))
-		parts := strings.Fields(header)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		rawToken := accessTokenFromRequest(c.Request)
+		if rawToken == "" {
 			abort(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
 			return
 		}
-		principal, err := auth.AuthenticateAccessToken(parts[1])
+		principal, err := auth.AuthenticateAccessToken(rawToken)
 		if err != nil {
 			if errors.Is(err, service.ErrSessionInactive) {
 				abort(c, http.StatusUnauthorized, "auth.session_inactive", "账户或当前组织成员关系已停用。")
@@ -31,6 +34,19 @@ func RequireAuth(auth *service.AuthService) gin.HandlerFunc {
 		c.Set(principalKey, principal)
 		c.Next()
 	}
+}
+
+func accessTokenFromRequest(request *http.Request) string {
+	header := strings.TrimSpace(request.Header.Get("Authorization"))
+	parts := strings.Fields(header)
+	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") && strings.TrimSpace(parts[1]) != "" {
+		return strings.TrimSpace(parts[1])
+	}
+	cookie, err := request.Cookie(AccessCookieName)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(cookie.Value)
 }
 
 func RequirePermission(auth *service.AuthService, permission string) gin.HandlerFunc {

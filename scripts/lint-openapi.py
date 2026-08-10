@@ -121,6 +121,13 @@ def main() -> int:
         bearer = security_schemes.get("BearerAuth", {})
         if bearer.get("type") != "http" or bearer.get("scheme") != "bearer":
             errors.append("components.securitySchemes.BearerAuth 必须是 HTTP Bearer")
+        access_cookie = security_schemes.get("AccessCookie", {})
+        if (
+            access_cookie.get("type") != "apiKey"
+            or access_cookie.get("in") != "cookie"
+            or access_cookie.get("name") != "qutc_access"
+        ):
+            errors.append("components.securitySchemes.AccessCookie 必须声明 qutc_access Cookie")
 
         operation_ids: set[str] = set()
         operation_count = 0
@@ -164,8 +171,9 @@ def main() -> int:
 
                 security = operation.get("security", spec.get("security"))
                 if path.startswith("/api/v1/admin/"):
-                    if security != [{"BearerAuth": []}]:
-                        errors.append(f"{label} 必须显式使用 BearerAuth")
+                    expected_security = [{"BearerAuth": []}, {"AccessCookie": []}]
+                    if security != expected_security:
+                        errors.append(f"{label} 必须显式允许 BearerAuth 或 AccessCookie")
                     for status in ("401", "403"):
                         if status not in responses:
                             errors.append(f"{label} 缺少 {status} 安全响应")

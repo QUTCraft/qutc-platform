@@ -4,7 +4,7 @@ info:
   version: 0.1.0
   description: |
     公开门户与受认证后台共享的 API 契约。门户只读取已发布、可公开的数据；草稿、成员隐私、审核与 RCON 命令仅通过独立的管理前缀暴露。
-    本文件是 Swagger UI 与 Apifox 的共同导入源；公开接口无认证，管理接口要求 Bearer JWT 与 RBAC 授权。
+    本文件是 Swagger UI 与 Apifox 的共同导入源；公开接口无认证，管理接口接受 Bearer JWT 或第一方网页的 HttpOnly Access Cookie，并继续执行 RBAC 授权。
   license:
     name: Proprietary
     url: https://github.com/QUTCraft/qutc-platform
@@ -321,7 +321,7 @@ paths:
       operationId: acceptInvitation
       summary: 当前登录用户接受邀请
       description: 当前 Bearer JWT 的邮箱必须与邀请邮箱一致；接受时在事务中激活成员关系、授予邀请角色并将 token 标记为已使用。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: token
           in: path
@@ -355,7 +355,7 @@ paths:
             schema: { $ref: '#/components/schemas/LoginRequest' }
       responses:
         '200':
-          description: 登录成功；响应体返回短期访问令牌，刷新令牌通过 HttpOnly Cookie 下发
+          description: 登录成功；响应体返回短期访问令牌，同时下发 Access、Refresh 与会话到期 Cookie
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TokenPairResponse' }
@@ -369,7 +369,7 @@ paths:
       summary: 使用 HttpOnly Cookie 轮换刷新令牌并获取新的访问令牌
       responses:
         '200':
-          description: 新访问令牌；轮换后的刷新令牌通过 HttpOnly Cookie 下发
+          description: 新访问令牌；同时轮换 Access、Refresh 与会话到期 Cookie
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TokenPairResponse' }
@@ -393,7 +393,7 @@ paths:
       tags: [Auth]
       operationId: getAuthCurrentUser
       summary: 获取当前会话用户与当前组织角色
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200':
           description: 当前用户
@@ -405,7 +405,7 @@ paths:
       tags: [Auth]
       operationId: updateAuthCurrentUser
       summary: 更新当前用户资料
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -425,7 +425,7 @@ paths:
       operationId: listAuthOrganizations
       summary: 获取当前账户可切换的组织
       description: 只返回当前用户具有 active 成员关系的组织，以及该用户在各组织内独立计算的角色；current 标识访问令牌当前绑定的组织。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200':
           description: 可用组织列表
@@ -438,8 +438,8 @@ paths:
       tags: [Auth]
       operationId: switchAuthOrganization
       summary: 切换当前会话的组织上下文
-      description: 要求 Bearer JWT 与同一用户的 HttpOnly 刷新 Cookie。服务端验证目标组织成员关系，撤销旧刷新令牌，并为目标组织重新签发 Access Token 与轮换后的刷新 Cookie；后续刷新会保持该组织上下文。
-      security: [{ BearerAuth: [] }]
+      description: 要求 Access Cookie（或 Bearer JWT）与同一用户的 HttpOnly Refresh Cookie。服务端验证目标组织成员关系，撤销旧刷新令牌，并为目标组织重新签发会话 Cookie；后续刷新会保持该组织上下文。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -460,7 +460,7 @@ paths:
       tags: [Auth]
       operationId: listMembershipHistory
       summary: 获取当前用户成员关系变更记录
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -476,7 +476,7 @@ paths:
       tags: [Auth]
       operationId: leaveMembership
       summary: 当前用户退出组织
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200': { description: 已退出组织 }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -487,7 +487,7 @@ paths:
       operationId: getAdminSession
       summary: 验证后台会话与组织读取权限
       description: 基础设施探针路由；用于验证 Bearer JWT、成员关系与 `organization:read` RBAC 权限，不返回业务工作台数据。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200':
           description: 当前后台会话用户
@@ -501,7 +501,7 @@ paths:
       tags: [Admin]
       operationId: getAdminDashboard
       summary: 获取后台概览
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200':
           description: 当前管理员可见的聚合数据
@@ -515,7 +515,7 @@ paths:
       tags: [Admin]
       operationId: listAdminContent
       summary: 获取内容工作区条目
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -531,7 +531,7 @@ paths:
       tags: [Admin]
       operationId: createAdminContent
       summary: 创建内容草稿
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -551,7 +551,7 @@ paths:
       tags: [Admin]
       operationId: listAdminKnowledgeDirectories
       summary: 获取知识库目录
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -567,7 +567,7 @@ paths:
       tags: [Admin]
       operationId: createAdminKnowledgeDirectory
       summary: 创建知识库目录
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -588,7 +588,7 @@ paths:
       tags: [Admin]
       operationId: updateAdminKnowledgeDirectory
       summary: 更新知识库目录
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: directory_id
           in: path
@@ -616,7 +616,7 @@ paths:
       operationId: getAdminContent
       summary: 获取单条后台内容
       description: 按内容 ID 返回当前组织范围内的完整正文，用于独立内容编辑页，不受列表分页影响。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: content_id
           in: path
@@ -635,7 +635,7 @@ paths:
       tags: [Admin]
       operationId: updateAdminContent
       summary: 更新内容草稿
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: content_id
           in: path
@@ -661,7 +661,7 @@ paths:
       tags: [Admin]
       operationId: publishAdminContent
       summary: 发布内容
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: content_id
           in: path
@@ -681,7 +681,7 @@ paths:
       tags: [Admin]
       operationId: archiveAdminContent
       summary: 下线内容
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: content_id
           in: path
@@ -702,7 +702,7 @@ paths:
       operationId: listAdminAssets
       summary: 获取媒体资源列表
       description: 返回当前组织的媒体资源元数据；不会返回 MinIO/S3 存储密钥或对象存储直链。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: page
           in: query
@@ -726,7 +726,7 @@ paths:
       tags: [Admin]
       operationId: uploadAdminAsset
       summary: 上传媒体资源
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -754,7 +754,7 @@ paths:
       tags: [Admin]
       operationId: downloadAdminAsset
       summary: 下载管理端媒体资源
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: asset_id
           in: path
@@ -772,7 +772,7 @@ paths:
       operationId: publishAdminAssetAsResource
       summary: 将未关联文件归档为公开资源
       description: 文件上传后默认保持私有。本操作在同一事务中创建并发布 resource 内容、关联文件并写入修订与审计；成功后文件会出现在门户资源中心。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: asset_id
           in: path
@@ -798,9 +798,9 @@ paths:
     delete:
       tags: [Admin]
       operationId: deleteAdminAsset
-      summary: 删除未关联媒体资源
-      description: 仅允许删除没有被内容引用的媒体资源，以避免破坏 Markdown 或门户下载链接。
-      security: [{ BearerAuth: [] }]
+      summary: 永久删除媒体资源
+      description: 删除资产元数据和存储对象。公开文件必须先下架；草稿、待审核或已下线内容可保留编辑记录并删除其文件。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: asset_id
           in: path
@@ -822,7 +822,7 @@ paths:
       tags: [Admin]
       operationId: getAdminAssetDownloadStats
       summary: 获取媒体资源下载统计
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: asset_id
           in: path
@@ -857,7 +857,7 @@ paths:
       tags: [Admin]
       operationId: listAdminUsers
       summary: 获取组织成员与角色
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -877,7 +877,7 @@ paths:
       description: |
         只修改当前组织的成员关系，不修改用户的全局账户状态。可写状态仅为 active 或 disabled；
         invited 只由邀请流程产生。停用会撤销该用户现有 Refresh Token，旧 Access Token 在下一次请求时因成员关系校验返回 401。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: user_id
           in: path
@@ -905,7 +905,7 @@ paths:
       operationId: listAdminInvitations
       summary: 获取当前组织的成员邀请
       description: 仅返回邀请元数据和邮件投递状态，不返回或恢复任何明文邀请 token；可按邀请状态筛选。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -926,7 +926,7 @@ paths:
       operationId: createAdminInvitation
       summary: 创建成员邀请
       description: 同一组织同一邮箱只能有一个待处理邀请；邀请只允许授予 member、editor 或 administrator，不能授予 owner。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -947,7 +947,7 @@ paths:
       tags: [Admin]
       operationId: listAdminContentRevisions
       summary: 获取内容修订历史
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: content_id
           in: path
@@ -968,7 +968,7 @@ paths:
       tags: [Admin]
       operationId: getAdminContentRevision
       summary: 获取内容修订详情
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: content_id
           in: path
@@ -993,7 +993,7 @@ paths:
       operationId: restoreAdminContentRevision
       summary: 将内容修订恢复为新草稿
       description: 恢复操作不会直接发布内容，而是将当前内容写成新的 draft 修订。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: content_id
           in: path
@@ -1019,7 +1019,7 @@ paths:
       operationId: revokeAdminInvitation
       summary: 撤销待处理的成员邀请
       description: 仅可撤销当前组织中仍为 pending 的邀请。撤销后原 token 立即失效，邀请记录与审计记录保留。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: invitation_id
           in: path
@@ -1043,7 +1043,7 @@ paths:
       description: |
         一次提交 1 至 20 条邀请，每条记录独立创建、投递和审计；单条校验、重复或成员冲突不会回滚其他成功项。
         响应保持请求顺序并逐项返回成功结果或稳定错误码。成功项的 invite_url 仍然只在本次响应中展示。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -1067,7 +1067,7 @@ paths:
       description: |
         仅可对当前组织仍为 pending 的邀请执行。服务端先生成新 token 并替换 token 哈希，使旧链接立即失效，
         再在业务事务外尝试 SMTP 投递。邮件失败不会撤销邀请，响应仍返回本次唯一可见的新 invite_url 与真实投递状态。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: invitation_id
           in: path
@@ -1089,7 +1089,7 @@ paths:
       operationId: listAdminAuditEvents
       summary: 查询当前组织的审计记录
       description: 需要 `audit:read`；服务端始终以当前会话 organization_id 过滤，客户端不能指定或覆盖组织范围。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -1143,7 +1143,7 @@ paths:
       operationId: getAdminAIConfiguration
       summary: 获取当前组织的智能体运行策略与模型供应商状态
       description: 需要 `ai:use`。组织尚未保存配置时返回服务端默认策略；响应可以返回非敏感的上游根地址、模型名和密钥脱敏提示，但永远不会返回 API Key 原文或环境变量内容。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200':
           description: 当前组织策略与脱敏后的模型供应商状态
@@ -1157,7 +1157,7 @@ paths:
       operationId: updateAdminAIConfiguration
       summary: 更新当前组织的智能体运行策略
       description: 需要 `organization:configure`。配置按组织持久化并立即应用于后续新建运行；关闭功能不会删除历史运行、引用或审计。组织所有者可以提交 OpenAI 兼容接口地址、模型名和 API Key，Key 在服务端加密保存且不会回显。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -1179,7 +1179,7 @@ paths:
       operationId: listAdminAIAgents
       summary: 获取当前组织可用的智能体与模型供应商状态
       description: 需要 `ai:use`。响应只暴露驱动模式与模型标识，不返回模型 API Key、上游地址或其他服务端凭据。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200':
           description: 可用智能体与当前模型供应商状态
@@ -1194,7 +1194,7 @@ paths:
       operationId: searchAdminAIKnowledge
       summary: 在当前组织的授权知识范围内检索引用资料
       description: 需要 `ai:use` 与 `knowledge:read`。服务端先按当前 organization_id 和 knowledge 类型过滤，再返回最少必要的标题、摘要、状态与版本时间。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -1217,7 +1217,7 @@ paths:
       description: |
         需要 `ai:use` 与 `knowledge:read`。content-copilot 与 activity-planner 只能读取显式选择、属于当前组织的 knowledge 内容，
         并生成带引用的 Markdown 提案。接口不会自行创建项目或发布 CMS 内容；创建成功后通过查询接口获取终态。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -1246,7 +1246,7 @@ paths:
       operationId: getAdminAIRun
       summary: 查询当前组织内的智能体运行
       description: 返回运行状态、生成结果、模型标识、Token 用量与固定引用快照；不返回隐藏推理过程。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: run_id
           in: path
@@ -1267,7 +1267,7 @@ paths:
       operationId: cancelAdminAIRun
       summary: 取消尚未结束的智能体运行
       description: 只允许取消 queued 或 running 状态；已成功、失败或取消的运行返回 409。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: run_id
           in: path
@@ -1289,7 +1289,7 @@ paths:
       operationId: listAdminAIActivityPlans
       summary: 分页查询当前组织的活动策划历史
       description: 需要 `ai:use`。结果按创建时间倒序，仅返回当前组织的方案摘要；运行终态会同步到方案状态。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/PageSize' }
@@ -1307,7 +1307,7 @@ paths:
       operationId: createAdminAIActivityPlan
       summary: 创建带引用的校园活动策划任务
       description: 需要 `ai:use` 与 `knowledge:read`。结构化活动需求与显式选择的当前组织知识会交给 activity-planner；接口只生成方案和建议操作，不创建项目或发布内容。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -1332,7 +1332,7 @@ paths:
       operationId: getAdminAIActivityPlanEvaluationSummary
       summary: 获取当前组织的活动方案人工质量汇总
       description: 需要 `ai:use`。按组织汇总五维人工评分、已评方案数和模型/Prompt 分组；不返回任何评语正文或其他组织数据。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200':
           description: 当前组织人工质量汇总；无评分时计数和均分为 0
@@ -1347,7 +1347,7 @@ paths:
       operationId: getAdminAIActivityPlan
       summary: 查询活动策划、固定引用和建议操作
       description: 需要 `ai:use`，且只能读取当前组织的数据。状态会随底层智能体运行同步为 generating、ready、failed 或 canceled。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: plan_id
           in: path
@@ -1368,7 +1368,7 @@ paths:
       operationId: getAdminAIActivityPlanEvaluation
       summary: 获取当前用户对活动方案的人工评分
       description: 需要 `ai:use`。评分按当前组织、方案和当前用户隔离；尚未评分时 data 为 null。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: plan_id
           in: path
@@ -1388,7 +1388,7 @@ paths:
       operationId: putAdminAIActivityPlanEvaluation
       summary: 保存当前用户对活动方案的五维人工评分
       description: 需要 `ai:use`。同一用户对同一方案重复提交时覆盖原评分并记录审计；仅 ready 或 applied 方案可评分，且不会触发任何业务操作。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: plan_id
           in: path
@@ -1419,7 +1419,7 @@ paths:
       description: |
         需要 `ai:use`、`project:manage` 与 `content:create`。只接受服务端定义的操作键；里程碑必须与创建项目同时批准。
         所有对象在一个事务中创建并逐项审计。项目保持非公开，公告固定创建为 draft，接口永不自动发布内容或执行外部命令。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: plan_id
           in: path
@@ -1448,7 +1448,7 @@ paths:
       operationId: getAdminEmailAdapterStatus
       summary: 获取邀请邮件适配器状态
       description: 返回驱动、启用状态、发件人和传输安全模式；SMTP 主机、用户名、密码等服务端凭据不会返回。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200':
           description: 当前 API 实例的邮件适配器状态
@@ -1465,7 +1465,7 @@ paths:
       description: |
         返回门户公网地址、SMTP、S3/MinIO 与部署维护项。密码、Access Key 和 Secret Key 永不返回明文，
         仅返回是否已配置及尾号提示。组织尚未保存网页配置时返回当前部署默认值，并标记 source=deployment。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200':
           description: 当前组织的有效服务接入配置
@@ -1481,7 +1481,7 @@ paths:
       description: |
         需要 organization:configure。SMTP 密码与 S3 凭据使用服务端密钥加密持久化；凭据字段留空时保留原值，
         只有对应 clear_* 为 true 时才清除。保存后新邀请、通知、上传和下载请求立即使用新配置，无需重启 API。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -1505,7 +1505,7 @@ paths:
       description: |
         section=email 时验证网络、TLS 与 SMTP 身份认证但不发送邮件；section=storage 时验证本地目录或 S3 存储桶可访问，
         不创建存储桶、不上传也不删除对象。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -1531,7 +1531,7 @@ paths:
       tags: [Admin]
       operationId: listAdminProjects
       summary: 获取组织项目
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -1547,7 +1547,7 @@ paths:
       tags: [Admin]
       operationId: createAdminProject
       summary: 创建项目
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -1567,7 +1567,7 @@ paths:
       tags: [Admin]
       operationId: updateAdminProject
       summary: 更新项目
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: project_id
           in: path
@@ -1593,7 +1593,7 @@ paths:
       tags: [Admin]
       operationId: listAdminProjectMembers
       summary: 获取项目成员
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: project_id
           in: path
@@ -1614,7 +1614,7 @@ paths:
       tags: [Admin]
       operationId: addAdminProjectMember
       summary: 添加项目成员
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: project_id
           in: path
@@ -1645,7 +1645,7 @@ paths:
       tags: [Admin]
       operationId: updateAdminProjectMember
       summary: 更新项目成员角色
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: project_id
           in: path
@@ -1675,7 +1675,7 @@ paths:
       tags: [Admin]
       operationId: removeAdminProjectMember
       summary: 移除项目成员
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: project_id
           in: path
@@ -1696,7 +1696,7 @@ paths:
       tags: [Admin]
       operationId: listAdminProjectMilestones
       summary: 获取项目里程碑
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: project_id
           in: path
@@ -1717,7 +1717,7 @@ paths:
       tags: [Admin]
       operationId: createAdminProjectMilestone
       summary: 创建项目里程碑
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: project_id
           in: path
@@ -1743,7 +1743,7 @@ paths:
       tags: [Admin]
       operationId: updateAdminProjectMilestone
       summary: 更新项目里程碑
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: project_id
           in: path
@@ -1772,7 +1772,7 @@ paths:
       tags: [Admin]
       operationId: deleteAdminProjectMilestone
       summary: 删除项目里程碑
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: project_id
           in: path
@@ -1792,7 +1792,7 @@ paths:
       tags: [Admin]
       operationId: listAdminApplications
       summary: 获取白名单与成员申请
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -1826,7 +1826,7 @@ paths:
       tags: [Admin]
       operationId: approveAdminApplication
       summary: 通过申请
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - $ref: '#/components/parameters/ApplicationId'
       requestBody:
@@ -1849,7 +1849,7 @@ paths:
       tags: [Admin]
       operationId: rejectAdminApplication
       summary: 拒绝申请
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - $ref: '#/components/parameters/ApplicationId'
       requestBody:
@@ -1873,7 +1873,7 @@ paths:
       operationId: retryAdminApplicationServerSync
       summary: 重试失败的服务器同步
       description: 仅允许重试已批准白名单申请的最新 failed 同步记录；并发重试、pending 或 succeeded 状态返回 409。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - $ref: '#/components/parameters/ApplicationId'
       responses:
@@ -1892,7 +1892,7 @@ paths:
       operationId: getAdminPortalConfiguration
       summary: 读取门户草稿与生效配置
       description: 需要 organization:configure；首次配置时 draft_manifest 与 active_manifest 均为 null，运行时使用默认 MD3 回退门户。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200':
           description: 当前组织的门户配置
@@ -1906,7 +1906,7 @@ paths:
       operationId: saveAdminPortalDraft
       summary: 校验并保存门户草稿
       description: 保存草稿不会改变 active_manifest，也不会影响当前公开门户；成功写入 portal.config_update 审计事件。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -1926,7 +1926,7 @@ paths:
       tags: [Admin]
       operationId: getAdminInvitationTemplate
       summary: 获取组织邀请邮件模板
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200':
           description: 组织级邀请模板和可用变量
@@ -1939,7 +1939,7 @@ paths:
       tags: [Admin]
       operationId: updateAdminInvitationTemplate
       summary: 更新组织邀请邮件模板
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -1959,7 +1959,7 @@ paths:
       tags: [Admin]
       operationId: listAdminNotificationOutbox
       summary: 获取异步通知队列
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -1980,7 +1980,7 @@ paths:
       tags: [Admin]
       operationId: retryAdminNotification
       summary: 重新排队失败通知
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: notification_id
           in: path
@@ -2001,7 +2001,7 @@ paths:
       tags: [Admin]
       operationId: getAdminOrganizationProfile
       summary: 读取当前组织公开资料
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200':
           description: 当前组织公开资料
@@ -2015,7 +2015,7 @@ paths:
       operationId: updateAdminOrganizationProfile
       summary: 更新当前组织公开资料
       description: 需要 organization:configure；保存后立即影响 Portal，并写入 organization.profile_update 审计。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -2036,7 +2036,7 @@ paths:
       operationId: enableAdminPortalConfiguration
       summary: 启用已保存的门户草稿
       description: 在事务内重新校验草稿并复制为 active_manifest；成功写入 portal.config_enable 审计事件。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200':
           description: 草稿已成为生效配置
@@ -2052,7 +2052,7 @@ paths:
       operationId: restoreDefaultAdminPortalConfiguration
       summary: 原子恢复默认 MD3 门户
       description: 在单个数据库事务中将内置 MD3 Manifest 同时写为草稿和生效版本，并写入 portal.config_restore_default 审计事件。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200':
           description: 默认 MD3 已成为草稿和生效配置
@@ -2066,7 +2066,7 @@ paths:
       tags: [Admin]
       operationId: getAdminServerStatus
       summary: 获取服务器适配器状态
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       responses:
         '200':
           description: 包含仅限后台可见的适配器状态
@@ -2081,7 +2081,7 @@ paths:
       operationId: executeRestrictedServerCommand
       summary: 执行受限 RCON 命令
       description: 仅允许服务端白名单中定义的命令；服务端必须记录操作者、命令、结果与 request_id。
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
         content:
@@ -2109,6 +2109,11 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: 后台访问令牌；服务端必须基于组织成员身份与 RBAC 进行二次授权。
+    AccessCookie:
+      type: apiKey
+      in: cookie
+      name: qutc_access
+      description: 第一方网页使用的短期 HttpOnly Access Cookie；与 Bearer JWT 使用相同的签名、组织隔离和 RBAC 校验。
   parameters:
     OrganizationSlug:
       name: organization_slug
@@ -3514,11 +3519,12 @@ components:
         password: { type: string, minLength: 1, maxLength: 128, writeOnly: true }
     TokenPair:
       type: object
-      required: [access_token, token_type, expires_in, user]
+      required: [access_token, token_type, expires_in, session_expires_at, user]
       properties:
         access_token: { type: string, writeOnly: true }
         token_type: { type: string, enum: [Bearer] }
         expires_in: { type: integer, minimum: 1, description: Access Token 剩余秒数。 }
+        session_expires_at: { type: string, format: date-time, description: Refresh 会话及浏览器登录状态的当前到期时间；成功刷新时续期。 }
         user: { $ref: '#/components/schemas/AuthUser' }
     LogoutResult:
       type: object
@@ -3610,6 +3616,7 @@ components:
       properties:
         removed: { type: boolean, const: true }
         id: { type: string }
+        detached_content_id: { type: [string, 'null'], description: 删除前关联的非公开内容 ID；未关联时为 null。 }
     AssetDeleteResponse:
       type: object
       required: [data, meta]

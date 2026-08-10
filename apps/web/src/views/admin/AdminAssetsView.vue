@@ -36,6 +36,8 @@ const uploadQueue = ref<UploadTask[]>([])
 const uploading = ref(false)
 const dropActive = ref(false)
 const deletingId = ref('')
+const archivingId = ref('')
+const republishingId = ref('')
 const publishDialogVisible = ref(false)
 const publishTarget = ref<MediaAsset>()
 const publishing = ref(false)
@@ -78,6 +80,25 @@ function contentLabel(contentId?: string | null) {
 function linkedContent(asset: MediaAsset) {
   if (!asset.content_id) return undefined
   return contentItems.value.find((item) => item.id === asset.content_id)
+}
+
+function syncContent(content: AdminContent) {
+  const existingIndex = contentItems.value.findIndex((item) => item.id === content.id)
+  const nextContent = { ...content }
+  if (existingIndex >= 0) {
+    contentItems.value = contentItems.value.map((item, index) => index === existingIndex ? nextContent : item)
+  } else {
+    contentItems.value = [nextContent, ...contentItems.value]
+  }
+}
+
+async function resolveLinkedContent(asset: MediaAsset) {
+  if (!asset.content_id) return undefined
+  const cached = linkedContent(asset)
+  if (cached) return cached
+  const content = await adminApi.getContentById(asset.content_id)
+  syncContent(content)
+  return content
 }
 
 function publicResourcePath(asset: MediaAsset) {
@@ -243,18 +264,56 @@ async function copyDownloadLink(asset: MediaAsset) {
 }
 
 async function deleteAsset(asset: MediaAsset) {
-  if (asset.content_id || !canManageAssets.value) return
+  if (!canManageAssets.value) return
   try {
-    await ElMessageBox.confirm(`确定删除“${asset.original_name}”？删除后无法恢复。`, '删除媒体资源', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+    const content = await resolveLinkedContent(asset)
+    if (content?.status === 'published') {
+      ElMessage.warning('文件仍在门户公开，请先下架后再删除。')
+      return
+    }
+    const linkedNotice = content ? '关联的内容记录会保留为非公开状态，重新发布前需要上传新的文件。' : ''
+    await ElMessageBox.confirm(`确定永久删除“${asset.original_name}”？MinIO / 本地存储中的文件也会被删除，无法恢复。${linkedNotice}`, '永久删除文件', { type: 'warning', confirmButtonText: '永久删除', cancelButtonText: '取消' })
     deletingId.value = asset.id
     await adminApi.deleteAsset(asset.id)
-    ElMessage.success('媒体资源已删除。')
+    ElMessage.success('文件及其存储对象已永久删除。')
     await refreshAssets()
   } catch (error) {
     if (error === 'cancel' || error === 'close') return
     ElMessage.error(error instanceof Error ? error.message : '媒体资源删除失败。')
   } finally {
     deletingId.value = ''
+  }
+}
+
+async function archiveAsset(asset: MediaAsset) {
+  if (!canManageAssets.value) return
+  try {
+    const content = await resolveLinkedContent(asset)
+    if (!content || content.status !== 'published') return
+    await ElMessageBox.confirm(`下架“${content.title}”后，门户将立即停止展示和提供公开下载，原文件仍会保留。`, '下架门户资源', { type: 'warning', confirmButtonText: '确认下架', cancelButtonText: '取消' })
+    archivingId.value = asset.id
+    syncContent(await adminApi.archiveContent(content.id))
+    ElMessage.success('资源已下架，文件仍保留在后台。')
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(error instanceof Error ? error.message : '资源下架失败。')
+  } finally {
+    archivingId.value = ''
+  }
+}
+
+async function republishAsset(asset: MediaAsset) {
+  if (!canManageAssets.value) return
+  try {
+    const content = await resolveLinkedContent(asset)
+    if (!content || content.status === 'published') return
+    republishingId.value = asset.id
+    syncContent(await adminApi.publishContent(content.id))
+    ElMessage.success('资源已重新上架。')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '资源上架失败。')
+  } finally {
+    republishingId.value = ''
   }
 }
 
@@ -283,9 +342,7 @@ async function publishAsset() {
       kind: publishForm.value.kind,
       description: publishForm.value.description.trim(),
     })
-    const existingIndex = contentItems.value.findIndex((item) => item.id === content.id)
-    if (existingIndex >= 0) contentItems.value.splice(existingIndex, 1, content)
-    else contentItems.value.unshift(content)
+    syncContent(content)
     await refreshAssets()
     publishDialogVisible.value = false
     publishTarget.value = undefined
@@ -398,7 +455,7 @@ onMounted(loadWorkspace)
       <div class="panel-heading asset-list-heading">
         <div>
           <h2>已上传文件</h2>
-          <p>共 {{ data?.total ?? 0 }} 个文件。删除仅对未关联内容的文件开放，避免误删门户资源。</p>
+          <p>共 {{ data?.total ?? 0 }} 个文件。公开资源需先下架；下架后可保留内容记录并永久删除存储文件。</p>
         </div>
         <el-form class="asset-search-form" @submit.prevent="searchAssets">
           <el-input v-model="query" clearable placeholder="搜索文件名" aria-label="搜索文件名" @keyup.enter="searchAssets" />
@@ -428,14 +485,18 @@ onMounted(loadWorkspace)
         </el-table-column>
         <el-table-column label="下载" width="90"><template #default="scope">{{ scope.row.download_count }}</template></el-table-column>
         <el-table-column label="上传时间" width="150"><template #default="scope">{{ scope.row.created_at ? formatDate(scope.row.created_at) : '—' }}</template></el-table-column>
-        <el-table-column label="操作" width="340" fixed="right">
+        <el-table-column label="操作" width="470" fixed="right">
           <template #default="scope">
-            <a :href="downloadHref(scope.row)" class="asset-action-link" target="_blank" rel="noopener">下载</a>
-            <el-button text type="primary" @click="copyDownloadLink(scope.row)"><el-icon><CopyDocument /></el-icon>复制链接</el-button>
-            <el-button v-if="canManageAssets && !scope.row.content_id" text type="primary" @click="openPublishDialog(scope.row)">归档到门户</el-button>
-            <RouterLink v-if="publicResourcePath(scope.row)" :to="publicResourcePath(scope.row)" class="asset-action-link">查看门户</RouterLink>
-            <RouterLink v-else-if="scope.row.content_id" :to="`/admin/content/${scope.row.content_id}/edit`" class="asset-action-link">编辑内容</RouterLink>
-            <el-button v-if="canManageAssets && !scope.row.content_id" text type="danger" aria-label="删除未关联文件" title="删除未关联文件" :loading="deletingId === scope.row.id" @click="deleteAsset(scope.row)"><el-icon><Delete /></el-icon></el-button>
+            <div class="asset-row-actions">
+              <a :href="downloadHref(scope.row)" class="asset-action-link" target="_blank" rel="noopener">下载</a>
+              <el-button link type="primary" @click="copyDownloadLink(scope.row)"><el-icon><CopyDocument /></el-icon>复制链接</el-button>
+              <el-button v-if="canManageAssets && !scope.row.content_id" link type="primary" @click="openPublishDialog(scope.row)">归档到门户</el-button>
+              <RouterLink v-if="publicResourcePath(scope.row)" :to="publicResourcePath(scope.row)" class="asset-action-link">查看门户</RouterLink>
+              <RouterLink v-else-if="scope.row.content_id" :to="`/admin/content/${scope.row.content_id}/edit`" class="asset-action-link">编辑内容</RouterLink>
+              <el-button v-if="canManageAssets && linkedContent(scope.row)?.status === 'published'" link type="warning" :loading="archivingId === scope.row.id" @click="archiveAsset(scope.row)">下架</el-button>
+              <el-button v-else-if="canManageAssets && scope.row.content_id" link type="success" :loading="republishingId === scope.row.id" @click="republishAsset(scope.row)">重新上架</el-button>
+              <el-button v-if="canManageAssets" link type="danger" aria-label="永久删除文件" :title="linkedContent(scope.row)?.status === 'published' ? '请先下架再删除' : '永久删除文件'" :disabled="linkedContent(scope.row)?.status === 'published'" :loading="deletingId === scope.row.id" @click="deleteAsset(scope.row)"><el-icon><Delete /></el-icon>删除文件</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -812,11 +873,31 @@ onMounted(loadWorkspace)
   line-height: 1.55;
 }
 
-.asset-action-link {
-  margin-right: 10px;
+.asset-row-actions {
+  display: flex;
+  min-height: 32px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+}
+
+.asset-action-link,
+.asset-row-actions :deep(.el-button) {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 3px;
   color: var(--md-sys-color-primary);
   font-size: 13px;
   font-weight: 700;
+  line-height: 30px;
+  white-space: nowrap;
+}
+
+.asset-row-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .asset-list-panel :deep(.el-table) {

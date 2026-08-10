@@ -1,4 +1,4 @@
-import { clearTokens, getAccessToken, saveTokens } from '@/auth/token-storage'
+import { writeSessionExpiry } from '@/auth/session-cookie'
 import type { ApiEnvelope, Page } from '@/api/types'
 
 // A production bundle must never silently fall back to fixture data. Mock is
@@ -28,11 +28,9 @@ export class ApiClientError extends Error {
 }
 
 function headers(json = false) {
-  const token = getAccessToken()
   return {
     Accept: 'application/json',
     ...(json ? { 'Content-Type': 'application/json' } : {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   }
 }
 
@@ -43,7 +41,6 @@ function isAuthPath(path: string) {
 }
 
 function notifySessionExpired() {
-  clearTokens()
   window.dispatchEvent(new Event('qutc:session-expired'))
 }
 
@@ -57,9 +54,9 @@ async function refreshAccessToken() {
           credentials: 'include',
 		  body: JSON.stringify({}),
         })
-		const payload = await response.json().catch(() => null) as ApiEnvelope<{ access_token: string }> | null
+		const payload = await response.json().catch(() => null) as ApiEnvelope<{ access_token: string; session_expires_at?: string }> | null
         if (!response.ok || !payload || !('data' in payload)) return false
-		saveTokens(payload.data.access_token)
+        if (payload.data.session_expires_at) writeSessionExpiry(payload.data.session_expires_at)
         return true
       } catch {
         return false

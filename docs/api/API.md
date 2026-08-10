@@ -203,17 +203,17 @@ Portal 通过 `organization_slug` 定位组织。Admin 是“当前 token 所属
 
 ## 5. Auth API（身份与会话）
 
-公共前缀：`/api/v1/auth`。注册和登录使用 JSON 请求体；刷新、退出和组织切换从 `qutc_refresh` HttpOnly Cookie 读取刷新令牌；`/me` 与组织接口必须携带 Bearer JWT。Access Token 只在前端运行内存中保存，刷新令牌不会进入响应 JSON、浏览器脚本或 Web Storage。生产环境 Cookie 同时启用 `Secure`，所有环境均使用 `SameSite=Strict`。
+公共前缀：`/api/v1/auth`。注册和登录使用 JSON 请求体。第一方网页使用 `qutc_access` HttpOnly Cookie 访问受保护接口，并通过 `qutc_refresh` HttpOnly Cookie 轮换会话；Apifox、Swagger 和其他 API 客户端仍可使用 Bearer JWT。浏览器另保存不含身份与令牌的 `qutc_session_expires` 到期时间 Cookie，用于刷新页面后恢复登录状态并在到期时主动退出。三个 Cookie 均使用 `SameSite=Strict`，在实际 HTTPS 请求（包括反向代理传递的 `X-Forwarded-Proto: https`）下启用 `Secure`，不会把令牌写入 Web Storage。
 
 | 方法与路径 | 认证 | 说明 |
 | --- | --- | --- |
 | `POST /register` | 无 | 注册用户并作为 `member` 加入默认组织。 |
-| `POST /login` | 无 | 验证邮箱和密码，返回 Access Token，并通过 HttpOnly Cookie 下发 Refresh Token。 |
-| `POST /refresh` | HttpOnly Cookie | 原子轮换 Refresh Token，返回新的 Access Token。 |
-| `POST /logout` | HttpOnly Cookie | 撤销 Cookie 对应 Refresh Token 并清除 Cookie；重复调用保持安全。 |
-| `GET /me` | Bearer JWT | 返回当前用户、当前组织和角色。 |
-| `GET /organizations` | Bearer JWT | 返回当前账户具有 active 成员关系的组织、组织内角色和当前组织标记。 |
-| `POST /switch-organization` | Bearer JWT + HttpOnly Cookie | 验证目标成员关系，轮换会话、保存默认组织偏好并返回绑定目标组织的新 Access Token。 |
+| `POST /login` | 无 | 验证邮箱和密码，返回 Token Pair，并下发 Access、Refresh 与会话到期 Cookie。 |
+| `POST /refresh` | Refresh Cookie | 原子轮换 Refresh Token，同时续签 Access Cookie 和会话到期标记。 |
+| `POST /logout` | Refresh Cookie | 撤销 Refresh Token 并清除全部会话 Cookie；重复调用保持安全。 |
+| `GET /me` | Access Cookie 或 Bearer JWT | 返回当前用户、当前组织和角色。 |
+| `GET /organizations` | Access Cookie 或 Bearer JWT | 返回当前账户具有 active 成员关系的组织、组织内角色和当前组织标记。 |
+| `POST /switch-organization` | Access Cookie/Bearer JWT + Refresh Cookie | 验证目标成员关系，轮换会话并保存默认组织偏好。 |
 
 ### 5.1 当前用户资料
 
@@ -233,7 +233,7 @@ Portal 通过 `organization_slug` 定位组织。Admin 是“当前 token 所属
 }
 ```
 
-登录与刷新成功均返回以下响应体，同时通过 `Set-Cookie` 下发或轮换 Refresh Token：
+登录与刷新成功均返回以下响应体，同时通过 `Set-Cookie` 下发或轮换 Access、Refresh 与会话到期 Cookie：
 
 ```json
 {
@@ -241,6 +241,7 @@ Portal 通过 `organization_slug` 定位组织。Admin 是“当前 token 所属
     "access_token": "<jwt>",
     "token_type": "Bearer",
     "expires_in": 900,
+    "session_expires_at": "2026-08-17T12:00:00Z",
     "user": {
       "id": "user_...",
       "email": "member@example.com",
@@ -254,7 +255,7 @@ Portal 通过 `organization_slug` 定位组织。Admin 是“当前 token 所属
 }
 ```
 
-访问令牌短时有效且只驻留于页面内存；刷新令牌只以哈希形式保存在服务端，并在刷新时轮换。密码最少 12 个字符。认证失败、禁用用户或失效刷新令牌均不得泄露账户是否存在以外的敏感细节。
+Access Cookie 默认 15 分钟有效，Refresh Cookie 与会话到期标记默认 7 天有效；活动会话在刷新令牌轮换时续期。刷新令牌只以哈希形式保存在服务端，并在刷新时轮换。前端按 `session_expires_at` 安排到期退出，页面刷新后只通过 Cookie 和 `/me` 恢复身份，不信任长期保存的用户快照。密码最少 12 个字符。认证失败、禁用用户或失效刷新令牌均不得泄露账户是否存在以外的敏感细节。
 
 ### 5.2 多组织会话切换
 
@@ -270,7 +271,7 @@ Portal 通过 `organization_slug` 定位组织。Admin 是“当前 token 所属
 }
 ```
 
-`POST /api/v1/auth/switch-organization` 同时要求当前 Bearer JWT 和浏览器自动携带的 `qutc_refresh` Cookie。成功时服务端在同一事务中撤销旧 Refresh Token，为目标组织签发新的 Token Pair，并写入目标组织的 `auth.organization_switch` 审计；前端必须替换 Access Token、当前用户与角色，并重新加载后台数据。之后调用 `/refresh` 仍保持目标组织，不会回退到最早加入的组织。
+`POST /api/v1/auth/switch-organization` 同时要求当前 Access Cookie（或 Bearer JWT）和浏览器自动携带的 `qutc_refresh` Cookie。成功时服务端在同一事务中撤销旧 Refresh Token，为目标组织签发新的 Token Pair 与 Cookie，并写入目标组织的 `auth.organization_switch` 审计；前端必须替换当前用户与角色并重新加载后台数据。之后调用 `/refresh` 仍保持目标组织，不会回退到最早加入的组织。
 
 - 目标成员关系不存在或不是 `active`：`403 organization.membership_unavailable`。
 - Refresh Cookie 缺失、过期、已轮换或不属于当前用户：`401 auth.refresh_invalid`。
@@ -553,10 +554,10 @@ Operation ID：`createAdminContent`
 - `POST /api/v1/admin/assets/{asset_id}/publish`：把一个尚未关联内容的文件归档为公开 `resource`，请求体包含 `title`、`kind`（`document|template|package|video`）与可选 `description`；需要同时具备 `asset:manage` 和 `content:publish`。服务端在同一事务中创建草稿修订、发布修订、关联文件并写入审计，成功返回 `201` 和已发布的 `AdminContent`；已关联文件返回 `409 asset.already_linked`。
 - `GET /api/v1/admin/assets/{asset_id}/download`：管理端受权限保护的下载，需要 `asset:read`。
 - `GET /api/v1/admin/assets/{asset_id}/stats`：读取当前组织资产的 `download_count` 与 `last_downloaded_at`，需要 `asset:read`。
-- `DELETE /api/v1/admin/assets/{asset_id}`：删除未被内容引用的资产及其对象，需要 `asset:manage`；已关联资产返回 `409 asset.in_use`。
+- `DELETE /api/v1/admin/assets/{asset_id}`：永久删除资产元数据和 MinIO/S3/本地存储对象，需要 `asset:manage`。未关联文件可直接删除；已关联但处于草稿、待审核或已下线状态的文件也可删除，内容编辑记录继续保留。仍在门户公开的文件返回 `409 asset.still_public`，必须先调用内容下线接口。
 - `GET /api/v1/portal/organizations/{organization_slug}/assets/{asset_id}/download`：仅当资产关联的内容已发布时允许下载，不返回草稿或管理字段。
 
-上传响应只返回资产元数据和服务端生成的下载地址，并包含下载计数。上传本身不会自动公开文件；管理员可以在 `/admin/assets` 对未关联文件执行“归档到门户”，也可以把文件关联到现有内容并通过常规内容发布流程公开。客户端不得根据原始文件名、对象存储 bucket 或资产 ID 自行拼接下载 URL。每次管理端或已公开 Portal 受控下载成功后递增计数，不记录访客身份。API 可通过 `STORAGE_DRIVER=local|s3` 使用本地目录或 MinIO/S3；存储凭据、驱动和对象键不进入公开响应。存储暂不可用时上传/下载返回 `503`，详细配置、迁移与补偿边界见 [媒体存储适配规范](storage-adapter.md)。
+上传响应只返回资产元数据和服务端生成的下载地址，并包含下载计数。上传本身不会自动公开文件；管理员可以在 `/admin/assets` 对未关联文件执行“归档到门户”，对公开文件依次执行“下架”和“删除文件”，也可以把文件关联到现有内容并通过常规内容发布流程公开。客户端不得根据原始文件名、对象存储 bucket 或资产 ID 自行拼接下载 URL。每次管理端或已公开 Portal 受控下载成功后递增计数，不记录访客身份。API 可通过 `STORAGE_DRIVER=local|s3` 使用本地目录或 MinIO/S3；存储凭据、驱动和对象键不进入公开响应。存储暂不可用时上传/下载返回 `503`，详细配置、迁移与补偿边界见 [媒体存储适配规范](storage-adapter.md)。
 
 ### 7.3 成员与角色
 

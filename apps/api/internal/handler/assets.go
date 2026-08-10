@@ -352,9 +352,9 @@ func (h *WorkspaceHandler) AssetDownloadStats(c *gin.Context) {
 	respond(c, http.StatusOK, gin.H{"id": asset.ID, "content_id": asset.ContentID, "download_count": asset.DownloadCount, "last_downloaded_at": asset.LastDownloadedAt})
 }
 
-// DeleteAsset only removes assets that are not referenced by a content item.
-// This prevents a convenient cleanup action from silently breaking published
-// Markdown or resource downloads.
+// DeleteAsset removes the stored object and its metadata. A linked asset must
+// be taken off the public portal first; archived, draft, and review content may
+// retain their editorial record after the underlying file is removed.
 func (h *WorkspaceHandler) DeleteAsset(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -371,8 +371,16 @@ func (h *WorkspaceHandler) DeleteAsset(c *gin.Context) {
 		return
 	}
 	if asset.ContentID != "" {
-		fail(c, http.StatusConflict, "asset.in_use", "该文件已被内容引用，请先解除引用后再删除。")
-		return
+		var linkedContent model.Content
+		err := h.db.Select("id", "status").Where("id = ? AND organization_id = ?", asset.ContentID, principal.OrganizationID).First(&linkedContent).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			fail(c, http.StatusInternalServerError, "asset.content_status_failed", "关联内容状态暂时无法确认。")
+			return
+		}
+		if err == nil && linkedContent.Status == service.ContentStatusPublished {
+			fail(c, http.StatusConflict, "asset.still_public", "该文件仍在门户公开，请先下架后再删除。")
+			return
+		}
 	}
 	assetStorageDriver := strings.TrimSpace(asset.StorageDriver)
 	if assetStorageDriver == "" {
@@ -397,7 +405,11 @@ func (h *WorkspaceHandler) DeleteAsset(c *gin.Context) {
 		return
 	}
 	h.invalidatePortalCache(principal.OrganizationID)
-	respond(c, http.StatusOK, gin.H{"removed": true, "id": asset.ID})
+	var detachedContentID interface{}
+	if asset.ContentID != "" {
+		detachedContentID = asset.ContentID
+	}
+	respond(c, http.StatusOK, gin.H{"removed": true, "id": asset.ID, "detached_content_id": detachedContentID})
 }
 
 func detectAssetType(reader io.Reader) (string, error) {
