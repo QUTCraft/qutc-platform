@@ -246,6 +246,33 @@ test('owner can batch upload and manage unlinked media assets', async ({ page })
   await row.getByRole('button', { name: '永久删除文件' }).click()
   await page.getByRole('button', { name: '永久删除', exact: true }).click()
   await expect(row).toHaveCount(0)
+  await expect(page.locator('.asset-upload-queue').getByText('quick-upload.png', { exact: true })).toHaveCount(0)
+})
+
+test('deleting an associated asset clears stale upload workspace state', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByRole('button', { name: /登录工作台/ }).click()
+  await expect(page).toHaveURL(/\/admin$/)
+  await page.goto('/admin/assets')
+
+  const associationField = page.locator('.asset-association-field')
+  await associationField.getByRole('combobox').click()
+  await page.getByRole('option', { name: /暑期建筑活动资源包/ }).click()
+  await expect(associationField).toContainText('暑期建筑活动资源包')
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'review-attachment.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.7\nQUTCraft association cleanup fixture'),
+  })
+
+  const assetRow = page.getByRole('row').filter({ hasText: 'review-attachment.pdf' })
+  await expect(assetRow).toBeVisible()
+  await expect(associationField).not.toContainText('暑期建筑活动资源包')
+  await assetRow.getByRole('button', { name: '永久删除文件' }).click()
+  await page.getByRole('button', { name: '永久删除', exact: true }).click()
+  await expect(assetRow).toHaveCount(0)
+  await expect(page.locator('.asset-upload-queue').getByText('review-attachment.pdf', { exact: true })).toHaveCount(0)
+  await expect(associationField).not.toContainText('暑期建筑活动资源包')
 })
 
 test('owner can publish an uploaded file into the public resource archive', async ({ page }) => {
@@ -312,6 +339,7 @@ test('owner can publish an uploaded file into the public resource archive', asyn
   await archivedAssetRow.getByRole('button', { name: '永久删除文件' }).click()
   await page.getByRole('button', { name: '永久删除', exact: true }).click()
   await expect(archivedAssetRow).toHaveCount(0)
+  await expect(page.locator('.asset-upload-queue').getByText('public-handbook.pdf', { exact: true })).toHaveCount(0)
 })
 
 test('owner can create, revisit, and revoke a pending invitation', async ({ page }) => {

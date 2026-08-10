@@ -38,7 +38,7 @@ export const adminApi = {
   },
   getAssets: (params: PageQuery & { query?: string } = {}) => getPage<MediaAsset>(withQuery(`${adminBase}/assets`, params)),
   publishAssetAsResource: (id: string, payload: PublishAssetResourceInput) => post<AdminContent>(`${adminBase}/assets/${id}/publish`, payload),
-  deleteAsset: (id: string) => del<{ removed: boolean; id: string }>(`${adminBase}/assets/${id}`),
+  deleteAsset: (id: string) => del<{ removed: boolean; id: string; detached_content_id: string | null }>(`${adminBase}/assets/${id}`),
   getKnowledgeDirectories: (params: PageQuery = {}) => getPage<AdminKnowledgeDirectory>(withQuery(`${adminBase}/knowledge/directories`, params)),
   createKnowledgeDirectory: (payload: Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>) => post<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories`, payload),
   updateKnowledgeDirectory: (id: string, payload: Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>) => patch<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories/${id}`, payload),
