@@ -86,6 +86,12 @@ export interface MediaAsset {
   download_url: string
 }
 
+export interface PublishAssetResourceInput {
+  title: string
+  kind: Resource['kind']
+  description: string
+}
+
 export interface KnowledgeArticle {
   id: string
   title: string

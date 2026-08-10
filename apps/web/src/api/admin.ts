@@ -1,5 +1,5 @@
 import { del, get, getPage, patch, post, put, upload } from '@/api/client'
-import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminInvitationSummary, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIConfigurationUpdate, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, BatchInvitationResponse, ContentRevision, EmailAdapterStatus, IntegrationSettings, IntegrationSettingsUpdate, IntegrationTestResult, Invitation, InvitationRole, InvitationStatus, InvitationTemplate, MediaAsset, NotificationOutbox, Organization, PortalConfiguration, PortalManifest, ServerCommandResult } from '@/api/types'
+import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminInvitationSummary, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIConfigurationUpdate, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, BatchInvitationResponse, ContentRevision, EmailAdapterStatus, IntegrationSettings, IntegrationSettingsUpdate, IntegrationTestResult, Invitation, InvitationRole, InvitationStatus, InvitationTemplate, MediaAsset, NotificationOutbox, Organization, PortalConfiguration, PortalManifest, PublishAssetResourceInput, ServerCommandResult } from '@/api/types'
 
 const adminBase = '/api/v1/admin'
 
@@ -37,6 +37,7 @@ export const adminApi = {
     return upload<MediaAsset>(`${adminBase}/assets`, formData)
   },
   getAssets: (params: PageQuery & { query?: string } = {}) => getPage<MediaAsset>(withQuery(`${adminBase}/assets`, params)),
+  publishAssetAsResource: (id: string, payload: PublishAssetResourceInput) => post<AdminContent>(`${adminBase}/assets/${id}/publish`, payload),
   deleteAsset: (id: string) => del<{ removed: boolean; id: string }>(`${adminBase}/assets/${id}`),
   getKnowledgeDirectories: (params: PageQuery = {}) => getPage<AdminKnowledgeDirectory>(withQuery(`${adminBase}/knowledge/directories`, params)),
   createKnowledgeDirectory: (payload: Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>) => post<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories`, payload),

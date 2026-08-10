@@ -766,6 +766,34 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/admin/assets/{asset_id}/publish:
+    post:
+      tags: [Admin]
+      operationId: publishAdminAssetAsResource
+      summary: 将未关联文件归档为公开资源
+      description: 文件上传后默认保持私有。本操作在同一事务中创建并发布 resource 内容、关联文件并写入修订与审计；成功后文件会出现在门户资源中心。
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: asset_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PublishAssetResourceRequest' }
+      responses:
+        '201':
+          description: 文件已归档并公开发布
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminContentResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/admin/assets/{asset_id}:
     delete:
       tags: [Admin]
@@ -2460,6 +2488,13 @@ components:
         knowledge_directory_id: { type: [string, 'null'], maxLength: 64, description: '仅 knowledge 类型使用；必须关联当前组织中的知识库目录。' }
         excerpt: { type: string, maxLength: 500 }
         body: { type: string, description: '标准 Markdown 正文；发布后门户客户端会将 CMS 媒体链接转换为公开媒体地址。' }
+    PublishAssetResourceRequest:
+      type: object
+      required: [title, kind]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 160, description: '门户资源中心展示的标题。' }
+        kind: { $ref: '#/components/schemas/ResourceKind' }
+        description: { type: string, maxLength: 500, description: '门户列表摘要与初始资源正文；留空时由服务端根据文件名生成。' }
     MediaAsset:
       type: object
       required: [id, original_name, mime_type, size_bytes, download_count, created_at, download_url]

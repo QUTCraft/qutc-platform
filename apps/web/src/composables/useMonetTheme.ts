@@ -1,4 +1,7 @@
-import { computed } from 'vue'
+import { computed, shallowRef } from 'vue'
+
+export type MonetSeasonKey = 'spring' | 'summer' | 'autumn' | 'winter'
+export type MonetTimeKey = 'day' | 'night'
 
 export interface MonetPalette {
   primary: string
@@ -19,14 +22,14 @@ export interface MonetPalette {
 }
 
 export interface SeasonConfig {
-  id: 'spring' | 'summer' | 'autumn' | 'winter'
+  id: MonetSeasonKey
   name: string
   icon: string
   light: MonetPalette
   dark: MonetPalette
 }
 
-export const MONET_SEASONS: Record<'spring' | 'summer' | 'autumn' | 'winter', SeasonConfig> = {
+export const MONET_SEASONS: Record<MonetSeasonKey, SeasonConfig> = {
   spring: {
     id: 'spring',
     name: '春 · 樱纷复苏',
@@ -185,21 +188,30 @@ export const MONET_SEASONS: Record<'spring' | 'summer' | 'autumn' | 'winter', Se
   },
 }
 
-export function useMonetTheme() {
-  // Automatically derive season strictly based on local month
-  const currentSeasonKey = computed(() => {
-    const month = new Date().getMonth() + 1
-    if (month >= 3 && month <= 5) return 'spring'
-    if (month >= 6 && month <= 8) return 'summer'
-    if (month >= 9 && month <= 11) return 'autumn'
-    return 'winter'
-  })
+export function monetSeasonAt(date: Date): MonetSeasonKey {
+  const month = date.getMonth() + 1
+  if (month >= 3 && month <= 5) return 'spring'
+  if (month >= 6 && month <= 8) return 'summer'
+  if (month >= 9 && month <= 11) return 'autumn'
+  return 'winter'
+}
 
-  // Automatically derive day/night strictly based on local time hour
-  const currentTimeKey = computed(() => {
-    const hour = new Date().getHours()
-    return hour >= 7 && hour < 19 ? 'day' : 'night'
-  })
+export function monetTimeAt(date: Date): MonetTimeKey {
+  const hour = date.getHours()
+  return hour >= 7 && hour < 19 ? 'day' : 'night'
+}
+
+export function useMonetTheme() {
+  // A reactive clock is required here. A computed value that reads new Date()
+  // directly has no reactive dependency and Vue will cache its first result,
+  // preventing the existing timer from observing day or season boundaries.
+  const currentDate = shallowRef(new Date())
+  const refreshClock = (date = new Date()) => {
+    currentDate.value = date
+  }
+
+  const currentSeasonKey = computed(() => monetSeasonAt(currentDate.value))
+  const currentTimeKey = computed(() => monetTimeAt(currentDate.value))
 
   const currentSeasonConfig = computed(() => MONET_SEASONS[currentSeasonKey.value])
 
@@ -241,6 +253,7 @@ export function useMonetTheme() {
     currentSeasonKey,
     currentTimeKey,
     currentSeasonConfig,
+    refreshClock,
     applyMonetColors,
   }
 }

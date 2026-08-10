@@ -13,6 +13,7 @@ import (
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/middleware"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/model"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/storage"
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -22,6 +23,14 @@ const (
 	maxAssetSize        = 10 << 20
 	maxAssetRequestSize = maxAssetSize + (1 << 20)
 )
+
+var errAssetAlreadyLinked = errors.New("asset is already linked")
+
+type publishAssetResourceRequest struct {
+	Title       string `json:"title"`
+	Kind        string `json:"kind"`
+	Description string `json:"description"`
+}
 
 func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
 	principal, _ := middleware.PrincipalFromContext(c)
@@ -139,6 +148,130 @@ func (h *WorkspaceHandler) AdminAssets(c *gin.Context) {
 		items = append(items, assetResponse(asset))
 	}
 	respondWithMeta(c, http.StatusOK, items, gin.H{"page": page, "page_size": pageSize, "total": total})
+}
+
+// PublishAssetAsResource turns an intentionally selected, unlinked asset into
+// a public CMS resource. Uploads stay private by default; this explicit action
+// atomically creates the published content record and binds the file so a
+// failed request can never leave a half-published portal entry behind.
+func (h *WorkspaceHandler) PublishAssetAsResource(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+
+	var asset model.MediaAsset
+	if err := h.db.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&asset).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fail(c, http.StatusNotFound, "asset.not_found", "媒体资源不存在。")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "asset.load_failed", "媒体资源暂时无法读取。")
+		return
+	}
+	if asset.ContentID != "" {
+		fail(c, http.StatusConflict, "asset.already_linked", "该文件已经关联内容，不能重复归档。")
+		return
+	}
+
+	var body publishAssetResourceRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		fail(c, http.StatusBadRequest, "asset.resource_validation_failed", "公开资源信息格式不正确。")
+		return
+	}
+	input, err := normalizeAssetResourceInput(asset, body)
+	if err != nil {
+		fail(c, http.StatusBadRequest, "asset.resource_validation_failed", "资源标题、类型或说明不符合规范。")
+		return
+	}
+
+	now := time.Now().UTC()
+	content := model.Content{
+		ID:             uuid.NewString(),
+		OrganizationID: principal.OrganizationID,
+		AuthorUserID:   principal.UserID,
+		Title:          input.Title,
+		Type:           service.ContentTypeResource,
+		Category:       input.Category,
+		Status:         service.ContentStatusDraft,
+		Excerpt:        input.Excerpt,
+		Body:           input.Body,
+	}
+	err = h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&content).Error; err != nil {
+			return err
+		}
+		if err := createContentRevision(tx, content, principal.UserID, "create"); err != nil {
+			return err
+		}
+
+		content.Status = service.ContentStatusPublished
+		content.PublishedAt = &now
+		if err := tx.Save(&content).Error; err != nil {
+			return err
+		}
+		if err := createContentRevision(tx, content, principal.UserID, service.ContentStatusPublished); err != nil {
+			return err
+		}
+
+		result := tx.Model(&model.MediaAsset{}).
+			Where("id = ? AND organization_id = ? AND content_id = ''", asset.ID, principal.OrganizationID).
+			Update("content_id", content.ID)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return errAssetAlreadyLinked
+		}
+		if err := writeAudit(tx, c, principal.OrganizationID, principal.UserID, "content.create_from_asset", "content", content.ID); err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "content.published", "content", content.ID)
+	})
+	if errors.Is(err, errAssetAlreadyLinked) {
+		fail(c, http.StatusConflict, "asset.already_linked", "该文件已经被其他内容关联，请刷新后重试。")
+		return
+	}
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "asset.resource_publish_failed", "资源归档发布失败。")
+		return
+	}
+
+	h.invalidatePortalCache(principal.OrganizationID)
+	respond(c, http.StatusCreated, contentAdminItem(content, h.db))
+}
+
+func normalizeAssetResourceInput(asset model.MediaAsset, body publishAssetResourceRequest) (service.ContentInput, error) {
+	kind := strings.TrimSpace(body.Kind)
+	if kind == "" {
+		kind = inferResourceKind(asset.MimeType)
+	}
+	if kind != "document" && kind != "template" && kind != "package" && kind != "video" {
+		return service.ContentInput{}, fmt.Errorf("invalid resource kind")
+	}
+	description := strings.TrimSpace(body.Description)
+	if description == "" {
+		description = "公开文件：" + asset.OriginalName
+	}
+	return service.NormalizeContentInput(service.ContentInput{
+		Title:    body.Title,
+		Type:     service.ContentTypeResource,
+		Category: kind,
+		Excerpt:  description,
+		Body:     description,
+	})
+}
+
+func inferResourceKind(mimeType string) string {
+	switch {
+	case strings.HasPrefix(mimeType, "video/"):
+		return "video"
+	case mimeType == "application/zip" || mimeType == "application/x-zip-compressed":
+		return "package"
+	default:
+		return "document"
+	}
 }
 
 func (h *WorkspaceHandler) DownloadAsset(c *gin.Context) {

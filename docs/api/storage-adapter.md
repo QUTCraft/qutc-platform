@@ -32,6 +32,7 @@
 
 - 支持拖拽或多选文件，前端按队列逐个调用 `POST /api/v1/admin/assets`；服务端仍执行登录、组织范围、MIME 签名和 10 MiB 单文件限制。
 - 上传时可选择当前组织的一条内容建立 `content_id` 引用。未关联的文件只对后台管理员可用；关联内容发布后，Portal 才能使用受控公开下载地址。
+- 对未关联文件，具备 `asset:manage` 与 `content:publish` 的管理员可点击“归档到门户”。前端调用 `POST /api/v1/admin/assets/{asset_id}/publish`，服务端以单个事务创建并发布 `resource` 内容、绑定文件、写入两次内容修订和审计记录；任一步失败都会整体回滚，原文件继续保持后台私有状态。
 - 列表由 `GET /api/v1/admin/assets` 提供，搜索只匹配原始文件名；下载按钮和复制按钮使用 API 返回的管理地址，不拼接 MinIO URL。
 - 只有具备 `asset:manage` 且未被内容引用的文件可由 `DELETE /api/v1/admin/assets/{asset_id}` 清理。已关联文件统一返回 `409 asset.in_use`，避免误删门户正文或资源下载。
 

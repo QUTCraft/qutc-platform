@@ -216,6 +216,38 @@ test('owner can batch upload and manage unlinked media assets', async ({ page })
   await expect(row).toHaveCount(0)
 })
 
+test('owner can publish an uploaded file into the public resource archive', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByRole('button', { name: /登录工作台/ }).click()
+  await expect(page).toHaveURL(/\/admin$/)
+  await page.goto('/admin/assets')
+
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'public-handbook.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.7\nQUTCraft public archive fixture'),
+  })
+  const assetRow = page.getByRole('row').filter({ hasText: 'public-handbook.pdf' })
+  await expect(assetRow).toBeVisible()
+  await assetRow.getByRole('button', { name: '归档到门户' }).click()
+
+  const dialog = page.getByRole('dialog', { name: '归档到门户资源中心' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByPlaceholder('例如：社团招新资料包').fill('公开社团手册')
+  await dialog.getByPlaceholder('说明文件内容、版本和适用范围').fill('供社团成员与访客下载的公开手册。')
+  await dialog.getByRole('button', { name: '归档并发布' }).click()
+  await expect(page.getByText('文件已归档并发布到门户资源中心。')).toBeVisible()
+  await expect(assetRow.getByText('已公开', { exact: true })).toBeVisible()
+
+  await assetRow.getByRole('link', { name: '查看门户' }).click()
+  await expect(page).toHaveURL(/\/resources\/resource_/)
+  await expect(page.getByRole('heading', { name: '公开社团手册' })).toBeVisible()
+  await clickPublicNavigation(page, '资源')
+  const resourceRow = page.getByRole('row').filter({ hasText: '公开社团手册' })
+  await expect(resourceRow).toBeVisible()
+  await expect(resourceRow.getByRole('link', { name: '下载' })).toHaveAttribute('href', /\/api\/v1\/portal\/organizations\/qutcraft\/assets\/.+\/download/)
+})
+
 test('owner can create, revisit, and revoke a pending invitation', async ({ page }) => {
   await page.goto('/login')
   await page.getByRole('button', { name: /登录工作台/ }).click()

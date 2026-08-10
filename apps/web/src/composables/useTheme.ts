@@ -8,6 +8,7 @@ export function useTheme() {
   let refreshTimer: number | undefined
 
   const updateDOM = () => {
+    monet.refreshClock()
     const effectiveDark = monet.currentTimeKey.value === 'night'
 
     isDark.value = effectiveDark

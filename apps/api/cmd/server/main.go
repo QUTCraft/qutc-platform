@@ -171,6 +171,7 @@ func main() {
 	admin.POST("/content/:id/archive", middleware.RequirePermission(authService, "content:archive"), workspaceHandler.ArchiveContent)
 	admin.POST("/assets", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "asset:upload"), workspaceHandler.UploadAsset)
 	admin.GET("/assets", middleware.RequirePermission(authService, "asset:read"), workspaceHandler.AdminAssets)
+	admin.POST("/assets/:id/publish", middleware.RequirePermission(authService, "asset:manage"), middleware.RequirePermission(authService, "content:publish"), workspaceHandler.PublishAssetAsResource)
 	admin.GET("/assets/:id/download", middleware.RequirePermission(authService, "asset:read"), workspaceHandler.DownloadAsset)
 	admin.GET("/assets/:id/stats", middleware.RequirePermission(authService, "asset:read"), workspaceHandler.AssetDownloadStats)
 	admin.DELETE("/assets/:id", middleware.RequirePermission(authService, "asset:manage"), workspaceHandler.DeleteAsset)

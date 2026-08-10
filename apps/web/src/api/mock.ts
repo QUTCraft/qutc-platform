@@ -42,6 +42,7 @@ import type {
   IntegrationSettingsUpdate,
   NotificationOutbox,
   MediaAsset,
+  PublishAssetResourceInput,
 } from '@/api/types'
 
 const organization: Organization = {
@@ -573,6 +574,62 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
   }
 	if (path.endsWith('/apply')) return { id: `application_${Date.now()}`, status: 'pending', submitted_at: new Date().toISOString() } as T
 	if (path.includes('/admin/')) requireMockAdmin()
+	const publishAssetMatch = path.match(/\/admin\/assets\/([^/]+)\/publish$/)
+	if (publishAssetMatch) {
+		const asset = adminAssets.find((item) => item.id === publishAssetMatch[1])
+		if (!asset) throw new Error('媒体资源不存在。')
+		if (asset.content_id) throw new Error('该文件已经关联内容，不能重复归档。')
+		const payload = body as PublishAssetResourceInput
+		if (!payload.title?.trim() || !['document', 'template', 'package', 'video'].includes(payload.kind) || (payload.description?.length ?? 0) > 500) {
+			throw new Error('资源标题、类型或说明不符合规范。')
+		}
+		const now = new Date().toISOString()
+		const contentID = `resource_${Date.now()}`
+		const description = payload.description?.trim() || `公开文件：${asset.original_name}`
+		const content: AdminContent = {
+			id: contentID,
+			title: payload.title.trim(),
+			type: 'resource',
+			category: payload.kind,
+			status: 'draft',
+			author: mockUser?.display_name ?? 'QUTCraft Admin',
+			excerpt: description,
+			body: description,
+			published_at: null,
+			updated_at: now,
+			asset: null,
+		}
+		adminContent = [content, ...adminContent]
+		recordContentRevision(content, 'create')
+		asset.content_id = contentID
+		content.status = 'published'
+		content.published_at = now
+		content.asset = structuredClone(asset)
+		recordContentRevision(content, 'published')
+		resources.unshift({
+			id: contentID,
+			title: content.title,
+			description,
+			kind: payload.kind,
+			size_bytes: asset.size_bytes,
+			updated_at: now,
+			download_url: `/api/v1/portal/organizations/qutcraft/assets/${asset.id}/download`,
+		})
+		contentDetails[contentID] = {
+			id: contentID,
+			title: content.title,
+			type: 'resource',
+			category: payload.kind,
+			excerpt: description,
+			body: description,
+			published_at: now,
+			updated_at: now,
+			reading_minutes: 1,
+			asset: { id: asset.id, original_name: asset.original_name, mime_type: asset.mime_type, size_bytes: asset.size_bytes },
+			download_url: `/api/v1/portal/organizations/qutcraft/assets/${asset.id}/download`,
+		}
+		return structuredClone(content) as T
+	}
 	if (path.endsWith('/admin/integrations/test')) {
 		const section = (body as { section?: string }).section
 		if (section !== 'email' && section !== 'storage') throw new Error('未知的服务接入类型。')

@@ -550,12 +550,13 @@ Operation ID：`createAdminContent`
 
 - `GET /api/v1/admin/assets`：列出当前组织的媒体资源元数据，支持 `page`、`page_size` 和按原始文件名查询的 `query`，需要 `asset:read`；适用于后台 `/admin/assets` 快捷上传工作区。
 - `POST /api/v1/admin/assets`：以 `multipart/form-data` 上传字段 `file`，可选 `content_id` 建立引用，需要 `asset:upload`；单文件上限 10 MiB、整个 multipart 请求上限 11 MiB，仅允许 PNG/JPEG/WebP/PDF/ZIP/MP4。
+- `POST /api/v1/admin/assets/{asset_id}/publish`：把一个尚未关联内容的文件归档为公开 `resource`，请求体包含 `title`、`kind`（`document|template|package|video`）与可选 `description`；需要同时具备 `asset:manage` 和 `content:publish`。服务端在同一事务中创建草稿修订、发布修订、关联文件并写入审计，成功返回 `201` 和已发布的 `AdminContent`；已关联文件返回 `409 asset.already_linked`。
 - `GET /api/v1/admin/assets/{asset_id}/download`：管理端受权限保护的下载，需要 `asset:read`。
 - `GET /api/v1/admin/assets/{asset_id}/stats`：读取当前组织资产的 `download_count` 与 `last_downloaded_at`，需要 `asset:read`。
 - `DELETE /api/v1/admin/assets/{asset_id}`：删除未被内容引用的资产及其对象，需要 `asset:manage`；已关联资产返回 `409 asset.in_use`。
 - `GET /api/v1/portal/organizations/{organization_slug}/assets/{asset_id}/download`：仅当资产关联的内容已发布时允许下载，不返回草稿或管理字段。
 
-上传响应只返回资产元数据和服务端生成的下载地址，并包含下载计数。客户端不得根据原始文件名、对象存储 bucket 或资产 ID 自行拼接下载 URL。每次管理端或已公开 Portal 受控下载成功后递增计数，不记录访客身份。API 可通过 `STORAGE_DRIVER=local|s3` 使用本地目录或 MinIO/S3；存储凭据、驱动和对象键不进入公开响应。存储暂不可用时上传/下载返回 `503`，详细配置、迁移与补偿边界见 [媒体存储适配规范](storage-adapter.md)。
+上传响应只返回资产元数据和服务端生成的下载地址，并包含下载计数。上传本身不会自动公开文件；管理员可以在 `/admin/assets` 对未关联文件执行“归档到门户”，也可以把文件关联到现有内容并通过常规内容发布流程公开。客户端不得根据原始文件名、对象存储 bucket 或资产 ID 自行拼接下载 URL。每次管理端或已公开 Portal 受控下载成功后递增计数，不记录访客身份。API 可通过 `STORAGE_DRIVER=local|s3` 使用本地目录或 MinIO/S3；存储凭据、驱动和对象键不进入公开响应。存储暂不可用时上传/下载返回 `503`，详细配置、迁移与补偿边界见 [媒体存储适配规范](storage-adapter.md)。
 
 ### 7.3 成员与角色
 
@@ -869,7 +870,7 @@ Operation ID：`listAdminAuditEvents`
 | `/login` | 管理端登录 | 登录、刷新与当前会话接口。 |
 | `/admin` | 后台概览 | `GET /admin/dashboard`。 |
 | `/admin/content` | 内容工作区 | 内容创建、编辑、发布/下线与正文内资源上传。 |
-| `/admin/assets` | 资源文件 | 独立批量上传、文件搜索、受控下载链接和未关联文件清理。 |
+| `/admin/assets` | 资源文件 | 独立批量上传、文件搜索、受控下载、未关联文件清理，以及一键归档发布到门户资源中心。 |
 | `/admin/knowledge` | 知识目录 | 知识目录创建与编辑。 |
 | `/admin/users` | 成员与权限 | `GET/PATCH /admin/users`、单个/批量邀请、邀请列表/撤销及邮件失败重试。 |
 | `/admin/projects` | 项目管理 | 项目、项目成员和里程碑管理接口。 |

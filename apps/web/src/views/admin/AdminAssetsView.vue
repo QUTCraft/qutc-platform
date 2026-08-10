@@ -4,7 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { CircleCheck, CircleClose, CopyDocument, Delete, Document, FolderOpened, Picture, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import { adminApi } from '@/api/admin'
 import { resolveApiUrl } from '@/api/client'
-import type { AdminContent, IntegrationSettings, MediaAsset, Page } from '@/api/types'
+import type { AdminContent, IntegrationSettings, MediaAsset, Page, Resource } from '@/api/types'
 import { session } from '@/stores/session'
 import { formatBytes, formatDate } from '@/utils/format'
 
@@ -36,6 +36,14 @@ const uploadQueue = ref<UploadTask[]>([])
 const uploading = ref(false)
 const dropActive = ref(false)
 const deletingId = ref('')
+const publishDialogVisible = ref(false)
+const publishTarget = ref<MediaAsset>()
+const publishing = ref(false)
+const publishForm = ref<{ title: string; kind: Resource['kind']; description: string }>({
+  title: '',
+  kind: 'document',
+  description: '',
+})
 
 const canManageAssets = computed(() => session.user?.roles.some((role) => role === 'owner' || role === 'administrator') ?? false)
 const storageDriverLabel = computed(() => integrationSettings.value?.storage.driver === 's3' ? 'S3 / MinIO' : '服务器本地存储')
@@ -65,6 +73,30 @@ function isImage(asset: MediaAsset) {
 function contentLabel(contentId?: string | null) {
   if (!contentId) return '未关联内容（仅后台）'
   return contentItems.value.find((item) => item.id === contentId)?.title ?? `内容 ${contentId.slice(0, 8)}`
+}
+
+function linkedContent(asset: MediaAsset) {
+  if (!asset.content_id) return undefined
+  return contentItems.value.find((item) => item.id === asset.content_id)
+}
+
+function publicResourcePath(asset: MediaAsset) {
+  const content = linkedContent(asset)
+  return content?.type === 'resource' && content.status === 'published' ? `/resources/${content.id}` : ''
+}
+
+function contentStatusLabel(status?: AdminContent['status']) {
+  return status ? ({ draft: '草稿', review: '待审核', published: '已公开', archived: '已下线' }[status]) : ''
+}
+
+function inferredKind(asset: MediaAsset): Resource['kind'] {
+  if (asset.mime_type.startsWith('video/')) return 'video'
+  if (asset.mime_type.includes('zip')) return 'package'
+  return 'document'
+}
+
+function titleFromFilename(filename: string) {
+  return filename.replace(/\.[^.]+$/, '').trim() || filename
 }
 
 async function loadAssets() {
@@ -226,6 +258,45 @@ async function deleteAsset(asset: MediaAsset) {
   }
 }
 
+function openPublishDialog(asset: MediaAsset) {
+  if (asset.content_id || !canManageAssets.value) return
+  publishTarget.value = asset
+  publishForm.value = {
+    title: titleFromFilename(asset.original_name),
+    kind: inferredKind(asset),
+    description: `公开文件：${asset.original_name}`,
+  }
+  publishDialogVisible.value = true
+}
+
+async function publishAsset() {
+  const asset = publishTarget.value
+  if (!asset) return
+  if (!publishForm.value.title.trim()) {
+    ElMessage.warning('请填写门户中展示的资源标题。')
+    return
+  }
+  publishing.value = true
+  try {
+    const content = await adminApi.publishAssetAsResource(asset.id, {
+      title: publishForm.value.title.trim(),
+      kind: publishForm.value.kind,
+      description: publishForm.value.description.trim(),
+    })
+    const existingIndex = contentItems.value.findIndex((item) => item.id === content.id)
+    if (existingIndex >= 0) contentItems.value.splice(existingIndex, 1, content)
+    else contentItems.value.unshift(content)
+    await refreshAssets()
+    publishDialogVisible.value = false
+    publishTarget.value = undefined
+    ElMessage.success('文件已归档并发布到门户资源中心。')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '资源归档发布失败。')
+  } finally {
+    publishing.value = false
+  }
+}
+
 function uploadStateLabel(state: UploadState) {
   return { waiting: '等待上传', uploading: '上传中', success: '已完成', error: '失败' }[state]
 }
@@ -345,13 +416,25 @@ onMounted(loadWorkspace)
           </template>
         </el-table-column>
         <el-table-column label="大小" width="110"><template #default="scope">{{ formatBytes(scope.row.size_bytes) }}</template></el-table-column>
-        <el-table-column label="关联内容" min-width="190"><template #default="scope"><span class="asset-content-label">{{ contentLabel(scope.row.content_id) }}</span></template></el-table-column>
+        <el-table-column label="归档状态" min-width="210">
+          <template #default="scope">
+            <div class="asset-content-state">
+              <RouterLink v-if="publicResourcePath(scope.row)" :to="publicResourcePath(scope.row)">{{ contentLabel(scope.row.content_id) }}</RouterLink>
+              <span v-else class="asset-content-label">{{ contentLabel(scope.row.content_id) }}</span>
+              <small v-if="linkedContent(scope.row)">{{ contentStatusLabel(linkedContent(scope.row)?.status) }}</small>
+              <small v-else>尚未公开</small>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="下载" width="90"><template #default="scope">{{ scope.row.download_count }}</template></el-table-column>
         <el-table-column label="上传时间" width="150"><template #default="scope">{{ scope.row.created_at ? formatDate(scope.row.created_at) : '—' }}</template></el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" width="340" fixed="right">
           <template #default="scope">
             <a :href="downloadHref(scope.row)" class="asset-action-link" target="_blank" rel="noopener">下载</a>
             <el-button text type="primary" @click="copyDownloadLink(scope.row)"><el-icon><CopyDocument /></el-icon>复制链接</el-button>
+            <el-button v-if="canManageAssets && !scope.row.content_id" text type="primary" @click="openPublishDialog(scope.row)">归档到门户</el-button>
+            <RouterLink v-if="publicResourcePath(scope.row)" :to="publicResourcePath(scope.row)" class="asset-action-link">查看门户</RouterLink>
+            <RouterLink v-else-if="scope.row.content_id" :to="`/admin/content/${scope.row.content_id}/edit`" class="asset-action-link">编辑内容</RouterLink>
             <el-button v-if="canManageAssets && !scope.row.content_id" text type="danger" aria-label="删除未关联文件" title="删除未关联文件" :loading="deletingId === scope.row.id" @click="deleteAsset(scope.row)"><el-icon><Delete /></el-icon></el-button>
           </template>
         </el-table-column>
@@ -367,6 +450,47 @@ onMounted(loadWorkspace)
         @current-change="changePage"
       />
     </section>
+
+    <el-dialog
+      v-model="publishDialogVisible"
+      class="asset-publish-dialog"
+      title="归档到门户资源中心"
+      width="min(560px, calc(100vw - 32px))"
+      :close-on-click-modal="!publishing"
+      :close-on-press-escape="!publishing"
+      :show-close="!publishing"
+    >
+      <div v-if="publishTarget" class="asset-publish-content">
+        <div class="asset-publish-file">
+          <span class="asset-type-icon"><el-icon><Picture v-if="isImage(publishTarget)" /><Document v-else /></el-icon></span>
+          <div><strong>{{ publishTarget.original_name }}</strong><small>{{ formatBytes(publishTarget.size_bytes) }} · {{ publishTarget.mime_type }}</small></div>
+        </div>
+        <div class="asset-publish-notice" role="status">
+          <strong>公开发布</strong>
+          <span>发布后，所有访客都能在门户资源中心查看并下载此文件。</span>
+        </div>
+        <el-form label-position="top" @submit.prevent="publishAsset">
+          <el-form-item label="门户标题" required>
+            <el-input v-model="publishForm.title" maxlength="160" show-word-limit placeholder="例如：社团招新资料包" />
+          </el-form-item>
+          <el-form-item label="资源类型" required>
+            <el-select v-model="publishForm.kind" style="width: 100%">
+              <el-option label="文档" value="document" />
+              <el-option label="模板" value="template" />
+              <el-option label="资源包" value="package" />
+              <el-option label="视频" value="video" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="公开说明">
+            <el-input v-model="publishForm.description" type="textarea" :rows="4" maxlength="500" show-word-limit placeholder="说明文件内容、版本和适用范围" />
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <el-button round :disabled="publishing" @click="publishDialogVisible = false">取消</el-button>
+        <el-button type="primary" round :loading="publishing" @click="publishAsset">归档并发布</el-button>
+      </template>
+    </el-dialog>
   </template>
 </template>
 
@@ -436,6 +560,17 @@ onMounted(loadWorkspace)
 
 .asset-dropzone strong {
   font-size: 17px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .asset-dropzone small,
@@ -612,6 +747,69 @@ onMounted(loadWorkspace)
 .asset-content-label {
   color: var(--md-sys-color-on-surface-variant);
   font-size: 13px;
+}
+
+.asset-content-state {
+  display: grid;
+  gap: 3px;
+}
+
+.asset-content-state a {
+  overflow: hidden;
+  color: var(--md-sys-color-primary);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-content-state small {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+}
+
+.asset-publish-content {
+  display: grid;
+  gap: 18px;
+}
+
+.asset-publish-file {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  background: var(--md-sys-color-surface-container-high);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-md);
+}
+
+.asset-publish-file > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.asset-publish-file strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-publish-file small {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.asset-publish-notice {
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+  color: var(--md-sys-color-on-primary-container);
+  background: color-mix(in srgb, var(--md-sys-color-primary-container) 72%, var(--md-sys-color-surface-container-high));
+  border: 1px solid var(--md-sys-color-primary);
+  border-radius: var(--md-shape-md);
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .asset-action-link {
