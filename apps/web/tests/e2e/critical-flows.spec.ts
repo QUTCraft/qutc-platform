@@ -273,6 +273,9 @@ test('deleting an associated asset clears stale upload workspace state', async (
   await expect(assetRow).toHaveCount(0)
   await expect(page.locator('.asset-upload-queue').getByText('review-attachment.pdf', { exact: true })).toHaveCount(0)
   await expect(associationField).not.toContainText('暑期建筑活动资源包')
+  await associationField.getByRole('combobox').click()
+  await expect(page.getByRole('option', { name: /暑期建筑活动资源包/ })).toHaveCount(0)
+  await page.keyboard.press('Escape')
 })
 
 test('owner can publish an uploaded file into the public resource archive', async ({ page }) => {
@@ -340,6 +343,10 @@ test('owner can publish an uploaded file into the public resource archive', asyn
   await page.getByRole('button', { name: '永久删除', exact: true }).click()
   await expect(archivedAssetRow).toHaveCount(0)
   await expect(page.locator('.asset-upload-queue').getByText('public-handbook.pdf', { exact: true })).toHaveCount(0)
+  const associationField = page.locator('.asset-association-field')
+  await associationField.getByRole('combobox').click()
+  await expect(page.getByRole('option', { name: /公开社团手册/ })).toHaveCount(0)
+  await page.keyboard.press('Escape')
 })
 
 test('owner can create, revisit, and revoke a pending invitation', async ({ page }) => {

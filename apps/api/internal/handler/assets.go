@@ -353,8 +353,9 @@ func (h *WorkspaceHandler) AssetDownloadStats(c *gin.Context) {
 }
 
 // DeleteAsset removes the stored object and its metadata. A linked asset must
-// be taken off the public portal first; archived, draft, and review content may
-// retain their editorial record after the underlying file is removed.
+// be taken off the public portal first. Resource content exists to represent
+// its files, so its record is also removed when the last linked file is
+// deleted; news and knowledge content keep their editorial record.
 func (h *WorkspaceHandler) DeleteAsset(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -370,16 +371,20 @@ func (h *WorkspaceHandler) DeleteAsset(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "asset.delete_failed", "媒体资源暂时无法删除。")
 		return
 	}
+	var linkedContent model.Content
+	linkedContentFound := false
 	if asset.ContentID != "" {
-		var linkedContent model.Content
-		err := h.db.Select("id", "status").Where("id = ? AND organization_id = ?", asset.ContentID, principal.OrganizationID).First(&linkedContent).Error
+		err := h.db.Select("id", "type", "status").Where("id = ? AND organization_id = ?", asset.ContentID, principal.OrganizationID).First(&linkedContent).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			fail(c, http.StatusInternalServerError, "asset.content_status_failed", "关联内容状态暂时无法确认。")
 			return
 		}
-		if err == nil && linkedContent.Status == service.ContentStatusPublished {
-			fail(c, http.StatusConflict, "asset.still_public", "该文件仍在门户公开，请先下架后再删除。")
-			return
+		if err == nil {
+			linkedContentFound = true
+			if linkedContent.Status == service.ContentStatusPublished {
+				fail(c, http.StatusConflict, "asset.still_public", "该文件仍在门户公开，请先下架后再删除。")
+				return
+			}
 		}
 	}
 	assetStorageDriver := strings.TrimSpace(asset.StorageDriver)
@@ -395,9 +400,36 @@ func (h *WorkspaceHandler) DeleteAsset(c *gin.Context) {
 		fail(c, http.StatusServiceUnavailable, "asset.storage_unavailable", "媒体文件暂时无法删除。")
 		return
 	}
+	removedContentID := ""
+	detachedContentID := asset.ContentID
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("id = ? AND organization_id = ?", asset.ID, principal.OrganizationID).Delete(&model.MediaAsset{}).Error; err != nil {
 			return err
+		}
+		if linkedContentFound && linkedContent.Type == service.ContentTypeResource {
+			var remainingAssets int64
+			if err := tx.Model(&model.MediaAsset{}).
+				Where("content_id = ? AND organization_id = ?", linkedContent.ID, principal.OrganizationID).
+				Count(&remainingAssets).Error; err != nil {
+				return err
+			}
+			if remainingAssets == 0 {
+				if err := tx.Where("content_id = ? AND organization_id = ?", linkedContent.ID, principal.OrganizationID).Delete(&model.ContentRevision{}).Error; err != nil {
+					return err
+				}
+				result := tx.Where("id = ? AND organization_id = ?", linkedContent.ID, principal.OrganizationID).Delete(&model.Content{})
+				if result.Error != nil {
+					return result.Error
+				}
+				if result.RowsAffected != 1 {
+					return gorm.ErrRecordNotFound
+				}
+				if err := writeAudit(tx, c, principal.OrganizationID, principal.UserID, "content.delete_with_asset", "content", linkedContent.ID); err != nil {
+					return err
+				}
+				removedContentID = linkedContent.ID
+				detachedContentID = ""
+			}
 		}
 		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "asset.delete", "asset", asset.ID)
 	}); err != nil {
@@ -405,11 +437,20 @@ func (h *WorkspaceHandler) DeleteAsset(c *gin.Context) {
 		return
 	}
 	h.invalidatePortalCache(principal.OrganizationID)
-	var detachedContentID interface{}
-	if asset.ContentID != "" {
-		detachedContentID = asset.ContentID
+	var detachedContentValue interface{}
+	if detachedContentID != "" {
+		detachedContentValue = detachedContentID
 	}
-	respond(c, http.StatusOK, gin.H{"removed": true, "id": asset.ID, "detached_content_id": detachedContentID})
+	var removedContentValue interface{}
+	if removedContentID != "" {
+		removedContentValue = removedContentID
+	}
+	respond(c, http.StatusOK, gin.H{
+		"removed":             true,
+		"id":                  asset.ID,
+		"detached_content_id": detachedContentValue,
+		"removed_content_id":  removedContentValue,
+	})
 }
 
 func detectAssetType(reader io.Reader) (string, error) {

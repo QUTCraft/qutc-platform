@@ -799,7 +799,7 @@ paths:
       tags: [Admin]
       operationId: deleteAdminAsset
       summary: 永久删除媒体资源
-      description: 删除资产元数据和存储对象。公开文件必须先下架；草稿、待审核或已下线内容可保留编辑记录并删除其文件。
+      description: 删除资产元数据和存储对象。公开文件必须先下架；删除非公开 resource 的最后一个关联文件时，同时删除对应资源记录及版本历史。动态和知识库内容只解除文件关联并保留编辑记录。
       security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: asset_id
@@ -3612,11 +3612,12 @@ components:
         meta: { $ref: '#/components/schemas/ListMeta' }
     AssetDeleteResult:
       type: object
-      required: [removed, id]
+      required: [removed, id, detached_content_id, removed_content_id]
       properties:
         removed: { type: boolean, const: true }
         id: { type: string }
-        detached_content_id: { type: [string, 'null'], description: 删除前关联的非公开内容 ID；未关联时为 null。 }
+        detached_content_id: { type: [string, 'null'], description: 文件已解除关联但仍保留的非公开内容 ID；未关联或对应资源记录已一并删除时为 null。 }
+        removed_content_id: { type: [string, 'null'], description: 随最后一个文件一并删除的非公开 resource 内容 ID；其余情况为 null。 }
     AssetDeleteResponse:
       type: object
       required: [data, meta]

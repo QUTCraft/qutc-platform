@@ -1198,9 +1198,22 @@ export async function mockDelete<T>(path: string): Promise<T> {
     const content = asset.content_id ? adminContent.find((item) => item.id === asset.content_id) : undefined
     if (content?.status === 'published') throw new Error('该文件仍在门户公开，请先下架后再删除。')
     adminAssets.splice(assetIndex, 1)
-    if (content) content.asset = null
+    let removedContentId: string | null = null
+    let detachedContentId: string | null = asset.content_id ?? null
+    const remainingLinkedAsset = asset.content_id ? adminAssets.find((item) => item.content_id === asset.content_id) : undefined
+    if (content?.type === 'resource' && !remainingLinkedAsset) {
+      removedContentId = content.id
+      detachedContentId = null
+      adminContent = adminContent.filter((item) => item.id !== content.id)
+      delete contentRevisions[content.id]
+      delete contentDetails[content.id]
+      const resourceIndex = resources.findIndex((item) => item.id === content.id)
+      if (resourceIndex >= 0) resources.splice(resourceIndex, 1)
+    } else if (content) {
+      content.asset = remainingLinkedAsset ?? null
+    }
     delete assetDownloadStats[assetMatch[1]]
-    return { removed: true, id: assetMatch[1], detached_content_id: asset.content_id } as T
+    return { removed: true, id: assetMatch[1], detached_content_id: detachedContentId, removed_content_id: removedContentId } as T
   }
   const invitationMatch = path.match(/\/admin\/invitations\/([^/]+)$/)
   if (invitationMatch) {

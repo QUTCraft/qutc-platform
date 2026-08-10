@@ -106,6 +106,18 @@ func TestS5S3MediaUploadAndPublicDownload(t *testing.T) {
 	if remaining != 0 {
 		t.Fatalf("deleted asset metadata count = %d, want 0", remaining)
 	}
+	if err := db.Model(&model.Content{}).Where("id = ?", contentID).Count(&remaining).Error; err != nil {
+		t.Fatalf("count deleted resource content: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("deleted resource content count = %d, want 0", remaining)
+	}
+	if err := db.Model(&model.ContentRevision{}).Where("content_id = ?", contentID).Count(&remaining).Error; err != nil {
+		t.Fatalf("count deleted resource revisions: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("deleted resource revision count = %d, want 0", remaining)
+	}
 	asset.StoragePath = ""
 }
 

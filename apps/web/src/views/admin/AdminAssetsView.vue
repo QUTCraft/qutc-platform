@@ -274,16 +274,24 @@ async function deleteAsset(asset: MediaAsset) {
       ElMessage.warning('文件仍在门户公开，请先下架后再删除。')
       return
     }
-    const linkedNotice = content ? '关联的内容记录会保留为非公开状态，重新发布前需要上传新的文件。' : ''
+    const linkedNotice = content?.type === 'resource'
+      ? '若这是该门户资源的最后一个文件，对应的非公开资源记录和版本历史也会一并删除。'
+      : content
+        ? '关联的文章或知识记录会保留为非公开状态，重新发布前需要上传新的文件。'
+        : ''
     await ElMessageBox.confirm(`确定永久删除“${asset.original_name}”？MinIO / 本地存储中的文件也会被删除，无法恢复。${linkedNotice}`, '永久删除文件', { type: 'warning', confirmButtonText: '永久删除', cancelButtonText: '取消' })
     deletingId.value = asset.id
     const removed = await adminApi.deleteAsset(asset.id)
     uploadQueue.value = uploadQueue.value.filter((task) => task.asset?.id !== removed.id)
+    if (removed.removed_content_id) {
+      contentItems.value = contentItems.value.filter((item) => item.id !== removed.removed_content_id)
+      if (selectedContentId.value === removed.removed_content_id) selectedContentId.value = ''
+    }
     if (removed.detached_content_id) {
       contentItems.value = contentItems.value.map((item) => item.id === removed.detached_content_id ? { ...item, asset: null } : item)
       if (selectedContentId.value === removed.detached_content_id) selectedContentId.value = ''
     }
-    ElMessage.success('文件及其存储对象已永久删除。')
+    ElMessage.success(removed.removed_content_id ? '文件及对应门户资源记录已永久删除。' : '文件及其存储对象已永久删除。')
     await refreshAssets()
   } catch (error) {
     if (error === 'cancel' || error === 'close') return

@@ -554,7 +554,7 @@ Operation ID：`createAdminContent`
 - `POST /api/v1/admin/assets/{asset_id}/publish`：把一个尚未关联内容的文件归档为公开 `resource`，请求体包含 `title`、`kind`（`document|template|package|video`）与可选 `description`；需要同时具备 `asset:manage` 和 `content:publish`。服务端在同一事务中创建草稿修订、发布修订、关联文件并写入审计，成功返回 `201` 和已发布的 `AdminContent`；已关联文件返回 `409 asset.already_linked`。
 - `GET /api/v1/admin/assets/{asset_id}/download`：管理端受权限保护的下载，需要 `asset:read`。
 - `GET /api/v1/admin/assets/{asset_id}/stats`：读取当前组织资产的 `download_count` 与 `last_downloaded_at`，需要 `asset:read`。
-- `DELETE /api/v1/admin/assets/{asset_id}`：永久删除资产元数据和 MinIO/S3/本地存储对象，需要 `asset:manage`。未关联文件可直接删除；已关联但处于草稿、待审核或已下线状态的文件也可删除，内容编辑记录继续保留。仍在门户公开的文件返回 `409 asset.still_public`，必须先调用内容下线接口。
+- `DELETE /api/v1/admin/assets/{asset_id}`：永久删除资产元数据和 MinIO/S3/本地存储对象，需要 `asset:manage`。未关联文件可直接删除；仍在门户公开的文件返回 `409 asset.still_public`，必须先调用内容下线接口。删除非公开 `resource` 的最后一个关联文件时，会同步删除该门户资源记录及其版本历史，响应通过 `removed_content_id` 返回记录 ID，避免资源继续残留在“关联门户内容”候选项中；若同一资源仍有其他文件，或文件关联的是动态/知识库内容，则保留内容记录并通过 `detached_content_id` 返回其 ID。
 - `GET /api/v1/portal/organizations/{organization_slug}/assets/{asset_id}/download`：仅当资产关联的内容已发布时允许下载，不返回草稿或管理字段。
 
 上传响应只返回资产元数据和服务端生成的下载地址，并包含下载计数。上传本身不会自动公开文件；管理员可以在 `/admin/assets` 对未关联文件执行“归档到门户”，对公开文件依次执行“下架”和“删除文件”，也可以把文件关联到现有内容并通过常规内容发布流程公开。客户端不得根据原始文件名、对象存储 bucket 或资产 ID 自行拼接下载 URL。每次管理端或已公开 Portal 受控下载成功后递增计数，不记录访客身份。API 可通过 `STORAGE_DRIVER=local|s3` 使用本地目录或 MinIO/S3；存储凭据、驱动和对象键不进入公开响应。存储暂不可用时上传/下载返回 `503`，详细配置、迁移与补偿边界见 [媒体存储适配规范](storage-adapter.md)。
