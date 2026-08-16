@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/config"
@@ -20,6 +21,7 @@ import (
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/modelprovider"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/serveradapter"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/storage"
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/superbed"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -86,6 +88,11 @@ func main() {
 		log.Fatalf("model provider initialization failed: %v", err)
 	}
 
+	var superbedUploader *superbed.Uploader
+	if cfg.SuperbedEnabled && strings.TrimSpace(cfg.SuperbedToken) != "" {
+		superbedUploader = superbed.New(cfg.SuperbedToken, cfg.SuperbedUploadURL, cfg.SuperbedTimeout)
+	}
+
 	if cfg.AppEnv == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -111,6 +118,9 @@ func main() {
 	}
 	workspaceHandler := handler.NewWorkspaceHandlerWithDependenciesAndNotifications(db, publicCache, cfg.AppEnv, serverAdapter, cfg.ServerAdapterTimeout, mediaStorage, notificationService)
 	workspaceHandler.UseStorageResolver(integrationService)
+	if superbedUploader != nil {
+		workspaceHandler = workspaceHandler.WithSuperbed(superbedUploader)
+	}
 	portalConfigHandler := handler.NewPortalConfigHandler(db)
 	auditHandler := handler.NewAuditHandler(db)
 	agentService := service.NewAgentServiceWithProviderConfig(

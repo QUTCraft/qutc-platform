@@ -84,6 +84,8 @@ export interface MediaAsset {
   last_downloaded_at?: string | null
   created_at?: string
   download_url: string
+  provider?: 'local' | 'superbed'
+  external_url?: string | null
 }
 
 export interface PublishAssetResourceInput {

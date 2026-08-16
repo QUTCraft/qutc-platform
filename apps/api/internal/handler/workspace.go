@@ -16,6 +16,7 @@ import (
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/cache"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/serveradapter"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/storage"
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/superbed"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -32,6 +33,7 @@ type WorkspaceHandler struct {
 	mediaStorage    storage.Store
 	storageResolver MediaStorageResolver
 	applications    *service.ApplicationDecisionService
+	superbed        *superbed.Uploader
 }
 
 type MediaStorageResolver interface {

@@ -20,6 +20,10 @@ type Config struct {
 	RedisDB                   int
 	PublicCacheTTL            time.Duration
 	ServerAdapterTimeout      time.Duration
+	SuperbedEnabled           bool
+	SuperbedToken             string
+	SuperbedUploadURL         string
+	SuperbedTimeout           time.Duration
 	StorageDriver             string
 	StorageLocalRoot          string
 	S3Endpoint                string
@@ -71,6 +75,10 @@ func Load() Config {
 		RedisDB:                   integer("REDIS_DB", 0),
 		PublicCacheTTL:            duration("PUBLIC_CACHE_TTL", 30*time.Second),
 		ServerAdapterTimeout:      duration("SERVER_ADAPTER_TIMEOUT", 5*time.Second),
+		SuperbedEnabled:           boolean("SUPERBED_ENABLED", false),
+		SuperbedToken:             strings.TrimSpace(os.Getenv("SUPERBED_TOKEN")),
+		SuperbedUploadURL:         value("SUPERBED_UPLOAD_URL", "https://api.superbed.cn/upload"),
+		SuperbedTimeout:           duration("SUPERBED_TIMEOUT", 30*time.Second),
 		StorageDriver:             strings.ToLower(value("STORAGE_DRIVER", "local")),
 		StorageLocalRoot:          value("STORAGE_LOCAL_ROOT", "/tmp/qutcraft-uploads"),
 		S3Endpoint:                value("S3_ENDPOINT", "minio:9000"),

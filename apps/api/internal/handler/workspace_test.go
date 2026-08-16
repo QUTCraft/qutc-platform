@@ -27,6 +27,16 @@ func TestAssetResponseUsesNullForUnlinkedAsset(t *testing.T) {
 	}
 }
 
+func TestAssetResponseUsesExternalURLForSuperbedImage(t *testing.T) {
+	response := assetResponse(model.MediaAsset{ID: "asset-2", OriginalName: "cover.png", MimeType: "image/png", SizeBytes: 8, Provider: "superbed", ExternalURL: "https://img.superbed.example/abc123"})
+	if response["download_url"] != "https://img.superbed.example/abc123" {
+		t.Fatalf("download_url = %#v, want external url", response["download_url"])
+	}
+	if response["provider"] != "superbed" || response["external_url"] != "https://img.superbed.example/abc123" {
+		t.Fatalf("unexpected provider/external_url: %#v", response)
+	}
+}
+
 func validApplicationFixture() applicationRequest {
 	return applicationRequest{
 		Type:      "whitelist",

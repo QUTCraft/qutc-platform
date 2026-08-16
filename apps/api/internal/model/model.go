@@ -196,6 +196,8 @@ type MediaAsset struct {
 	SizeBytes        int64      `gorm:"not null"`
 	StorageDriver    string     `gorm:"size:16;not null;default:local"`
 	StoragePath      string     `gorm:"size:500;not null"`
+	Provider         string     `gorm:"size:24;not null;default:local"`
+	ExternalURL      string     `gorm:"size:500;not null;default:''"`
 	DownloadCount    int64      `gorm:"not null;default:0"`
 	LastDownloadedAt *time.Time `gorm:"index"`
 	CreatedAt        time.Time

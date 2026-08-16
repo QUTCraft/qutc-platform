@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/middleware"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/model"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/storage"
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/superbed"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -30,6 +33,13 @@ type publishAssetResourceRequest struct {
 	Title       string `json:"title"`
 	Kind        string `json:"kind"`
 	Description string `json:"description"`
+}
+
+// WithSuperbed installs an optional image hosting uploader. When nil or
+// disabled, image uploads keep using the existing local storage path.
+func (h *WorkspaceHandler) WithSuperbed(uploader *superbed.Uploader) *WorkspaceHandler {
+	h.superbed = uploader
+	return h
 }
 
 func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
@@ -75,6 +85,11 @@ func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "asset.file_invalid", "无法读取上传文件。")
 		return
 	}
+	data, readErr := io.ReadAll(io.LimitReader(file, maxAssetSize+1))
+	if readErr != nil || int64(len(data)) > maxAssetSize {
+		fail(c, http.StatusBadRequest, "asset.file_invalid", "媒体文件读取失败或超过大小限制。")
+		return
+	}
 	id := uuid.NewString()
 	mediaStorage, storageErr := h.storageFor(c.Request.Context(), principal.OrganizationID, "")
 	if storageErr != nil {
@@ -83,7 +98,7 @@ func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
 	}
 	storedName := id + filepath.Ext(originalName)
 	storageKey := principal.OrganizationID + "/" + storedName
-	written, storeErr := mediaStorage.Put(c.Request.Context(), storageKey, io.LimitReader(file, maxAssetSize+1), mimeType)
+	written, storeErr := mediaStorage.Put(c.Request.Context(), storageKey, bytes.NewReader(data), mimeType)
 	if storeErr != nil || written > maxAssetSize {
 		_ = mediaStorage.Delete(c.Request.Context(), storageKey)
 		if storeErr != nil {
@@ -93,7 +108,17 @@ func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "asset.file_invalid", "媒体文件保存失败或超过大小限制。")
 		return
 	}
-	asset := model.MediaAsset{ID: id, OrganizationID: principal.OrganizationID, ContentID: contentID, UploadedBy: principal.UserID, OriginalName: originalName, StoredName: storedName, MimeType: mimeType, SizeBytes: written, StorageDriver: mediaStorage.Driver(), StoragePath: storageKey}
+	provider := "local"
+	externalURL := ""
+	if h.superbed != nil && h.superbed.Enabled() && isImageAsset(mimeType) {
+		if url, uploadErr := h.superbed.Upload(c.Request.Context(), originalName, data); uploadErr == nil && url != "" {
+			provider = "superbed"
+			externalURL = url
+		} else if uploadErr != nil {
+			slog.Warn("superbed upload failed, falling back to local storage", "error", uploadErr)
+		}
+	}
+	asset := model.MediaAsset{ID: id, OrganizationID: principal.OrganizationID, ContentID: contentID, UploadedBy: principal.UserID, OriginalName: originalName, StoredName: storedName, MimeType: mimeType, SizeBytes: written, StorageDriver: mediaStorage.Driver(), StoragePath: storageKey, Provider: provider, ExternalURL: externalURL}
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&asset).Error; err != nil {
 			return err
@@ -331,7 +356,19 @@ func assetResponse(asset model.MediaAsset) gin.H {
 	if asset.ContentID != "" {
 		contentID = asset.ContentID
 	}
-	return gin.H{"id": asset.ID, "content_id": contentID, "original_name": asset.OriginalName, "mime_type": asset.MimeType, "size_bytes": asset.SizeBytes, "download_count": asset.DownloadCount, "last_downloaded_at": asset.LastDownloadedAt, "created_at": asset.CreatedAt, "download_url": "/api/v1/admin/assets/" + asset.ID + "/download"}
+	var externalURL interface{}
+	if asset.ExternalURL != "" {
+		externalURL = asset.ExternalURL
+	}
+	provider := asset.Provider
+	if provider == "" {
+		provider = "local"
+	}
+	downloadURL := "/api/v1/admin/assets/" + asset.ID + "/download"
+	if url, ok := externalURL.(string); ok && url != "" {
+		downloadURL = url
+	}
+	return gin.H{"id": asset.ID, "content_id": contentID, "original_name": asset.OriginalName, "mime_type": asset.MimeType, "size_bytes": asset.SizeBytes, "download_count": asset.DownloadCount, "last_downloaded_at": asset.LastDownloadedAt, "created_at": asset.CreatedAt, "provider": provider, "external_url": externalURL, "download_url": downloadURL}
 }
 
 func (h *WorkspaceHandler) AssetDownloadStats(c *gin.Context) {
@@ -472,4 +509,8 @@ func allowedAssetType(mime string) bool {
 		}
 	}
 	return false
+}
+
+func isImageAsset(mime string) bool {
+	return mime == "image/png" || mime == "image/jpeg" || mime == "image/webp"
 }
