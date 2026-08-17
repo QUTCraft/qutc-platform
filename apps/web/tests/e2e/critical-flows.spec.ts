@@ -95,7 +95,7 @@ test('public portal routes remain navigable', async ({ page }) => {
 test('public registration entry creates a member account', async ({ page }) => {
   await page.goto('/')
   const desktopRegistration = page.getByRole('button', { name: '注册成员账户' })
-  if (await desktopRegistration.isVisible()) {
+  if ((page.viewportSize()?.width ?? 1280) > 600) {
     await desktopRegistration.click()
   } else {
     await page.getByRole('button', { name: '打开导航' }).click()
