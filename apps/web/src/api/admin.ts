@@ -1,5 +1,5 @@
 import { del, get, getPage, patch, post, put, upload } from '@/api/client'
-import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminInvitationSummary, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminServerStatus, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIConfigurationUpdate, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, BatchInvitationResponse, ContentRevision, EmailAdapterStatus, IntegrationSettings, IntegrationSettingsUpdate, IntegrationTestResult, Invitation, InvitationRole, InvitationStatus, InvitationTemplate, MediaAsset, NotificationOutbox, Organization, PortalConfiguration, PortalManifest, PublishAssetResourceInput, ServerCommandResult } from '@/api/types'
+import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminInvitationSummary, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIConfigurationUpdate, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, BatchInvitationResponse, ContentRevision, EmailAdapterStatus, IntegrationSettings, IntegrationSettingsUpdate, IntegrationTestResult, Invitation, InvitationRole, InvitationStatus, InvitationTemplate, MediaAsset, NotificationOutbox, Organization, PortalConfiguration, PortalManifest, PublishAssetResourceInput } from '@/api/types'
 
 const adminBase = '/api/v1/admin'
 
@@ -105,9 +105,6 @@ export const adminApi = {
   },
   approveApplication: (id: string, reason = '') => post<AdminApplication>(`${adminBase}/applications/${id}/approve`, { reason }),
   rejectApplication: (id: string, reason: string) => post<AdminApplication>(`${adminBase}/applications/${id}/reject`, { reason }),
-  retryApplicationServerSync: (id: string) => post<NonNullable<AdminApplication['server_sync']>>(`${adminBase}/applications/${id}/server-sync/retry`),
-  getServerStatus: () => get<AdminServerStatus>(`${adminBase}/server/status`),
-  runServerCommand: (command: string) => post<ServerCommandResult>(`${adminBase}/server/commands`, { command }),
   getPortalConfiguration: () => get<PortalConfiguration>(`${adminBase}/portal/config`),
   savePortalDraft: (manifest: PortalManifest) => patch<PortalConfiguration>(`${adminBase}/portal/config`, { manifest }),
   enablePortalConfiguration: () => post<PortalConfiguration>(`${adminBase}/portal/config/enable`),

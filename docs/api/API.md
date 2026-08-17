@@ -6,7 +6,7 @@
 
 本文说明当前已开发的认证（Auth）、公开门户（Portal）与后台工作台（Admin）接口。它是对 OpenAPI 契约的可读补充：**路径、字段类型、必填性和状态码以 `openapi.yaml` 为最终事实来源**。本文会明确区分已落地的 CMS、资源、知识目录、成员邀请、多组织会话、门户配置与审计能力和仍在排期中的运行时能力。
 
-> 实现状态：`/api/v1/auth/*`、多组织列举/安全切换、邀请注册/接受、Portal 公开内容读取、Admin 内容生命周期、媒体资产、用户资料、项目/成员/里程碑、知识库目录、申请审批/可禁用 ServerAdapter、门户配置、审计查询和存活/就绪探针已在 Go API 底座中实现。
+> 实现状态：`/api/v1/auth/*`、多组织列举/安全切换、预创建账户邀请注册/接受、Portal 公开内容读取、Admin 内容生命周期、媒体资产、用户资料、项目/成员/里程碑、知识库目录、申请审批、门户配置、审计查询和存活/就绪探针已在 Go API 底座中实现。
 
 ## 1. 设计边界
 
@@ -16,9 +16,9 @@
 | --- | --- | --- | --- | --- |
 | Auth API | `/api/v1/auth` | 登录页、会话恢复 | 注册、登录、刷新、退出与当前用户 | 视端点而定 |
 | Portal API | `/api/v1/portal` | 官网、资源页、Wiki、自定义门户 | 已发布且可公开的数据 | 无 |
-| Admin API | `/api/v1/admin` | 内部后台 | 草稿、成员、审批、受限服务器能力 | Bearer JWT + RBAC |
+| Admin API | `/api/v1/admin` | 内部后台 | 草稿、成员、审批、配置与审计 | Bearer JWT + RBAC |
 
-Portal 不是后台的只读镜像。它不能取得成员邮箱、组织内角色、待审申请、草稿、RCON 连接信息、命令历史或原始服务器监控信息。自定义门户只能使用 Portal API，并自行遵守同一公开边界。
+Portal 不是后台的只读镜像。它不能取得成员邮箱、组织内角色、待审申请、草稿、配置凭据或管理操作历史。自定义门户只能使用 Portal API，并自行遵守同一公开边界。
 
 ## 2. 快速开始
 
@@ -59,7 +59,7 @@ curl "http://localhost:18080/api/v1/admin/dashboard" \
   -H "Authorization: Bearer <access-token>"
 ```
 
-不要在浏览器客户端、主题包、静态页面或 Git 仓库中写入真实 token、RCON 密码、MinIO 密钥或对象存储直链。
+不要在浏览器客户端、主题包、静态页面或 Git 仓库中写入真实 token、数据库密码、MinIO 密钥或对象存储直链。
 
 ## 3. 通用约定
 
@@ -99,7 +99,7 @@ curl "http://localhost:18080/api/v1/admin/dashboard" \
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `data` | object / array | 当前接口的业务数据。 |
-| `meta.request_id` | string | 服务端请求追踪 ID；排错、审批和 RCON 审计必须记录。 |
+| `meta.request_id` | string | 服务端请求追踪 ID；排错、审批和高风险管理操作必须记录。 |
 | `meta.page` | integer | 当前页，从 1 开始；仅列表接口。 |
 | `meta.page_size` | integer | 当前每页数量，范围 1–100；仅列表接口。 |
 | `meta.total` | integer | 符合筛选条件的总条数；仅列表接口。 |
@@ -125,7 +125,7 @@ curl "http://localhost:18080/api/v1/admin/dashboard" \
 | --- | --- | --- |
 | `error.code` | string | 稳定的、可供程序判断的错误码；不要依赖中文文案。 |
 | `error.message` | string | 可展示给操作人员的错误说明。 |
-| `error.details` | object | 可选的结构化补充信息；不得含密钥、token、RCON 凭据或隐私数据。 |
+| `error.details` | object | 可选的结构化补充信息；不得含密钥、token、服务端凭据或隐私数据。 |
 | `error.request_id` | string | 与服务端日志关联的追踪 ID。 |
 
 建议错误码以领域命名，例如 `portal.organization_not_found`、`auth.token_invalid`、`admin.permission_denied`、`admin.command_not_allowed`。当前 OpenAPI 已定义下列状态码语义：
@@ -160,7 +160,7 @@ curl "http://localhost:18080/api/v1/admin/dashboard" \
 | --- | --- | --- |
 | 注册、登录、刷新、邀请预览/接受 | 每分钟 20 次 | `AUTH_RATE_LIMIT_PER_MINUTE` |
 | 公开申请提交 | 每小时 10 次 | `PUBLIC_WRITE_LIMIT_PER_HOUR` |
-| 资产上传、受限服务器命令 | 每分钟 30 次 | `SENSITIVE_RATE_LIMIT_PER_MINUTE` |
+| 资产上传、集成连接测试 | 每分钟 30 次 | `SENSITIVE_RATE_LIMIT_PER_MINUTE` |
 
 受限接口的正常响应也携带 `X-RateLimit-Limit`、`X-RateLimit-Remaining` 和 `X-RateLimit-Reset`。超过限额时返回 `429 request.rate_limited` 与 `Retry-After`。当前实现针对比赛版的单 API 实例；扩展到多实例时应把计数器迁移到 Redis，不能依赖各进程独立内存。
 
@@ -191,11 +191,11 @@ Authorization: Bearer <JWT>
 | 角色值 | 中文 | 当前语义 |
 | --- | --- | --- |
 | `owner` | 所有者 | 组织最高管理角色。 |
-| `administrator` | 管理员 | 管理成员、审核与服务器适配能力的角色。 |
+| `administrator` | 管理员 | 管理成员、申请审核与组织内容的角色。 |
 | `editor` | 编辑者 | 维护内容工作区的角色。 |
 | `member` | 成员 | 普通组织成员。 |
 
-OpenAPI 描述每个操作的认证要求，具体授权由服务端数据库 RBAC 实时执行。当前内置角色和精确权限已经落地：`editor` 具备内容/资产基础能力、知识读取和 `ai:use`；`administrator` 额外具备发布、成员、项目、知识目录、申请、审计与服务器状态权限；只有 `owner` 默认拥有 `organization:configure` 和 `server:command`。完整事实矩阵见 [RBAC 权限矩阵](../architecture/rbac-matrix.md)，前端菜单和按钮隐藏不能替代这些检查。
+OpenAPI 描述每个操作的认证要求，具体授权由服务端数据库 RBAC 实时执行。当前内置角色和精确权限已经落地：`editor` 具备内容/资产基础能力、知识读取和 `ai:use`；`administrator` 额外具备发布、成员、项目、知识目录、申请与审计权限；只有 `owner` 默认拥有 `organization:configure`。完整事实矩阵见 [RBAC 权限矩阵](../architecture/rbac-matrix.md)，前端菜单和按钮隐藏不能替代这些检查。
 
 ### 4.3 组织隔离
 
@@ -419,27 +419,7 @@ Operation ID：`getPortalContentDetail`
 
 `GET /api/v1/portal/organizations/{organization_slug}/knowledge/directories` 返回已公开的知识库目录及其已发布文章数量。目录字段为 `id`、`name`、`slug`、`description`、`article_count`、`updated_at`；目录不是文章正文，文章仍通过上面的文章列表接口读取。
 
-### 5.6 获取公开服务器状态
-
-`GET /api/v1/portal/organizations/{organization_slug}/server-status`  
-Operation ID：`getPortalServerStatus`
-
-服务器适配器是可选的组织场景能力。当前只有 `qutcraft` 返回已配置的脱敏 Minecraft 状态；其他公开组织返回 `enabled=false`、`state=offline`、`apply_url=null`，不会读取或暴露 QUTCraft 的玩家数据。
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `enabled` | boolean | 是否启用服务器适配器。 |
-| `label` | string，最多 100 字符 | 门户可展示的服务器名称。 |
-| `state` | enum | `online`、`maintenance`、`offline`。 |
-| `version` | string / null | 可公开展示的版本号。 |
-| `online_players` | integer / null | 公开在线人数。 |
-| `max_players` | integer / null | 公开最大人数。 |
-| `updated_at` | date-time | 公开状态最后同步时间。 |
-| `apply_url` | string / null | 公开申请入口。 |
-
-绝不返回 RCON 主机、端口、密码、白名单账户、命令记录、TPS 原始指标或管理端审批信息。
-
-### 5.7 提交公开加入申请
+### 5.6 提交公开加入申请
 
 `POST /api/v1/portal/organizations/{organization_slug}/apply`
 
@@ -479,7 +459,6 @@ Operation ID：`getAdminDashboard`
 | `metrics` | `DashboardMetric[]` | 不超过 12 个概览指标。 |
 | `pending_applications` | `AdminApplication[]` | 当前管理员可处理的申请。 |
 | `recent_content` | `AdminContent[]` | 最近编辑的内容。 |
-| `server` | `AdminServerStatus` | 后台可见的服务器适配器状态。 |
 
 `DashboardMetric` 字段为 `label`、`value`、可选 `change`、`tone`。`tone` 枚举：`primary`、`secondary`、`warning`、`neutral`，仅为展示语义，不能用作权限或告警的唯一判断依据。
 
@@ -631,7 +610,6 @@ Operation ID：`listAdminApplications`
 | `page_size` | 1–100 | 每页数量，默认 20。 |
 | `status` | `pending`、`approved`、`rejected` | 按审批状态筛选。 |
 | `type` | `whitelist`、`membership` | 按申请类型筛选。 |
-| `server_sync_status` | `none`、`pending`、`succeeded`、`failed` | 按最新服务器同步状态筛选；`none` 表示没有同步任务。 |
 | `query` | 最多 80 字符 | 模糊匹配姓名、游戏 ID、邮箱和 QQ。 |
 
 未知枚举、超长搜索词或非法分页返回 `400`。筛选必须在 `organization_id` 约束内执行，不能先读取跨组织全量数据后再由前端过滤。
@@ -653,14 +631,13 @@ Operation ID：`listAdminApplications`
 | `decided_at` | date-time / null | 审批完成时间。 |
 | `decided_by` | string | 审批操作者 ID；不向 Portal 返回。 |
 | `decision_reason` | string，最多 500 字符 | 通过备注或拒绝原因，仅限 Admin API。 |
-| `server_sync` | object / null | 白名单批准后的服务器同步结果；成员申请或拒绝操作为 `null`。 |
 
 #### 通过申请
 
 `POST /api/v1/admin/applications/{application_id}/approve`  
 Operation ID：`approveAdminApplication`
 
-请求体可选传入 `{ "reason": "资料完整，符合要求。" }` 作为通过备注，最多 500 字符。成功 `200` 返回已更新的 `AdminApplication`；发生重复审批或并发状态变化时返回 `409`。服务端必须记录审批人、原状态、新状态、原因、时间和 `request_id`。白名单申请会另外创建 `server_sync` 记录，其 `status` 为 `pending`、`succeeded` 或 `failed`。审批决定一旦提交，不因外部适配器失败而回滚；失败只更新同步记录，且错误摘要必须脱敏。
+请求体可选传入 `{ "reason": "资料完整，符合要求。" }` 作为通过备注，最多 500 字符。成功 `200` 返回已更新的 `AdminApplication`；发生重复审批或并发状态变化时返回 `409`。服务端在同一事务中记录审批人、状态、原因、时间、`request_id` 和通知 Outbox；任一步失败都会整体回滚。
 
 #### 拒绝申请
 
@@ -669,89 +646,24 @@ Operation ID：`rejectAdminApplication`
 
 请求体必须传入 `{ "reason": "资料需要补充。" }`，去除首尾空白后不能为空且最多 500 字符，否则返回 `400 application.decision_reason_required` 或 `application.decision_reason_too_long`。拒绝原因只对 Admin 可见，当前不提供公开申请进度查询，因此不会进入 Portal API。
 
-#### 重试服务器同步
+完整字段表、状态机、成功/失败响应、错误码与审计规范见 [申请审批 API 规范](application-review.md)。
 
-`POST /api/v1/admin/applications/{application_id}/server-sync/retry`
-Operation ID：`retryAdminApplicationServerSync`
+### 7.6 成员邀请规范
 
-只允许具备 `application:approve` 权限的成员重试已批准白名单申请中最新的 `failed` 同步记录。服务端以条件更新将记录从 `failed` 原子切换为 `pending`，避免并发重复执行；`pending`、`succeeded`、非白名单或未批准申请返回 `409`。每次重试与最终结果分别写入审计，响应返回最新 `ApplicationServerSync`。外部服务仍失败时接口仍返回 `200`，但 `data.status` 为 `failed`，审批状态保持 `approved`。
+成员邀请由 Admin 创建、公开链接预览，随后由邀请邮箱对应的账户接受。创建邀请时会同时预创建不可登录的账户与 `invited` 成员关系，使管理员可以立即在成员列表确认名额、角色和状态：
 
-完整字段表、状态机、成功/失败响应、错误码与审计规范见 [申请审批与 ServerAdapter API 规范](server-adapter.md)。
-
-### 7.6 服务器适配器与受限 RCON
-
-#### 获取后台服务器状态
-
-`GET /api/v1/admin/server/status`  
-Operation ID：`getAdminServerStatus`
-
-`AdminServerStatus`：
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `enabled` | boolean | 是否启用服务器适配器。 |
-| `adapter` | string | 服务端选择的适配器名称。 |
-| `mode` | enum | `disabled`、`mock` 或 `rcon`；生产未接入 RCON 时必须返回 `disabled`，不能模拟成功。 |
-| `label` | string，最多 100 字符 | 后台服务器名称。 |
-| `state` | enum | `online`、`maintenance`、`offline`。 |
-| `online_players` | integer，≥0 | 当前在线人数。 |
-| `max_players` | integer，≥0 | 最大人数；未接入时为 0。 |
-| `last_command_at` | date-time / null | 最近一次受控命令时间。 |
-| `updated_at` | date-time | 适配器状态更新时间。 |
-
-#### 执行受限命令
-
-`POST /api/v1/admin/server/commands`  
-Operation ID：`executeRestrictedServerCommand`
-
-```json
-{
-  "command": "list"
-}
-```
-
-| 字段 | 必填 | 规则 |
-| --- | --- | --- |
-| `command` | 是 | 非空，最长 256 字符；服务端仅接受命令白名单中的命令及参数。 |
-
-响应 `data`：
-
-```json
-{
-  "accepted": true,
-  "executed": false,
-  "mode": "mock",
-  "message": "Mock 适配器已模拟受理命令，未连接真实 RCON。",
-  "executed_at": "2026-07-17T04:20:00Z"
-}
-```
-
-这是高风险接口，后端至少必须做到：
-
-1. 用服务端命令白名单与参数规则校验，不允许浏览器提交任意 RCON 字符串。
-2. 限制到拥有专门权限的角色；建议将命令权限单列，不能仅以“管理员”名称判断。
-3. 为每次尝试（包括被拒绝的尝试）记录操作者、组织、命令摘要、结果、IP/会话信息与 `request_id`。
-4. 不在响应、日志错误或前端中泄露 RCON 密码、连接串或原始认证异常。
-5. 离线或维护状态下返回明确错误，不应假装命令已成功执行。
-
-本地 Vue 开发 Mock 只记录命令并返回模拟成功，**不会连接任何 Minecraft 服务器**。生产环境默认使用 `disabled` 适配器，命令和白名单同步会明确失败，直到接入真实 RCON。
-
-### 7.7 成员邀请规范
-
-成员邀请由 Admin 创建、公开链接预览，随后由邀请邮箱对应的账户接受：
-
-1. 管理员调用 `POST /api/v1/admin/invitations`，服务端只保存 token 的 SHA-256 哈希，响应中的 `invite_url` 是唯一一次展示明文 token 的位置。
+1. 管理员调用 `POST /api/v1/admin/invitations`，服务端在一个事务中创建邀请、`invited` 账户、`invited` 成员关系和指定角色；只保存 token 的 SHA-256 哈希，响应中的 `invite_url` 是唯一一次展示明文 token 的位置。
 2. 邀请链接访问 `GET /api/v1/invitations/{token}`，只返回组织名称、邀请邮箱、角色、状态和过期时间，不返回操作者、成员列表或内部权限数据。
-3. 已有账户登录后调用 `POST /api/v1/invitations/{token}/accept`；新用户可在 `POST /api/v1/auth/register` 传入 `invitation_token`，注册、成员关系、角色和 token 消费在同一事务内完成。
+3. 预创建账户没有可用密码，不能在激活前登录。受邀者在 `POST /api/v1/auth/register` 传入 `invitation_token` 后，服务端会在同一事务中为原账户设置姓名和密码、激活原成员关系并消费 token，不会另建重复账户。已有活跃账户则先登录，再调用 `POST /api/v1/invitations/{token}/accept` 加入新组织。
 4. 默认有效期为 7 天，最大 30 天；同一组织同一邮箱只能存在一个待处理邀请，邀请不能授予 `owner`。
 5. 邮箱不匹配返回 `403`；重复、已使用、过期或撤销的链接分别使用统一冲突/失效错误，不返回 token 哈希。
 6. 创建响应包含真实 `delivery` 状态。邮件未启用或发送失败时邀请仍有效，Admin 必须保留复制链接入口。
 7. `POST /api/v1/admin/invitations/{invitation_id}/email/retry` 会先轮换 token，使旧链接失效，再在事务外投递；邮件失败不回滚新邀请链接。
 8. `GET /api/v1/admin/invitations` 按当前组织分页返回邀请和邮件状态，可使用 `status=pending|accepted|expired|revoked` 筛选，但不会返回或恢复明文 token。
-9. `DELETE /api/v1/admin/invitations/{invitation_id}` 只撤销当前组织中的待处理邀请；成功后原链接立即返回 `410 invitation.revoked`，重复撤销、撤销已接受或已过期邀请返回 `409`，操作写入审计事件。
+9. `DELETE /api/v1/admin/invitations/{invitation_id}` 只撤销当前组织中的待处理邀请；成功后原链接立即返回 `410 invitation.revoked`，并删除对应的 `invited` 成员关系。若该占位账户不属于任何其他组织，也会一并清理；活跃账户和其他组织关系不受影响。重复撤销、撤销已接受或已过期邀请返回 `409`，操作写入审计事件。
 10. `POST /api/v1/admin/invitation-batches` 一次接收 1—20 条邀请并保持请求顺序逐项返回结果；单条校验、已有成员或重复邀请只影响该条，成功项分别创建、投递和审计，明文链接仍只在本次响应中展示。
 
-### 7.8 外部适配器与通知规范
+### 7.7 外部适配器与通知规范
 
 #### 1. SMTP 邮件提醒适配器
 - **当前状态**：邀请邮件已实现 `disabled`/`smtp` 可替换适配器；默认关闭，关闭时明确返回 `delivery.status=disabled`。
@@ -764,12 +676,7 @@ Operation ID：`executeRestrictedServerCommand`
 - **连接验证**：`POST /api/v1/admin/integrations/test` 传入 `section=email`，只验证网络、TLS 和身份认证，不发送测试邮件。
 - **安全约束**：SMTP 授权码绝不可进入前端静态代码、日志或 API 响应。网页输入只在保存请求中传输，保存后立即从表单清空。完整配置、模板、审批通知 Outbox 和错误语义见 [邮件与通知适配器规范](email-adapter.md)。
 
-#### 2. Minecraft RCON 隔离与审计规范
-- **当前状态**：真实 RCON 暂时搁置；生产默认使用 `disabled` Adapter，不生成虚假服务器状态或模拟成功记录。Mock Adapter 仅供自动化测试和本地开发。
-- **网络隔离**: RCON 端口（`25575`）与指令下发仅在内部私有网络中打通，不向公网暴露。
-- **强制审计**: 所有受控 RCON 命令下发必须包含操作者身份（`operator_id`）、操作时间戳（`executed_at`）与关联追踪 ID（`request_id`）并生成留存审计日志。
-
-#### 3. 统一服务接入配置
+#### 2. 统一服务接入配置
 
 系统设置中的“服务接入”覆盖门户公网地址、SMTP 和媒体存储；AI 模型接口继续由相邻的“智能体配置”页面维护。保存结果按组织隔离并即时生效：
 
@@ -779,9 +686,9 @@ Operation ID：`executeRestrictedServerCommand`
 | `PATCH /api/v1/admin/integrations` | 保存门户地址、SMTP、本地/S3 存储。 | 凭据留空保留原值；仅显式 `clear_*` 清除；写入审计。 |
 | `POST /api/v1/admin/integrations/test` | 验证 `email` 或 `storage`。 | 不发邮件、不上传对象、不创建存储桶。 |
 
-媒体上传会解析当前组织的活动存储驱动，资产元数据记录实际驱动；下载旧资产时按记录的驱动解析，因此从本地切换到 S3 后不会让已有本地文件失效。MySQL、Redis、JWT、CORS、限流和监听端口属于进程启动根基，只在网页中清楚标记为“部署维护”，不能伪装成可热修改项。RCON 继续按计划延期，生产保持明确的 `disabled` 状态。
+媒体上传会解析当前组织的活动存储驱动，资产元数据记录实际驱动；下载旧资产时按记录的驱动解析，因此从本地切换到 S3 后不会让已有本地文件失效。MySQL、Redis、JWT、CORS、限流和监听端口属于进程启动根基，只在网页中清楚标记为“部署维护”，不能伪装成可热修改项。
 
-### 7.9 门户 Manifest 配置
+### 7.8 门户 Manifest 配置
 
 门户配置只允许拥有 `organization:configure` 权限的组织所有者操作：
 
@@ -819,7 +726,7 @@ Manifest 必须符合 `qutc.portal/v1`，入口与自定义主题 Token 必须�
 
 `source=active` 表示返回经服务端再次校验的启用配置；`source=default` 表示无配置或配置损坏，调用方必须使用内置 MD3。该公开端点使用 `Cache-Control: no-store`，不返回 `updated_by`、`activated_by`、草稿或违规详情。
 
-### 7.10 审计查询
+### 7.9 审计查询
 
 `GET /api/v1/admin/audit`
 Operation ID：`listAdminAuditEvents`
@@ -828,7 +735,7 @@ Operation ID：`listAdminAuditEvents`
 
 每条记录返回 `id`、`actor_user_id`、`actor_name`、`action`、`target_type`、`target_id`、`result`、`request_id` 与 `created_at`，按时间倒序。响应不包含操作者邮箱、请求正文、命令原文或服务端凭据。完整约束见 [API 可观测性与审计规范](observability.md)。
 
-### 7.11 组织运营智能体
+### 7.10 组织运营智能体
 
 当前智能体基础、内容协作与活动策划闭环提供 14 条管理接口：
 
@@ -859,7 +766,7 @@ Operation ID：`listAdminAuditEvents`
 
 | 页面路由 | 页面用途 | 当前调用接口 |
 | --- | --- | --- |
-| `/` | 门户首页 | 组织、动态、项目、资源、知识库列表、公开服务器状态。 |
+| `/` | 门户首页 | 组织、动态、项目、资源和知识库列表。 |
 | `/projects` | 公开项目 | 项目列表。 |
 | `/posts/:id` | 动态详情 | 已发布内容详情。 |
 | `/resources` | 资源中心 | 资源列表与受控下载入口。 |
@@ -875,7 +782,7 @@ Operation ID：`listAdminAuditEvents`
 | `/admin/knowledge` | 知识目录 | 知识目录创建与编辑。 |
 | `/admin/users` | 成员与权限 | `GET/PATCH /admin/users`、单个/批量邀请、邀请列表/撤销及邮件失败重试。 |
 | `/admin/projects` | 项目管理 | 项目、项目成员和里程碑管理接口。 |
-| `/admin/reviews` | 申请审核与可选服务器适配 | 所有组织可处理成员申请；仅 QUTCraft 场景展示服务器状态、同步记录与受限命令。 |
+| `/admin/reviews` | 申请审核 | 所有组织可处理成员或服务申请并查看审核记录。 |
 | `/admin/activity-planner` | AI 活动策划 | 结构化活动需求、知识引用、历史方案、五维评分和人工批准。 |
 | `/admin/audit` | 审计记录 | `GET /admin/audit`，按组织、权限和筛选条件查询。 |
 | `/admin/ai` | 智能体配置 | 读取脱敏供应商状态；组织所有者保存接口地址、模型名、API Key 和运行策略。 |
@@ -888,7 +795,7 @@ Operation ID：`listAdminAuditEvents`
 - 只调用 `/api/v1/portal/organizations/{organization_slug}/...`。
 - 只展示接口明确标为公开的数据；不尝试通过 ID、错误差异或未文档化路径探测私有数据。
 - 对 `download_url` 使用服务端返回值，不重写、代理或推算存储路径。
-- 为列表为空、组织不存在、服务器未启用、字段为 `null` 和网络失败提供降级状态。
+- 为列表为空、组织不存在、字段为 `null` 和网络失败提供降级状态。
 - 对外链 `href` 做常规 URL 安全校验；对服务端文本按纯文本渲染或经过可信 HTML 清洗。
 - 不在自定义门户中嵌入管理员 token，也不调用 `/api/v1/admin/*`。
 
@@ -911,7 +818,6 @@ Operation ID：`listAdminAuditEvents`
 - 分片上传、病毒扫描回调与跨存储后端在线迁移。
 - 成员资料编辑和多语言邀请模板。
 - 申请人状态查询、撤回、补充材料；审批通知与持久化 Outbox 已实现，Webhook/企业微信仍未实现。
-- RCON 命令白名单配置、命令历史查询、服务器监控明细。
 - 门户历史版本回滚、资源包上传/审核与运行时健康查询。
 - 通用 AI 工具调用批准/拒绝、公开知识问答与多智能体工作流。
 

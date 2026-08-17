@@ -224,8 +224,8 @@ func TestS2BatchInvitationsReturnPerItemResults(t *testing.T) {
 	ownerToken := loginAsOwner(t, client, cfg)
 
 	email := "s2-batch-" + uuid.NewString() + "@integration.invalid"
-	var invitationID string
-	t.Cleanup(func() { cleanupS2Fixture(t, db, invitationID, "", "", "", "") })
+	var invitationID, userID, membershipID string
+	t.Cleanup(func() { cleanupS2Fixture(t, db, invitationID, userID, membershipID, "", "") })
 
 	batchBody := request(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/invitation-batches", ownerToken, map[string]any{
 		"invitations": []map[string]any{
@@ -273,6 +273,22 @@ func TestS2BatchInvitationsReturnPerItemResults(t *testing.T) {
 	if invitationCount != 1 {
 		t.Fatalf("stored batch invitations = %d, want exactly one", invitationCount)
 	}
+	var precreatedUser model.User
+	if err := db.Where("email = ?", email).First(&precreatedUser).Error; err != nil {
+		t.Fatalf("load batch precreated user: %v", err)
+	}
+	userID = precreatedUser.ID
+	if precreatedUser.State != "invited" || precreatedUser.PasswordHash != "" {
+		t.Fatalf("batch precreated user = %+v, want invited account without password", precreatedUser)
+	}
+	var precreatedMembership model.Membership
+	if err := db.Where("organization_id = ? AND user_id = ?", batch.Results[0].Invitation.OrganizationID, userID).First(&precreatedMembership).Error; err != nil {
+		t.Fatalf("load batch precreated membership: %v", err)
+	}
+	membershipID = precreatedMembership.ID
+	if precreatedMembership.State != "invited" {
+		t.Fatalf("batch precreated membership state = %q, want invited", precreatedMembership.State)
+	}
 	for _, action := range []string{"membership.invite", "membership.invite_email"} {
 		var auditCount int64
 		if err := db.Model(&model.AuditEvent{}).Where("action = ? AND target_type = ? AND target_id = ?", action, "invitation", invitationID).Count(&auditCount).Error; err != nil {
@@ -289,8 +305,8 @@ func TestS2BatchInvitationsReturnPerItemResults(t *testing.T) {
 	}
 	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/invitation-batches", ownerToken, map[string]any{"invitations": tooMany}, http.StatusBadRequest)
 
-	cleanupS2Fixture(t, db, invitationID, "", "", "", "")
-	invitationID = ""
+	cleanupS2Fixture(t, db, invitationID, userID, membershipID, "", "")
+	invitationID, userID, membershipID = "", "", ""
 }
 
 func TestS2InvitationRevocation(t *testing.T) {
@@ -304,8 +320,8 @@ func TestS2InvitationRevocation(t *testing.T) {
 		t.Fatalf("load organization: %v", err)
 	}
 	email := "s2-revoke-" + uuid.NewString() + "@integration.invalid"
-	var invitationID string
-	t.Cleanup(func() { cleanupS2Fixture(t, db, invitationID, "", "", "", "") })
+	var invitationID, userID, membershipID string
+	t.Cleanup(func() { cleanupS2Fixture(t, db, invitationID, userID, membershipID, "", "") })
 
 	createBody := request(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/invitations", ownerToken, map[string]any{
 		"email": email, "role": "member", "expires_in_hours": 24,
@@ -317,6 +333,16 @@ func TestS2InvitationRevocation(t *testing.T) {
 	if invitationID == "" || rawToken == "" {
 		t.Fatalf("created revocation fixture = %+v", createdEnvelope.Data)
 	}
+	var precreatedUser model.User
+	if err := db.Where("email = ? AND state = ?", email, "invited").First(&precreatedUser).Error; err != nil {
+		t.Fatalf("load revocation precreated user: %v", err)
+	}
+	userID = precreatedUser.ID
+	var precreatedMembership model.Membership
+	if err := db.Where("organization_id = ? AND user_id = ? AND state = ?", organization.ID, userID, "invited").First(&precreatedMembership).Error; err != nil {
+		t.Fatalf("load revocation precreated membership: %v", err)
+	}
+	membershipID = precreatedMembership.ID
 
 	var pendingEnvelope apiEnvelope[[]invitationDTO]
 	decodeJSON(t, request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/invitations?status=pending&page_size=100", ownerToken, nil, http.StatusOK), &pendingEnvelope)
@@ -356,9 +382,15 @@ func TestS2InvitationRevocation(t *testing.T) {
 	if auditCount != 1 {
 		t.Fatalf("invitation revoke audit count = %d, want 1", auditCount)
 	}
+	if err := db.First(&model.Membership{}, "id = ?", membershipID).Error; err != gorm.ErrRecordNotFound {
+		t.Fatalf("revoked precreated membership lookup error = %v, want record not found", err)
+	}
+	if err := db.First(&model.User{}, "id = ?", userID).Error; err != gorm.ErrRecordNotFound {
+		t.Fatalf("revoked placeholder user lookup error = %v, want record not found", err)
+	}
 
-	cleanupS2Fixture(t, db, invitationID, "", "", "", "")
-	invitationID = ""
+	cleanupS2Fixture(t, db, invitationID, userID, membershipID, "", "")
+	invitationID, userID, membershipID = "", "", ""
 }
 
 func TestS2InvitationAndProjectCollaboration(t *testing.T) {
@@ -409,6 +441,22 @@ func TestS2InvitationAndProjectCollaboration(t *testing.T) {
 	if rawToken == "" || rawToken == invitation.InviteURL {
 		t.Fatalf("invite_url = %q, want /invite/<token>", invitation.InviteURL)
 	}
+	var precreatedUser model.User
+	if err := db.Where("email = ?", email).First(&precreatedUser).Error; err != nil {
+		t.Fatalf("load precreated invited user: %v", err)
+	}
+	userID = precreatedUser.ID
+	if precreatedUser.State != "invited" || precreatedUser.PasswordHash != "" {
+		t.Fatalf("precreated user = %+v, want invited state without password", precreatedUser)
+	}
+	var precreatedMembership model.Membership
+	if err := db.Where("organization_id = ? AND user_id = ?", organization.ID, userID).First(&precreatedMembership).Error; err != nil {
+		t.Fatalf("load precreated membership: %v", err)
+	}
+	membershipID = precreatedMembership.ID
+	if precreatedMembership.State != "invited" {
+		t.Fatalf("precreated membership state = %q, want invited", precreatedMembership.State)
+	}
 
 	var storedInvitation model.Invitation
 	if err := db.First(&storedInvitation, "id = ?", invitationID).Error; err != nil {
@@ -455,7 +503,9 @@ func TestS2InvitationAndProjectCollaboration(t *testing.T) {
 	var registerEnvelope apiEnvelope[tokenPairDTO]
 	decodeJSON(t, registerBody, &registerEnvelope)
 	editor := registerEnvelope.Data
-	userID = editor.User.ID
+	if editor.User.ID != userID {
+		t.Fatalf("registered user id = %q, want precreated account %q", editor.User.ID, userID)
+	}
 	if userID == "" || editor.AccessToken == "" || editor.User.Email != email || !containsString(editor.User.Roles, "editor") {
 		t.Fatalf("registered account = %+v, want authenticated editor", editor.User)
 	}
@@ -466,7 +516,9 @@ func TestS2InvitationAndProjectCollaboration(t *testing.T) {
 	if err := db.Where("organization_id = ? AND user_id = ?", organization.ID, userID).First(&membership).Error; err != nil {
 		t.Fatalf("load accepted membership id: %v", err)
 	}
-	membershipID = membership.ID
+	if membership.ID != membershipID || membership.State != "active" {
+		t.Fatalf("accepted membership = %+v, want activated precreated membership %s", membership, membershipID)
+	}
 
 	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/invitations/"+rawToken, "", nil, http.StatusGone)
 	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/auth/register", "", map[string]any{

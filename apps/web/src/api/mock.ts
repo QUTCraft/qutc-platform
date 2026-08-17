@@ -11,7 +11,6 @@ import type {
   AdminProject,
   AdminProjectMember,
   AdminProjectMilestone,
-  AdminServerStatus,
   AdminUser,
   AIAgentCatalog,
   AIAgentRun,
@@ -34,7 +33,6 @@ import type {
   PublicPost,
   PublicContentDetail,
   Resource,
-  ServerStatus,
   TokenPair,
   Invitation,
   InvitationTemplate,
@@ -80,7 +78,7 @@ const mockOrganizations: OrganizationMembership[] = [
 ]
 
 const posts: PublicPost[] = [
-  { id: 'post_cms', title: 'QUTCraft CMS 项目正式启动', excerpt: '从官网、资源分发到服务器适配，我们开始把社团长期积累的内容整理成可持续的公共入口。', category: '社团动态', published_at: '2026-07-14T12:00:00Z', reading_minutes: 4 },
+  { id: 'post_cms', title: 'QUTCraft CMS 项目正式启动', excerpt: '从官网、资源分发到组织协作，我们开始把社团长期积累的内容整理成可持续的公共入口。', category: '社团动态', published_at: '2026-07-14T12:00:00Z', reading_minutes: 4 },
   { id: 'post_build', title: '主城公共区域设计征集', excerpt: '建筑组开放第一轮概念征集：请用一张草图、一段说明，提出你想在主城里留下的公共空间。', category: '活动', published_at: '2026-07-12T08:00:00Z', reading_minutes: 3 },
   { id: 'post_rules', title: '服务器行为准则更新', excerpt: '新版本明确了公共建筑、资源共享与成员协作的边界，欢迎阅读后提出修订建议。', category: '公告', published_at: '2026-07-09T09:30:00Z', reading_minutes: 6 },
 ]
@@ -117,20 +115,9 @@ let adminKnowledgeDirectories: AdminKnowledgeDirectory[] = knowledgeDirectories.
 }))
 
 const contentDetails: Record<string, PublicContentDetail> = {
-  post_cms: { id: 'post_cms', title: 'QUTCraft CMS 项目正式启动', type: 'news', category: '社团动态', excerpt: posts[0].excerpt, body: 'QUTCraft CMS 内容闭环演示内容。我们将官网、资源分发与可选的服务器适配能力拆成清晰边界，让社团长期积累的内容能够被持续维护和公开访问。', published_at: posts[0].published_at, updated_at: posts[0].published_at, reading_minutes: 4 },
+  post_cms: { id: 'post_cms', title: 'QUTCraft CMS 项目正式启动', type: 'news', category: '社团动态', excerpt: posts[0].excerpt, body: 'QUTCraft CMS 内容闭环演示内容。我们将官网、资源分发与组织协作能力拆成清晰边界，让社团长期积累的内容能够被持续维护和公开访问。', published_at: posts[0].published_at, updated_at: posts[0].published_at, reading_minutes: 4 },
   knowledge_handoff: { id: 'knowledge_handoff', title: '如何让社团项目可交接', type: 'knowledge', category: '项目协作', excerpt: knowledge[0].summary, body: '从目标、角色、决策记录到发布节奏，建立不依赖个人记忆的知识库。每次交接都应该留下可复用的背景、当前状态和下一步行动。', published_at: knowledge[0].updated_at, updated_at: knowledge[0].updated_at, reading_minutes: 8 },
   resource_overview: { id: 'resource_overview', title: 'QUTCraft CMS 产品说明', type: 'resource', category: 'document', excerpt: resources[0].description, body: 'QUTCraft CMS 的公开产品说明与接入资料。当前资源条目没有关联可下载文件，请以管理端上传资源文件后生成受控下载地址。', published_at: resources[0].updated_at, updated_at: resources[0].updated_at, reading_minutes: 3, asset: null, download_url: null },
-}
-
-const serverStatus: ServerStatus = {
-  enabled: true,
-  label: 'QUTCraft Java 生存服',
-  state: 'online',
-  version: 'Java 1.21.x',
-  online_players: 18,
-  max_players: 60,
-  updated_at: '2026-07-17T04:10:00Z',
-  apply_url: '#join',
 }
 
 let adminContent: AdminContent[] = [
@@ -163,7 +150,6 @@ let integrationSettings: IntegrationSettings = {
     { key: 'database', label: 'MySQL 数据库', state: 'deployment', description: '启动根基，由部署维护；网页仅使用当前连接。' },
     { key: 'cache', label: 'Redis 缓存', state: 'deployment', description: '启动根基，由部署维护；可通过健康检查确认状态。' },
     { key: 'security', label: 'JWT、CORS 与限流', state: 'deployment', description: '安全边界，由部署维护，修改后需要重启 API。' },
-    { key: 'server', label: '服务器命令适配器', state: 'deferred', description: 'RCON 已按项目计划延期，当前保持安全 Mock。' },
   ],
 }
 const assetDownloadStats: Record<string, { download_count: number; last_downloaded_at: string | null }> = {}
@@ -204,10 +190,28 @@ const adminUsers: AdminUser[] = [
   { id: 'user_nova', name: 'Nova', email: 'nova@qutcraft.example', role: 'member', state: 'invited', joined_at: '2026-07-16T01:00:00Z' },
 ]
 
+function precreateInvitedMockUser(email: string, role: AdminInvitation['role']) {
+  const normalized = email.trim().toLowerCase()
+  const existing = adminUsers.find((item) => item.email.toLowerCase() === normalized)
+  if (existing) {
+    if (existing.state === 'invited') existing.role = role
+    return existing
+  }
+  const user: AdminUser = {
+    id: `user_invited_${Date.now()}_${adminUsers.length}`,
+    name: normalized.split('@')[0] || '待激活成员',
+    email: normalized,
+    role,
+    state: 'invited',
+    joined_at: new Date().toISOString(),
+  }
+  adminUsers.unshift(user)
+  return user
+}
+
 const auditEvents: AuditEvent[] = [
   { id: 'audit_001', actor_user_id: 'user_bk', actor_name: 'BBKarasu', action: 'content.published', target_type: 'content', target_id: 'content_001', result: 'success', request_id: 'mock-request-content-001', created_at: '2026-07-30T07:30:00Z' },
   { id: 'audit_002', actor_user_id: 'user_mori', actor_name: 'Mori', action: 'membership.invite', target_type: 'invitation', target_id: 'invite_001', result: 'success', request_id: 'mock-request-invite-001', created_at: '2026-07-30T06:10:00Z' },
-  { id: 'audit_003', actor_user_id: 'user_bk', actor_name: 'BBKarasu', action: 'server.command', target_type: 'server', target_id: '', result: 'accepted', request_id: 'mock-request-server-001', created_at: '2026-07-29T13:20:00Z' },
 ]
 
 const aiAgentCatalog: AIAgentCatalog = {
@@ -272,17 +276,6 @@ let applications: AdminApplication[] = [
   { id: 'application_003', applicant: 'Kite', type: 'whitelist', submitted_at: '2026-07-15T08:00:00Z', note: '已参加过新生联机活动。', status: 'approved', decision_reason: '资料符合要求。' },
 ]
 
-const adminServer: AdminServerStatus = {
-  enabled: true,
-  adapter: 'minecraft-mock',
-  mode: 'mock',
-  label: 'QUTCraft Minecraft Mock',
-  state: 'maintenance',
-  online_players: 0,
-  max_players: 60,
-  updated_at: '2026-07-28T04:10:00Z',
-}
-
 const defaultPortalManifest: PortalManifest = {
   schema: 'qutc.portal/v1',
   id: 'qutcraft-md3',
@@ -290,7 +283,7 @@ const defaultPortalManifest: PortalManifest = {
   display_name: 'QUTCraft MD3 Portal',
   entry: '/index.html',
   theme: { mode: 'md3' },
-  capabilities: ['organization.read', 'public_content.read', 'projects.read', 'assets.read', 'knowledge.read', 'server.status.read'],
+  capabilities: ['organization.read', 'public_content.read', 'projects.read', 'assets.read', 'knowledge.read'],
   fallback: 'md3',
 }
 let portalConfiguration: PortalConfiguration = {
@@ -320,7 +313,6 @@ export async function mockGet<T>(path: string): Promise<T> {
   if (path.includes('/admin/')) requireMockAdmin()
   if (path.endsWith('/admin/dashboard')) {
     const currentOrganization = mockOrganizations.find((item) => item.id === mockUser?.organization_id)
-    const isQutcraftOrganization = currentOrganization?.slug === 'qutcraft'
     const dashboard: AdminDashboard = {
       organization_name: currentOrganization?.name ?? organization.name,
       updated_at: '2026-07-17T04:10:00Z',
@@ -328,13 +320,10 @@ export async function mockGet<T>(path: string): Promise<T> {
         { label: '活跃成员', value: 24, change: '较上周 +3', tone: 'primary' },
         { label: '已发布内容', value: 38, change: '本周 +5', tone: 'secondary' },
         { label: '待处理申请', value: applications.filter((item) => item.status === 'pending').length, change: '需要你的处理', tone: 'warning' },
-        isQutcraftOrganization
-          ? { label: '在线玩家', value: adminServer.online_players, change: '服务器状态正常', tone: 'neutral' }
-          : { label: '进行中项目', value: 2, change: '当前组织项目', tone: 'neutral' },
+        { label: '进行中项目', value: adminProjects.filter((item) => item.status === 'active').length, change: '当前组织项目', tone: 'neutral' },
       ],
       pending_applications: applications.filter((item) => item.status === 'pending'),
       recent_content: adminContent,
-      server: adminServer,
     }
     return dashboard as T
   }
@@ -375,7 +364,7 @@ export async function mockGet<T>(path: string): Promise<T> {
 		return { items: structuredClone(filtered.slice(start, start + pageSize)), page: pageNumber, page_size: pageSize, total: filtered.length } as T
 	}
 	if (requestUrl.pathname.endsWith('/admin/knowledge/directories')) return page(adminKnowledgeDirectories) as T
-  if (requestUrl.pathname.endsWith('/admin/users')) return page(adminUsers) as T
+  if (requestUrl.pathname.endsWith('/admin/users')) return page(structuredClone(adminUsers)) as T
   if (requestUrl.pathname.endsWith('/admin/invitations')) {
     const status = requestUrl.searchParams.get('status')
     const invitations = status ? adminInvitations.filter((item) => item.status === status) : adminInvitations
@@ -482,22 +471,18 @@ export async function mockGet<T>(path: string): Promise<T> {
   if (new URL(path, 'http://mock.local').pathname.endsWith('/admin/applications')) {
     const status = requestUrl.searchParams.get('status')
     const applicationType = requestUrl.searchParams.get('type')
-    const syncStatus = requestUrl.searchParams.get('server_sync_status')
     const query = requestUrl.searchParams.get('query')?.trim().toLowerCase() ?? ''
     const pageNumber = Math.max(1, Number(requestUrl.searchParams.get('page') ?? 1))
     const pageSize = Math.min(100, Math.max(1, Number(requestUrl.searchParams.get('page_size') ?? 20)))
     const filtered = applications.filter((item) => {
       if (status && item.status !== status) return false
       if (applicationType && item.type !== applicationType) return false
-      if (syncStatus === 'none' && item.server_sync) return false
-      if (syncStatus && syncStatus !== 'none' && item.server_sync?.status !== syncStatus) return false
       if (query && ![item.applicant, item.game_id, item.email, item.qq_number].some((value) => value?.toLowerCase().includes(query))) return false
       return true
     })
     const start = (pageNumber - 1) * pageSize
     return { items: filtered.slice(start, start + pageSize), page: pageNumber, page_size: pageSize, total: filtered.length } as T
   }
-  if (path.endsWith('/admin/server/status')) return adminServer as T
   if (path.endsWith('/admin/notifications/email/status')) {
     return { driver: integrationSettings.email.driver, enabled: integrationSettings.email.enabled, configured: integrationSettings.email.configured, from_address: integrationSettings.email.from_address, from_name: integrationSettings.email.from_name, security: integrationSettings.email.security } as EmailAdapterStatus as T
   }
@@ -539,7 +524,6 @@ export async function mockGet<T>(path: string): Promise<T> {
   if (requestUrl.pathname.endsWith('/resources')) return page(resources) as T
   if (requestUrl.pathname.endsWith('/knowledge/articles')) return page(knowledge) as T
   if (requestUrl.pathname.endsWith('/knowledge/directories')) return page(knowledgeDirectories) as T
-  if (requestUrl.pathname.endsWith('/server-status')) return serverStatus as T
   throw new Error(`Mock endpoint not implemented: ${path}`)
 }
 
@@ -556,8 +540,18 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     const payload = body as { email: string; display_name: string; invitation_token?: string }
     const invitation = payload.invitation_token ? adminInvitations.find((item) => item.invite_url.endsWith(payload.invitation_token ?? '')) : undefined
     if (payload.invitation_token && !invitation) throw new Error('邀请链接不存在或已失效。')
+    const email = payload.email.trim().toLowerCase()
+    if (invitation && invitation.email.toLowerCase() !== email) throw new Error('注册邮箱与邀请邮箱不一致。')
+    let member = adminUsers.find((item) => item.email.toLowerCase() === email)
+    if (member && (!invitation || member.state !== 'invited')) throw new Error('该邮箱已经注册。')
+    if (!member) {
+      member = { id: `user_${Date.now()}`, email, name: payload.display_name, role: invitation?.role ?? 'member', state: 'active', joined_at: new Date().toISOString() }
+      adminUsers.unshift(member)
+    } else {
+      Object.assign(member, { name: payload.display_name, role: invitation?.role ?? member.role, state: 'active' })
+    }
     if (invitation) invitation.status = 'accepted'
-    const user: AuthUser = { id: `user_${Date.now()}`, email: payload.email, display_name: payload.display_name, organization_id: 'org_qutcraft', roles: [invitation?.role ?? 'member'] }
+    const user: AuthUser = { id: member.id, email, display_name: payload.display_name, organization_id: invitation?.organization_id ?? 'org_qutcraft', roles: [member.role] }
     saveMockUser(user)
     return authPair(user) as T
   }
@@ -844,13 +838,13 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     for (const [index, item] of payload.invitations.entries()) {
       const email = item.email.trim().toLowerCase()
       const existingInvitation = adminInvitations.some((invitation) => invitation.email.toLowerCase() === email && invitation.status === 'pending')
-      const existingMember = adminUsers.some((user) => user.email.toLowerCase() === email && user.state === 'active')
+      const existingMember = adminUsers.find((user) => user.email.toLowerCase() === email)
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !['member', 'editor', 'administrator'].includes(item.role)) {
         results.push({ index, email, succeeded: false, error: { code: 'invitation.validation_failed', message: '邮箱、角色或邀请有效期不符合要求。' } })
         continue
       }
-      if (existingInvitation || existingMember) {
-        results.push({ index, email, succeeded: false, error: { code: existingMember ? 'membership.already_active' : 'invitation.already_pending', message: existingMember ? '该邮箱已经是当前组织的有效成员。' : '该邮箱已有尚未处理的邀请。' } })
+      if (existingInvitation || (existingMember && existingMember.state !== 'invited')) {
+        results.push({ index, email, succeeded: false, error: { code: existingMember ? 'membership.already_active' : 'invitation.already_pending', message: existingMember ? '该邮箱已经存在成员记录。' : '该邮箱已有尚未处理的邀请。' } })
         continue
       }
       const token = `mock-invite-${Date.now()}-${index}`
@@ -863,6 +857,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
         delivery: { status: 'disabled', adapter: 'disabled', attempts: 0 },
       }
       adminInvitations = [invitation, ...adminInvitations]
+      precreateInvitedMockUser(email, item.role)
       results.push({ index, email, succeeded: true, invitation: structuredClone(invitation) })
     }
     const succeeded = results.filter((item) => item.succeeded).length
@@ -870,12 +865,16 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
   }
   if (path.endsWith('/admin/invitations')) {
     const payload = body as { email: string; role: AdminInvitation['role']; expires_in_hours?: number }
+    const email = payload.email.trim().toLowerCase()
+    if (adminInvitations.some((item) => item.email.toLowerCase() === email && item.status === 'pending')) throw new Error('该邮箱已有尚未处理的邀请。')
+    const existingMember = adminUsers.find((item) => item.email.toLowerCase() === email)
+    if (existingMember && existingMember.state !== 'invited') throw new Error('该邮箱已经存在成员记录。')
     const token = `mock-invite-${Date.now()}`
     const invitation: AdminInvitation = {
       id: `invitation_${Date.now()}`,
       organization_id: 'org_qutcraft',
       organization_name: organization.name,
-      email: payload.email,
+      email,
       role: payload.role,
       status: 'pending',
       expires_at: new Date(Date.now() + (payload.expires_in_hours ?? 168) * 3600 * 1000).toISOString(),
@@ -884,6 +883,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
       delivery: { status: 'disabled', adapter: 'disabled', attempts: 0 },
     }
     adminInvitations = [invitation, ...adminInvitations]
+    precreateInvitedMockUser(email, payload.role)
     return invitation as T
   }
   const invitationRetryMatch = path.match(/\/admin\/invitations\/([^/]+)\/email\/retry$/)
@@ -905,8 +905,11 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     requireMockAdmin()
     const invitation = adminInvitations.find((item) => item.invite_url.endsWith(invitationAcceptMatch[1]))
     if (!invitation || invitation.status !== 'pending') throw new Error('邀请链接不存在或已失效。')
+    if (mockUser?.email.toLowerCase() !== invitation.email.toLowerCase()) throw new Error('当前登录邮箱与邀请邮箱不一致。')
     invitation.status = 'accepted'
-    return { ...invitation, membership_id: `membership_${Date.now()}` } as T
+    const member = precreateInvitedMockUser(invitation.email, invitation.role)
+    member.state = 'active'
+    return { ...invitation, membership_id: member.id } as T
   }
   if (path.endsWith('/admin/assets')) {
     const assetID = `asset_${Date.now()}`
@@ -1021,22 +1024,6 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     application.decision_reason = reason
     application.decided_at = new Date().toISOString()
     return application as T
-  }
-  const retrySync = path.match(/\/admin\/applications\/([^/]+)\/server-sync\/retry$/)
-  if (retrySync) {
-    const application = applications.find((item) => item.id === retrySync[1])
-    if (!application?.server_sync || application.server_sync.status !== 'failed') throw new Error('当前服务器同步状态不能重试。')
-    application.server_sync.status = 'succeeded'
-    application.server_sync.attempts += 1
-    application.server_sync.last_error = ''
-    application.server_sync.message = 'Mock 适配器已模拟白名单同步。'
-    application.server_sync.completed_at = new Date().toISOString()
-    return application.server_sync as T
-  }
-  if (path.endsWith('/admin/server/commands')) {
-    const command = (body as { command: string }).command
-    adminServer.last_command_at = new Date().toISOString()
-    return { accepted: true, executed: false, mode: 'mock', message: `命令“${command}”已被模拟环境记录，未连接真实 RCON。`, executed_at: adminServer.last_command_at } as T
   }
   throw new Error(`Mock endpoint not implemented: ${path}`)
 }
@@ -1220,6 +1207,8 @@ export async function mockDelete<T>(path: string): Promise<T> {
     const invitation = adminInvitations.find((item) => item.id === invitationMatch[1])
     if (!invitation || invitation.status !== 'pending') throw new Error('只有待处理邀请可以撤销。')
     invitation.status = 'revoked'
+    const memberIndex = adminUsers.findIndex((item) => item.email.toLowerCase() === invitation.email.toLowerCase() && item.state === 'invited')
+    if (memberIndex >= 0) adminUsers.splice(memberIndex, 1)
     const { invite_url: _inviteUrl, delivery: _delivery, ...result } = invitation
     return structuredClone(result) as T
   }

@@ -402,7 +402,6 @@ func (s *IntegrationService) view(configuration model.IntegrationConfiguration, 
 			{Key: "database", Label: "MySQL 数据库", State: "deployment", Description: "启动根基，由部署维护；网页仅使用当前连接。"},
 			{Key: "cache", Label: "Redis 缓存", State: "deployment", Description: "启动根基，由部署维护；可通过健康检查确认状态。"},
 			{Key: "security", Label: "JWT、CORS 与限流", State: "deployment", Description: "安全边界，由部署维护，修改后需要重启 API。"},
-			{Key: "server", Label: "服务器命令适配器", State: "deferred", Description: "RCON 已按项目计划延期，当前保持安全 Mock。"},
 		},
 	}, nil
 }

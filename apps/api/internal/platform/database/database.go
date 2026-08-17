@@ -86,7 +86,6 @@ type demoFixtureIDs struct {
 	applicationPending      string
 	applicationApproved     string
 	applicationRejected     string
-	applicationSyncApproved string
 }
 
 var primaryDemoFixtureIDs = demoFixtureIDs{
@@ -96,7 +95,6 @@ var primaryDemoFixtureIDs = demoFixtureIDs{
 	milestoneAPI: "milestone_demo_api", milestoneRelease: "milestone_demo_release",
 	directoryCollaboration: "knowledge_directory_collaboration", directoryTechnology: "knowledge_directory_technology", directoryCommunity: "knowledge_directory_community",
 	applicationPending: "application_demo", applicationApproved: "application_demo_approved", applicationRejected: "application_demo_rejected",
-	applicationSyncApproved: "application_sync_demo_approved",
 }
 
 func secondaryDemoFixtureIDs(profile string) demoFixtureIDs {
@@ -111,7 +109,6 @@ func secondaryDemoFixtureIDs(profile string) demoFixtureIDs {
 		milestoneAPI: "milestone_api_" + suffix, milestoneRelease: "milestone_release_" + suffix,
 		directoryCollaboration: "knowledge_dir_collab_" + suffix, directoryTechnology: "knowledge_dir_tech_" + suffix, directoryCommunity: "knowledge_dir_community_" + suffix,
 		applicationPending: "application_pending_" + suffix, applicationApproved: "application_approved_" + suffix, applicationRejected: "application_rejected_" + suffix,
-		applicationSyncApproved: "application_sync_approved_" + suffix,
 	}
 }
 
@@ -255,8 +252,8 @@ func seedRBAC(db *gorm.DB) error {
 		"asset:read": "查看媒体资源", "asset:upload": "上传媒体资源", "asset:manage": "管理媒体资源", "membership:read": "查看成员目录", "membership:manage": "管理成员与角色",
 		"project:read": "查看项目工作区", "project:manage": "管理项目、成员与里程碑",
 		"knowledge:read": "查看知识库目录", "knowledge:manage": "管理知识库目录",
-		"application:read": "查看申请", "application:approve": "处理申请", "server:read_status": "查看服务器后台状态",
-		"server:command": "执行受限服务器命令", "organization:configure": "配置组织与门户", "audit:read": "查看审计记录",
+		"application:read": "查看申请", "application:approve": "处理申请",
+		"organization:configure": "配置组织与门户", "audit:read": "查看审计记录",
 		"ai:use": "使用组织运营智能体",
 	}
 	permissionIDs := map[string]string{}
@@ -271,8 +268,8 @@ func seedRBAC(db *gorm.DB) error {
 	rolePermissions := map[string][]string{
 		"member":        {"organization:read"},
 		"editor":        {"organization:read", "content:read", "content:create", "content:update", "content:submit", "asset:read", "asset:upload", "project:read", "knowledge:read", "ai:use"},
-		"administrator": {"organization:read", "content:read", "content:create", "content:update", "content:submit", "content:publish", "content:archive", "asset:read", "asset:upload", "asset:manage", "membership:read", "membership:manage", "project:read", "project:manage", "knowledge:read", "knowledge:manage", "application:read", "application:approve", "server:read_status", "audit:read", "ai:use"},
-		"owner":         {"organization:read", "content:read", "content:create", "content:update", "content:submit", "content:publish", "content:archive", "asset:read", "asset:upload", "asset:manage", "membership:read", "membership:manage", "project:read", "project:manage", "knowledge:read", "knowledge:manage", "application:read", "application:approve", "server:read_status", "server:command", "organization:configure", "audit:read", "ai:use"},
+		"administrator": {"organization:read", "content:read", "content:create", "content:update", "content:submit", "content:publish", "content:archive", "asset:read", "asset:upload", "asset:manage", "membership:read", "membership:manage", "project:read", "project:manage", "knowledge:read", "knowledge:manage", "application:read", "application:approve", "audit:read", "ai:use"},
+		"owner":         {"organization:read", "content:read", "content:create", "content:update", "content:submit", "content:publish", "content:archive", "asset:read", "asset:upload", "asset:manage", "membership:read", "membership:manage", "project:read", "project:manage", "knowledge:read", "knowledge:manage", "application:read", "application:approve", "organization:configure", "audit:read", "ai:use"},
 	}
 	for key, keys := range rolePermissions {
 		role, err := findOrCreateRole(db, key, strings.ToUpper(key[:1])+key[1:])
@@ -575,33 +572,6 @@ func seedApplications(db *gorm.DB, cfg config.Config, organization model.Organiz
 		}
 	}
 
-	if normalizeDemoProfile(profile) == "generic" {
-		return nil
-	}
-
-	completedAt := decidedAt.Add(2 * time.Second)
-	syncRecord := model.ApplicationServerSync{
-		ID:             ids.applicationSyncApproved,
-		OrganizationID: organization.ID,
-		ApplicationID:  ids.applicationApproved,
-		Operation:      "whitelist.add",
-		Adapter:        "minecraft-mock",
-		Mode:           "mock",
-		Status:         "succeeded",
-		Attempts:       1,
-		Message:        "演示 Mock 已记录白名单同步，未连接真实 RCON。",
-		RequestedAt:    decidedAt,
-		CompletedAt:    &completedAt,
-	}
-	var existingSync model.ApplicationServerSync
-	err := db.Where("id = ?", syncRecord.ID).First(&existingSync).Error
-	if err == gorm.ErrRecordNotFound {
-		if err := db.Create(&syncRecord).Error; err != nil {
-			return fmt.Errorf("seed application sync: %w", err)
-		}
-	} else if err != nil {
-		return fmt.Errorf("find seed application sync: %w", err)
-	}
 	return nil
 }
 

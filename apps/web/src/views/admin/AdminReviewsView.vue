@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AsyncState from '@/components/AsyncState.vue'
 import { adminApi } from '@/api/admin'
-import type { AdminApplication, AdminApplicationFilters, ApplicationServerSync } from '@/api/types'
+import type { AdminApplication, AdminApplicationFilters } from '@/api/types'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDate } from '@/utils/format'
 
@@ -12,19 +12,20 @@ const filters = reactive<Required<Pick<AdminApplicationFilters, 'page' | 'page_s
   page_size: 10,
   status: '',
   type: '',
-  server_sync_status: '',
   query: '',
 })
 
 const { data, error, loading, refresh } = useAsyncData(async () => {
-  const [applications, server, organization] = await Promise.all([adminApi.getApplications(filters), adminApi.getServerStatus(), adminApi.getOrganization()])
-  return { applications, server, organization }
+  const [applications, organization] = await Promise.all([
+    adminApi.getApplications(filters),
+    adminApi.getOrganization(),
+  ])
+  return { applications, organization }
 })
-const command = reactive({ value: 'list' })
-const running = ref(false)
-const retryingId = ref('')
+
 const applications = computed(() => data.value?.applications.items ?? [])
-const isQutcraftOrganization = computed(() => data.value?.organization.slug === 'qutcraft')
+const pendingCount = computed(() => applications.value.filter((item) => item.status === 'pending').length)
+const decidedCount = computed(() => applications.value.length - pendingCount.value)
 
 function applyFilters() {
   filters.page = 1
@@ -32,7 +33,7 @@ function applyFilters() {
 }
 
 function resetFilters() {
-  Object.assign(filters, { page: 1, page_size: 10, status: '', type: '', server_sync_status: '', query: '' })
+  Object.assign(filters, { page: 1, page_size: 10, status: '', type: '', query: '' })
   refresh()
 }
 
@@ -43,19 +44,6 @@ function changePage(page: number) {
 
 function applicationStatusLabel(status: AdminApplication['status']) {
   return status === 'pending' ? '待处理' : status === 'approved' ? '已通过' : '已拒绝'
-}
-
-function syncStatusLabel(status: ApplicationServerSync['status']) {
-  return status === 'succeeded' ? '同步完成' : status === 'failed' ? '同步失败' : '同步中'
-}
-
-function syncTagType(status: ApplicationServerSync['status']): 'success' | 'danger' | 'warning' {
-  return status === 'succeeded' ? 'success' : status === 'failed' ? 'danger' : 'warning'
-}
-
-function adapterModeLabel(mode: ApplicationServerSync['mode']) {
-  if (mode === 'disabled') return '未接入'
-  return mode === 'mock' ? '开发模拟' : 'RCON'
 }
 
 async function requestDecision(id: string, decision: 'approve' | 'reject') {
@@ -82,40 +70,12 @@ async function requestDecision(id: string, decision: 'approve' | 'reject') {
     return
   }
 
-  const result = await (decision === 'approve' ? adminApi.approveApplication(id, reason) : adminApi.rejectApplication(id, reason))
-  if (result.server_sync) {
-    const label = result.server_sync.status === 'succeeded' ? '同步已完成' : result.server_sync.status === 'failed' ? '同步失败，可稍后重试' : '等待同步'
-    ElMessage.success(`申请已通过；${label}（${adapterModeLabel(result.server_sync.mode)}）。`)
-  } else {
-    ElMessage.success(decision === 'approve' ? '申请已通过。' : '申请已拒绝。')
-  }
-  refresh()
-}
-
-async function retryServerSync(id: string) {
-  retryingId.value = id
   try {
-    const result = await adminApi.retryApplicationServerSync(id)
-    if (result.status === 'succeeded') {
-      ElMessage.success(`服务器同步已完成（第 ${result.attempts} 次尝试）。`)
-    } else {
-      ElMessage.warning('服务器同步仍然失败，请检查适配器状态后重试。')
-    }
+    await (decision === 'approve' ? adminApi.approveApplication(id, reason) : adminApi.rejectApplication(id, reason))
+    ElMessage.success(decision === 'approve' ? '申请已通过并写入审计记录。' : '申请已拒绝并写入审计记录。')
     refresh()
-  } finally {
-    retryingId.value = ''
-  }
-}
-
-async function runCommand() {
-  if (!command.value.trim()) return
-  running.value = true
-  try {
-    const result = await adminApi.runServerCommand(command.value)
-    ElMessage.success(result.message)
-    refresh()
-  } finally {
-    running.value = false
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '申请暂时无法处理。')
   }
 }
 </script>
@@ -125,27 +85,20 @@ async function runCommand() {
     <template v-if="data">
       <section class="admin-page-heading">
         <div>
-          <h2>{{ isQutcraftOrganization ? '审核与服务器' : '申请审核' }}</h2>
-          <p>{{ isQutcraftOrganization ? '筛选并审批加入申请，查看与受限服务器适配器分离保存的同步结果。' : '筛选并处理当前组织的成员申请，审核事实与组织操作均会保留审计记录。' }}</p>
+          <h2>申请审核</h2>
+          <p>筛选并处理当前组织的加入申请。审核只更新平台内申请状态，并完整保留操作人与审核备注。</p>
         </div>
       </section>
 
       <section class="admin-two-column review-workspace">
         <article class="admin-panel">
           <div class="panel-heading">
-            <div>
-              <h2>{{ isQutcraftOrganization ? '白名单与成员申请' : '成员申请' }}</h2>
-            </div>
+            <div><h2>加入申请</h2></div>
             <el-tag>{{ data.applications.total }} 条结果</el-tag>
           </div>
 
           <div class="application-filters" aria-label="申请筛选">
-            <el-input
-              v-model="filters.query"
-              clearable
-              :placeholder="isQutcraftOrganization ? '搜索姓名、游戏 ID、邮箱或 QQ' : '搜索姓名、班级或邮箱'"
-              @keyup.enter="applyFilters"
-            />
+            <el-input v-model="filters.query" clearable placeholder="搜索姓名、游戏 ID、邮箱或 QQ" @keyup.enter="applyFilters" />
             <el-select v-model="filters.status" aria-label="审批状态" placeholder="全部审批状态">
               <el-option label="全部审批状态" value="" />
               <el-option label="待处理" value="pending" />
@@ -154,15 +107,8 @@ async function runCommand() {
             </el-select>
             <el-select v-model="filters.type" aria-label="申请类型" placeholder="全部申请类型">
               <el-option label="全部申请类型" value="" />
-              <el-option v-if="isQutcraftOrganization" label="服务器白名单" value="whitelist" />
-              <el-option label="成员申请" value="membership" />
-            </el-select>
-            <el-select v-if="isQutcraftOrganization" v-model="filters.server_sync_status" aria-label="服务器同步状态" placeholder="全部同步状态">
-              <el-option label="全部同步状态" value="" />
-              <el-option label="无同步任务" value="none" />
-              <el-option label="同步中" value="pending" />
-              <el-option label="同步完成" value="succeeded" />
-              <el-option label="同步失败" value="failed" />
+              <el-option label="服务器加入申请" value="whitelist" />
+              <el-option label="组织成员申请" value="membership" />
             </el-select>
             <div class="application-filter-actions">
               <el-button type="primary" @click="applyFilters">筛选</el-button>
@@ -179,7 +125,7 @@ async function runCommand() {
                     {{ applicationStatusLabel(item.status) }}
                   </el-tag>
                 </div>
-                <small>{{ item.type === 'whitelist' ? '服务器白名单' : '成员申请' }} · 提交于 {{ formatDate(item.submitted_at) }}</small>
+                <small>{{ item.type === 'whitelist' ? '服务器加入申请' : '组织成员申请' }} · 提交于 {{ formatDate(item.submitted_at) }}</small>
                 <div class="application-identifiers">
                   <span v-if="item.game_id">游戏 ID：{{ item.game_id }}</span>
                   <span v-if="item.class_name">班级：{{ item.class_name }}</span>
@@ -191,31 +137,10 @@ async function runCommand() {
                   <strong>审核备注</strong>
                   <span>{{ item.decision_reason }}</span>
                 </div>
-                <div v-if="item.server_sync" class="application-sync" :class="`is-${item.server_sync.status}`">
-                  <div>
-                    <el-tag size="small" :type="syncTagType(item.server_sync.status)">
-                      {{ syncStatusLabel(item.server_sync.status) }}
-                    </el-tag>
-                    <span>{{ adapterModeLabel(item.server_sync.mode) }}</span>
-                    <span>尝试 {{ item.server_sync.attempts }} 次</span>
-                    <span>请求于 {{ formatDate(item.server_sync.requested_at) }}</span>
-                  </div>
-                  <p v-if="item.server_sync.last_error">{{ item.server_sync.last_error }}</p>
-                  <p v-else-if="item.server_sync.message">{{ item.server_sync.message }}</p>
-                </div>
               </div>
               <div v-if="item.status === 'pending'" class="app-item-actions">
                 <el-button @click="requestDecision(item.id, 'reject')">拒绝</el-button>
                 <el-button type="primary" @click="requestDecision(item.id, 'approve')">通过</el-button>
-              </div>
-              <div v-else class="app-item-actions">
-                <el-button
-                  v-if="item.server_sync?.status === 'failed' && item.server_sync.mode !== 'disabled'"
-                  :loading="retryingId === item.id"
-                  @click="retryServerSync(item.id)"
-                >
-                  重试同步
-                </el-button>
               </div>
             </article>
 
@@ -234,72 +159,17 @@ async function runCommand() {
           />
         </article>
 
-        <article v-if="isQutcraftOrganization" class="admin-panel command-panel">
+        <article class="admin-panel review-summary-panel">
           <div class="panel-heading">
-            <div>
-              <h2>{{ data.server.label }}</h2>
-            </div>
-            <span class="server-state" :class="data.server.state">
-              <i />{{ data.server.mode === 'disabled' ? '尚未接入' : data.server.mode === 'mock' ? '开发模拟' : data.server.state === 'online' ? '已连接' : '未连接' }}
-            </span>
+            <div><h2>审核边界</h2></div>
+            <span class="review-state online"><i /> 人工审批</span>
           </div>
-
-          <dl class="server-facts">
-            <div>
-              <dt>适配器</dt>
-              <dd>{{ data.server.adapter }} · {{ data.server.mode === 'disabled' ? '等待接入真实服务器' : data.server.mode === 'mock' ? '仅限开发模拟' : '真实 RCON' }}</dd>
-            </div>
-            <div>
-              <dt>在线玩家</dt>
-              <dd>{{ data.server.enabled ? `${data.server.online_players} / ${data.server.max_players}` : '不可用' }}</dd>
-            </div>
-            <div>
-              <dt>上次命令执行</dt>
-              <dd>{{ data.server.last_command_at ? formatDate(data.server.last_command_at) : '暂无' }}</dd>
-            </div>
+          <dl class="review-facts">
+            <div><dt>当前组织</dt><dd>{{ data.organization.name }}</dd></div>
+            <div><dt>当前页待处理</dt><dd>{{ pendingCount }} 条</dd></div>
+            <div><dt>当前页已处理</dt><dd>{{ decidedCount }} 条</dd></div>
           </dl>
-
-          <div class="command-input-row">
-            <el-input
-              v-model="command.value"
-              class="command-input"
-              aria-label="管理命令"
-              placeholder="输入控制台命令，例如：list"
-            />
-            <el-button
-              type="primary"
-              :loading="running"
-              :disabled="!data.server.enabled"
-              @click="runCommand"
-            >
-              {{ data.server.mode === 'disabled' ? '尚未接入' : data.server.mode === 'mock' ? '模拟命令' : '执行命令' }}
-            </el-button>
-          </div>
-        </article>
-        <article v-else class="admin-panel command-panel">
-          <div class="panel-heading">
-            <div>
-              <h2>审核边界</h2>
-            </div>
-            <span class="server-state online"><i /> 组织内审批</span>
-          </div>
-
-          <dl class="server-facts">
-            <div>
-              <dt>当前组织</dt>
-              <dd>{{ data.organization.name }}</dd>
-            </div>
-            <div>
-              <dt>申请范围</dt>
-              <dd>成员加入与活动协作</dd>
-            </div>
-            <div>
-              <dt>外部执行</dt>
-              <dd>未配置，不会触发服务器命令</dd>
-            </div>
-          </dl>
-
-          <p>通用组织的成员申请只更新平台内审批状态；Minecraft ServerAdapter 是 QUTCraft 场景的可选扩展。</p>
+          <p>通过或拒绝只改变 CMS 内的申请状态并写入通知队列；通知投递失败不会回滚审核决定。</p>
         </article>
       </section>
     </template>

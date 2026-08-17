@@ -130,6 +130,7 @@ async function createBatchInvitations() {
     })
     if (batchResult.value.failed === 0) ElMessage.success(`已创建 ${batchResult.value.succeeded} 条邀请。`)
     else ElMessage.warning(`批量处理完成：${batchResult.value.succeeded} 条成功，${batchResult.value.failed} 条失败。`)
+    await refresh()
     await refreshInvitations()
   } catch (cause) {
     ElMessage.error(cause instanceof Error ? cause.message : '批量邀请失败。')
@@ -169,6 +170,7 @@ async function revokeInvitation(invitation: Pick<AdminInvitationSummary, 'id' | 
     if (inviteResult.value?.id === invitation.id) inviteResult.value.status = 'revoked'
     ElMessage.success('邀请已撤销，原链接现已失效。')
     await refreshInvitations()
+    await refresh()
   } catch (cause) {
     ElMessage.error(cause instanceof Error ? cause.message : '邀请撤销失败。')
   } finally {
@@ -224,7 +226,7 @@ async function saveUser() {
         </div>
       </section>
 
-      <section class="admin-panel">
+      <section class="admin-panel member-panel">
         <el-table :data="data.items" class="admin-table">
           <el-table-column label="成员" min-width="220">
             <template #default="scope">
@@ -258,7 +260,8 @@ async function saveUser() {
 
           <el-table-column width="110" align="right">
             <template #default="scope">
-              <el-button text type="primary" size="small" @click="openEditor(scope.row)">编辑</el-button>
+              <el-button v-if="scope.row.state !== 'invited'" text type="primary" size="small" @click="openEditor(scope.row)">编辑</el-button>
+              <span v-else class="form-help">等待接受</span>
             </template>
           </el-table-column>
         </el-table>

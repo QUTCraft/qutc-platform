@@ -55,7 +55,7 @@ apps/web/public/portals/campus-club/
 
 - 携带或保存 Admin JWT、Refresh Token。
 - 调用 `/api/v1/admin/*`、成员、审批、审计或命令接口。
-- 拼接数据库、Redis、MinIO、RCON 或 SMTP 地址。
+- 拼接数据库、Redis、MinIO 或 SMTP 地址。
 - 假设草稿、成员邮箱、内部项目成员等字段存在。
 
 页面至少处理加载、空数据、`404`、网络失败和字段为 `null`。下载地址必须直接使用 Portal API 返回值。

@@ -2723,12 +2723,12 @@ h1, h2, h3, h4, h5, h6, p {
   gap: 8px;
 }
 
-.server-panel {
+.activity-panel {
   display: flex;
   flex-direction: column;
 }
 
-.server-panel-top {
+.activity-panel-top {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -2736,7 +2736,7 @@ h1, h2, h3, h4, h5, h6, p {
   margin-bottom: 16px;
 }
 
-.server-panel-top h2 {
+.activity-panel-top h2 {
   min-width: 0;
   margin: 0;
   overflow: hidden;
@@ -2746,7 +2746,7 @@ h1, h2, h3, h4, h5, h6, p {
   white-space: nowrap;
 }
 
-.server-state {
+.review-state {
   display: inline-flex;
   align-items: center;
   justify-self: end;
@@ -2757,20 +2757,20 @@ h1, h2, h3, h4, h5, h6, p {
   white-space: nowrap;
 }
 
-.server-state i {
+.review-state i {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: #10b981;
 }
 
-.server-facts {
+.review-facts {
   display: grid;
   gap: 12px;
   margin: 20px 0;
 }
 
-.server-facts div {
+.review-facts div {
   display: flex;
   justify-content: space-between;
   padding-top: 12px;
@@ -2778,11 +2778,11 @@ h1, h2, h3, h4, h5, h6, p {
   font-size: 14px;
 }
 
-.server-facts dt {
+.review-facts dt {
   color: var(--md-sys-color-on-surface-variant);
 }
 
-.server-facts dd {
+.review-facts dd {
   margin: 0;
   font-weight: 800;
 }
@@ -3955,6 +3955,7 @@ body {
   }
 
   .header-login-btn,
+  .header-register-btn,
   .header-join-btn {
     display: none;
   }

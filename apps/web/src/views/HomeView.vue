@@ -12,22 +12,17 @@ import { formatDate } from '@/utils/format'
 const { navigateToApply } = useApplyTransition()
 
 const { data, error, loading, refresh } = useAsyncData(async () => {
-  const [organization, posts, projects, resources, knowledge, serverStatus] = await Promise.all([
+  const [organization, posts, projects, resources, knowledge] = await Promise.all([
     portalApi.getOrganization(),
     portalApi.getPosts(),
     portalApi.getProjects(),
     portalApi.getResources(),
     portalApi.getKnowledgeArticles(),
-    portalApi.getServerStatus(),
   ])
-  return { organization, posts: posts.items, projects: projects.items, resources: resources.items, knowledge: knowledge.items, serverStatus }
+  return { organization, posts: posts.items, projects: projects.items, resources: resources.items, knowledge: knowledge.items }
 })
 
 const heroNews = computed(() => data.value?.posts[0])
-const statusLabel = computed(() => {
-  if (data.value && !data.value.serverStatus.enabled) return '尚未接入'
-  return ({ online: '运行正常', maintenance: '维护中', offline: '离线' }[data.value?.serverStatus.state ?? 'offline'])
-})
 const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcraft')
 </script>
 
@@ -63,7 +58,7 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
 
           <div class="hero-actions">
             <el-button
-              v-if="isQutcraftPortal && data.serverStatus.apply_url"
+              v-if="isQutcraftPortal"
               type="primary"
               size="large"
               round
@@ -119,42 +114,38 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
           </div>
         </div>
 
-        <!-- Live Server Status Glassmorphism Card -->
-        <aside v-if="isQutcraftPortal" class="hero-status" aria-label="公开服务状态">
+        <aside v-if="isQutcraftPortal" class="hero-status" aria-label="社团公开概览">
           <div class="status-header">
-            <div class="status-kicker">LIVE SERVER NETWORK</div>
-            <span class="status-pill" :class="data.serverStatus.state">
-              <span class="status-dot" :class="data.serverStatus.state" /> {{ statusLabel }}
+            <div class="status-kicker">QUTCRAFT COMMUNITY</div>
+            <span class="status-pill online">
+              <span class="status-dot online" /> 招新通道开放
             </span>
           </div>
 
-          <h2>{{ data.serverStatus.label || 'QUTCraft 平台' }}</h2>
+          <h2>加入 QUTCraft 社团</h2>
 
-          <dl v-if="data.serverStatus.enabled" class="status-dl">
+          <dl class="status-dl">
             <div>
-              <dt>游戏版本</dt>
-              <dd>{{ data.serverStatus.version }}</dd>
+              <dt>社团动态</dt>
+              <dd>{{ data.posts.length }} 条公开内容</dd>
             </div>
             <div>
-              <dt>在线玩家</dt>
-              <dd>
-                <strong>{{ data.serverStatus.online_players }}</strong> / {{ data.serverStatus.max_players }}
-              </dd>
+              <dt>协作项目</dt>
+              <dd>{{ data.projects.length }} 个公开项目</dd>
             </div>
             <div>
-              <dt>状态实时同步</dt>
-              <dd>{{ formatDate(data.serverStatus.updated_at) }}</dd>
+              <dt>知识资料</dt>
+              <dd>{{ data.knowledge.length }} 篇公开条目</dd>
             </div>
           </dl>
 
           <el-button
-            v-if="data.serverStatus.apply_url"
             class="status-button"
             type="primary"
             round
             @click="(event: MouseEvent) => navigateToApply(event)"
           >
-            立即提交白名单申请 →
+            提交加入申请 →
           </el-button>
         </aside>
         <aside v-else class="hero-status" aria-label="组织公开概览">
@@ -202,7 +193,7 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
             <el-icon><Reading /></el-icon>
           </div>
           <h3>开源与技术研发</h3>
-          <p>自研 Minecraft 自动化白名单系统、跨服即时同步与高性能服务端优化组件。</p>
+          <p>围绕社团官网、内容管理与开放协作工具开展工程实践，并持续维护公共技术项目。</p>
         </div>
 
         <div class="pillar-card">

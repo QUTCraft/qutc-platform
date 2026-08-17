@@ -92,6 +92,27 @@ test('public portal routes remain navigable', async ({ page }) => {
   await expect(page.locator('body')).not.toContainText(/正在打开(?:管理)?页面/)
 })
 
+test('public registration entry creates a member account', async ({ page }) => {
+  await page.goto('/')
+  const desktopRegistration = page.getByRole('button', { name: '注册成员账户' })
+  if (await desktopRegistration.isVisible()) {
+    await desktopRegistration.click()
+  } else {
+    await page.getByRole('button', { name: '打开导航' }).click()
+    await page.locator('.mobile-nav').getByRole('link', { name: '注册成员账户', exact: true }).click()
+  }
+
+  await expect(page).toHaveURL(/\/register$/)
+  await expect(page.getByRole('heading', { name: '创建成员账户' })).toBeVisible()
+  const email = `registered-${Date.now()}@example.com`
+  await page.getByLabel('邮箱').fill(email)
+  await page.getByLabel('显示名').fill('新成员')
+  await page.getByLabel('密码', { exact: true }).fill('member-pass-2026')
+  await page.getByLabel('确认密码').fill('member-pass-2026')
+  await page.getByRole('button', { name: '注册并继续' }).click()
+  await expect(page).toHaveURL(/\/$/)
+})
+
 test('owner can open dashboard and organization settings', async ({ page }) => {
   await page.goto('/login')
   await page.getByRole('button', { name: /登录工作台/ }).click()
@@ -108,11 +129,11 @@ test('owner can open dashboard and organization settings', async ({ page }) => {
   }
 
   if ((page.viewportSize()?.width ?? 0) > 1100) {
-    const serverHeader = page.locator('.server-panel-top')
-    await expect(serverHeader).toBeVisible()
-    const alignment = await serverHeader.evaluate((header) => {
+    const activityHeader = page.locator('.activity-panel-top')
+    await expect(activityHeader).toBeVisible()
+    const alignment = await activityHeader.evaluate((header) => {
       const title = header.querySelector('h2')!.getBoundingClientRect()
-      const state = header.querySelector('.server-state')!.getBoundingClientRect()
+      const state = header.querySelector('.review-state')!.getBoundingClientRect()
       return {
         centerDelta: Math.abs((title.top + title.height / 2) - (state.top + state.height / 2)),
         titleHeight: title.height,
@@ -362,11 +383,15 @@ test('owner can create, revisit, and revoke a pending invitation', async ({ page
   await expect(page.getByText('邀请链接已创建', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '关闭', exact: true }).click()
 
-  const invitationRow = page.getByRole('row').filter({ hasText: email })
+  const memberRow = page.locator('.member-panel').getByRole('row').filter({ hasText: email })
+  await expect(memberRow).toContainText('待加入')
+  await expect(memberRow).toContainText('等待接受')
+  const invitationRow = page.locator('.invitation-panel').getByRole('row').filter({ hasText: email })
   await expect(invitationRow).toBeVisible()
   await invitationRow.getByRole('button', { name: '撤销' }).click()
   await page.getByRole('button', { name: '确认撤销' }).click()
   await expect(invitationRow).toHaveCount(0)
+  await expect(memberRow).toHaveCount(0)
   await expect(page.getByText('当前没有待处理邀请')).toBeVisible()
 })
 

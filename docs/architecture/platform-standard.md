@@ -13,7 +13,7 @@
 业务核心只负责身份、组织、内容、项目、知识库、资源、审批、审计和适配器接口。门户是消费这些能力的呈现层：
 
 - 默认门户使用统一 Material Design 3（MD3）。
-- 自定义门户必须通过 Portal API 与 Manifest 接入，不得直接访问数据库、管理 API、RCON 或服务端密钥。
+- 自定义门户必须通过 Portal API 与 Manifest 接入，不得直接访问数据库、管理 API 或服务端密钥。
 - 没有可用的自定义门户、版本不兼容或加载失败时，系统必须回退到默认 MD3 门户。
 
 ### 1.2 比赛版与社团版的边界
@@ -64,7 +64,7 @@ docs/product              # 产品文档与页面演示
 
 ## 4. 领域模型
 
-核心实体至少包括：`Organization`、`User`、`Role`、`Permission`、`Membership`、`Project`、`Page`、`Post`、`KnowledgeArticle`、`Asset`、`Application`、`AuditEvent`、`Portal`、`ServerAdapter`。
+核心实体至少包括：`Organization`、`User`、`Role`、`Permission`、`Membership`、`Project`、`Page`、`Post`、`KnowledgeArticle`、`Asset`、`Application`、`AuditEvent` 和 `Portal`。
 
 - 所有组织级数据必须带 `organization_id`，查询必须带租户范围。
 - 公共内容使用 `draft`、`review`、`published`、`archived` 状态，不用物理删除代替下线；只有 `published` 且公开范围允许的数据可进入 Portal。
@@ -125,7 +125,7 @@ docs/product              # 产品文档与页面演示
 - `200` 查询/更新成功，`201` 创建成功，`202` 异步任务已接受，`204` 无响应体成功。
 - `400` 参数格式错误，`401` 未认证，`403` 无权限，`404` 不存在或对当前租户不可见，`409` 状态冲突，`422` 业务校验失败，`429` 频率限制，`500` 未知服务错误。
 - 错误码使用稳定的 `domain.reason`，前端不得根据中文 `message` 判断逻辑。
-- `500` 不得向客户端泄露 SQL、栈信息、RCON 响应中的敏感内容。
+- `500` 不得向客户端泄露 SQL、栈信息或外部服务响应中的敏感内容。
 
 ### 5.4 查询、排序与幂等
 
@@ -139,9 +139,9 @@ docs/product              # 产品文档与页面演示
 
 - Access Token 短时有效，Refresh Token 可撤销并轮换；浏览器优先使用 HttpOnly、Secure、SameSite Cookie。
 - JWT 只携带稳定身份信息，不把完整权限列表当作长期事实；关键请求服务端检查当前权限。
-- 权限命名格式：`resource:action`，例如 `content:publish`、`application:approve`、`server:command`。
+- 权限命名格式：`resource:action`，例如 `content:publish`、`application:approve`、`organization:configure`。
 - 角色是权限集合，成员关系是用户加入组织的事实；不要把“管理员”硬编码为布尔字段。
-- 登录、角色变更、内容发布、资源下载授权、审核、RCON 命令和门户配置变更必须写入 `AuditEvent`。
+- 登录、角色变更、内容发布、资源下载授权、审核和门户配置变更必须写入 `AuditEvent`。
 
 ## 7. 前端规范
 
@@ -157,7 +157,7 @@ docs/product              # 产品文档与页面演示
 
 - `layouts/PortalLayout` 只消费公开 Portal API。
 - `layouts/AdminLayout` 允许管理 API，但所有页面路由声明所需权限。
-- 主题只负责呈现，不得在主题中复制认证、审核、上传、RCON 等业务逻辑。
+- 主题只负责呈现，不得在主题中复制认证、审核、上传等业务逻辑。
 - 页面内容优先使用结构化数据；主题通过 slots、组件映射和 Token 改变表现。
 
 ### 7.3 命名与类型
@@ -183,16 +183,16 @@ docs/product              # 产品文档与页面演示
     "mode": "custom",
     "tokens": "/portals/campus-club/theme.json"
   },
-  "capabilities": ["organization.read", "public_content.read", "projects.read", "assets.read", "knowledge.read", "server.status.read"],
+  "capabilities": ["organization.read", "public_content.read", "projects.read", "assets.read", "knowledge.read"],
   "fallback": "md3"
 }
 ```
 
 ### 8.2 能力边界
 
-允许：公开页面、公告、项目、知识库、公开资源、组织信息、服务器公开状态。
+允许：公开页面、公告、项目、知识库、公开资源和组织信息。
 
-禁止：用户密码、Refresh Token、管理端数据、成员隐私、审核写入、文件签名密钥、数据库、Redis、RCON。
+禁止：用户密码、Refresh Token、管理端数据、成员隐私、审核写入、文件签名密钥、数据库和 Redis。
 
 所有能力必须由服务端根据 Manifest 白名单签发；前端自行拼接管理 API 路径视为不兼容实现。
 
@@ -210,12 +210,10 @@ docs/product              # 产品文档与页面演示
 - 认证、公开写入、资产上传和服务器命令必须限流。单实例可使用进程内固定窗口；多实例必须改用 Redis 等共享计数器。
 - Gin 不得默认信任任意代理头。只有部署清单显式声明的反向代理地址才能参与真实客户端 IP 解析。
 - 生产启动必须拒绝占位 JWT 密钥、通配 CORS、短引导密码和启用演示 seed 的配置。
-- 质量门禁必须扫描高置信度密钥格式，并禁止服务端密码、JWT、数据库或 RCON 配置名进入前端源码。
+- 质量门禁必须扫描高置信度密钥格式，并禁止服务端密码、JWT 或数据库配置名进入前端源码。
 - Redis Key 使用 `qutc:{env}:{domain}:{id}`，必须设置 TTL；写操作要使相关缓存失效。
 - 当前公开门户列表缓存使用 `qutc:{env}:portal:{organization_slug}:{resource}:{query}`，默认 TTL 为 30 秒；内容发布、下线、编辑和项目写操作删除该组织门户前缀下的所有缓存。
 - 缓存只保存可由 MySQL 重建的公开组织、内容、资源、知识库和项目列表；Redis 不作为事实数据源，缓存不可用时必须回源数据库。
-- `ServerAdapter` 至少提供 `HealthCheck`、`GetStatus`、`AddWhitelist`、`RemoveWhitelist`、`Execute`，每个动作返回结构化结果和外部请求 ID。
-- RCON 只允许白名单命令或明确的管理员权限；命令超时、重试和失败必须可观测。
 
 ## 10. 测试、发布与变更
 
@@ -230,6 +228,6 @@ docs/product              # 产品文档与页面演示
 
 - [ ] 非 Minecraft 组织可以创建内容、项目、成员和资源并在 MD3 门户展示。
 - [ ] 管理端所有写操作有权限校验和审计记录。
-- [ ] 白名单审批在 Mock Adapter 下可重复演示，在真实 RCON 下不会误报成功。
+- [ ] 成员或服务申请可重复提交、审核并写入审计，重复处理返回冲突。
 - [ ] 自定义门户只能使用声明的公开能力，加载失败会回退 MD3。
 - [ ] 新机器按文档可以启动，关键流程可以连续三次成功。

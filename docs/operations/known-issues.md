@@ -4,7 +4,6 @@
 
 | 项目 | 当前行为 | 风险与处置 | 计划 |
 | --- | --- | --- | --- |
-| Minecraft RCON | `ServerAdapter` 使用明确标识的 Mock；命令仍受白名单、长度和换行校验并写审计 | 不会连接真实服务器，也不会伪报真实执行 | 按产品决定暂缓 |
 | AI 模型 | 支持 `disabled`、确定性 Mock 和 OpenAI-compatible；生产环境拒绝 Mock | 比赛环境必须由运维注入 HTTPS Endpoint、API Key 与模型名，并提前校准 | 比赛部署动作 |
 | AI 任务执行 | `AgentRun` 先落库为 `queued`，由 API 内单机 worker 原子领取；重启保留 queued，已运行任务标记失败并审计 | 单机 worker 不适合多实例竞争、独立队列和高吞吐长任务 | v0.2：分布式领取/独立队列 |
 | 邮件投递 | 邀请邮件仍在邀请请求事务外同步尝试；申请审批结果进入持久化 Outbox，由单机 worker 异步发送，失败退避、禁用降级和 Admin 重试可见 | SMTP 仍可能增加邀请请求耗时；通知 worker 暂为单实例 | v0.2：多实例 worker、Webhook/退信 |

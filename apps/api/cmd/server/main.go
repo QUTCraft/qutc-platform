@@ -19,7 +19,6 @@ import (
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/logging"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/mailadapter"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/modelprovider"
-	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/serveradapter"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/storage"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/superbed"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
@@ -112,11 +111,7 @@ func main() {
 	notificationService.StartWorker(context.Background(), 2*time.Second)
 	notificationHandler := handler.NewNotificationHandler(db, notificationService)
 	invitationHandler := handler.NewInvitationHandlerWithIntegrations(db, authService, integrationService)
-	var serverAdapter serveradapter.Adapter = serveradapter.NewMock()
-	if cfg.AppEnv == "production" {
-		serverAdapter = serveradapter.NewDisabled()
-	}
-	workspaceHandler := handler.NewWorkspaceHandlerWithDependenciesAndNotifications(db, publicCache, cfg.AppEnv, serverAdapter, cfg.ServerAdapterTimeout, mediaStorage, notificationService)
+	workspaceHandler := handler.NewWorkspaceHandlerWithDependenciesAndNotifications(db, publicCache, cfg.AppEnv, mediaStorage, notificationService)
 	workspaceHandler.UseStorageResolver(integrationService)
 	if superbedUploader != nil {
 		workspaceHandler = workspaceHandler.WithSuperbed(superbedUploader)
@@ -214,9 +209,6 @@ func main() {
 	admin.GET("/applications", middleware.RequirePermission(authService, "application:read"), workspaceHandler.AdminApplications)
 	admin.POST("/applications/:id/approve", middleware.RequirePermission(authService, "application:approve"), workspaceHandler.AdminApplicationDecision)
 	admin.POST("/applications/:id/reject", middleware.RequirePermission(authService, "application:approve"), workspaceHandler.AdminApplicationDecision)
-	admin.POST("/applications/:id/server-sync/retry", middleware.RequirePermission(authService, "application:approve"), workspaceHandler.AdminRetryApplicationServerSync)
-	admin.GET("/server/status", middleware.RequirePermission(authService, "server:read_status"), workspaceHandler.AdminServerStatus)
-	admin.POST("/server/commands", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "server:command"), workspaceHandler.AdminServerCommand)
 	admin.GET("/portal/config", middleware.RequirePermission(authService, "organization:configure"), portalConfigHandler.Get)
 	admin.PATCH("/portal/config", middleware.RequirePermission(authService, "organization:configure"), portalConfigHandler.SaveDraft)
 	admin.POST("/portal/config/enable", middleware.RequirePermission(authService, "organization:configure"), portalConfigHandler.Enable)
@@ -246,7 +238,6 @@ func main() {
 	portal.GET("/resources", workspaceHandler.PortalResources)
 	portal.GET("/knowledge/articles", workspaceHandler.PortalKnowledge)
 	portal.GET("/knowledge/directories", workspaceHandler.PortalKnowledgeDirectories)
-	portal.GET("/server-status", workspaceHandler.PortalServer)
 	portal.POST("/apply", publicWriteRateLimiter.Middleware(), workspaceHandler.SubmitApplication)
 	portal.GET("/assets/:id/download", workspaceHandler.DownloadAsset)
 

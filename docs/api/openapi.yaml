@@ -3,7 +3,7 @@ info:
   title: QUTCraft CMS API
   version: 0.1.0
   description: |
-    公开门户与受认证后台共享的 API 契约。门户只读取已发布、可公开的数据；草稿、成员隐私、审核与 RCON 命令仅通过独立的管理前缀暴露。
+    公开门户与受认证后台共享的 API 契约。门户只读取已发布、可公开的数据；草稿、成员隐私与审核能力仅通过独立的管理前缀暴露。
     本文件是 Swagger UI 与 Apifox 的共同导入源；公开接口无认证，管理接口接受 Bearer JWT 或第一方网页的 HttpOnly Access Cookie，并继续执行 RBAC 授权。
   license:
     name: Proprietary
@@ -16,7 +16,7 @@ tags:
   - name: Auth
     description: 注册、登录、令牌刷新与当前会话
   - name: Portal
-    description: 公开门户内容与状态
+    description: 公开门户内容与加入申请
   - name: Admin
     description: 受认证的后台管理能力
   - name: AI
@@ -226,23 +226,6 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/KnowledgeDirectoryListResponse' }
         '404': { $ref: '#/components/responses/NotFound' }
-  /api/v1/portal/organizations/{organization_slug}/server-status:
-    get:
-      tags: [Portal]
-      operationId: getPortalServerStatus
-      summary: 获取服务器公开状态
-      description: 只返回允许公开展示的状态；不会返回 RCON 连接、命令、TPS 原始监控或审核数据。当前服务器适配器仅绑定 QUTCraft 场景，其他组织返回 enabled=false 且不提供申请入口。
-      parameters:
-        - $ref: '#/components/parameters/OrganizationSlug'
-      responses:
-        '200':
-          description: 服务器公开状态；未启用服务器适配器时 enabled 为 false
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerStatusResponse'
-        '404':
-          $ref: '#/components/responses/NotFound'
   /api/v1/portal/organizations/{organization_slug}/apply:
     post:
       tags: [Portal]
@@ -271,6 +254,7 @@ paths:
       tags: [Auth]
       operationId: registerAuthUser
       summary: 注册用户并加入默认组织或接受邀请
+      description: 无邀请时创建默认组织成员账户；携带邀请时激活管理员已预创建的待加入账户与成员关系，不会新建重复用户。
       requestBody:
         required: true
         content:
@@ -925,7 +909,7 @@ paths:
       tags: [Admin]
       operationId: createAdminInvitation
       summary: 创建成员邀请
-      description: 同一组织同一邮箱只能有一个待处理邀请；邀请只允许授予 member、editor 或 administrator，不能授予 owner。
+      description: 同一组织同一邮箱只能有一个待处理邀请；创建邀请时会同时预创建 invited 状态的账户和成员关系，账户在设置密码并接受邀请前不能登录。邀请只允许授予 member、editor 或 administrator，不能授予 owner。
       security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
@@ -934,7 +918,7 @@ paths:
             schema: { $ref: '#/components/schemas/CreateInvitationRequest' }
       responses:
         '201':
-          description: 邀请已创建；invite_url 中包含仅返回一次的明文 token
+          description: 邀请及待激活账户已创建；invite_url 中包含仅返回一次的明文 token
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CreateInvitationResponse' }
@@ -1041,7 +1025,7 @@ paths:
       operationId: createAdminInvitationBatch
       summary: 批量创建成员邀请
       description: |
-        一次提交 1 至 20 条邀请，每条记录独立创建、投递和审计；单条校验、重复或成员冲突不会回滚其他成功项。
+        一次提交 1 至 20 条邀请，每条记录独立预创建待激活账户与成员关系，并独立创建、投递和审计邀请；单条校验、重复或成员冲突不会回滚其他成功项。
         响应保持请求顺序并逐项返回成功结果或稳定错误码。成功项的 invite_url 仍然只在本次响应中展示。
       security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
@@ -1804,10 +1788,6 @@ paths:
           in: query
           description: 按申请类型筛选。
           schema: { type: string, enum: [whitelist, membership] }
-        - name: server_sync_status
-          in: query
-          description: 按服务器同步状态筛选；none 表示没有同步任务。
-          schema: { type: string, enum: [none, pending, succeeded, failed] }
         - name: query
           in: query
           description: 在申请人姓名、游戏 ID、邮箱和 QQ 中进行模糊搜索。
@@ -1866,25 +1846,6 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '409': { $ref: '#/components/responses/Conflict' }
-  /api/v1/admin/applications/{application_id}/server-sync/retry:
-    post:
-      tags: [Admin]
-      operationId: retryAdminApplicationServerSync
-      summary: 重试失败的服务器同步
-      description: 仅允许重试已批准白名单申请的最新 failed 同步记录；并发重试、pending 或 succeeded 状态返回 409。
-      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
-      parameters:
-        - $ref: '#/components/parameters/ApplicationId'
-      responses:
-        '200':
-          description: 重试已执行，响应返回最新同步结果；外部适配仍失败时 data.status 为 failed
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ApplicationServerSyncResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/admin/portal/config:
     get:
@@ -2061,47 +2022,6 @@ paths:
               schema: { $ref: '#/components/schemas/PortalConfigurationResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
-  /api/v1/admin/server/status:
-    get:
-      tags: [Admin]
-      operationId: getAdminServerStatus
-      summary: 获取服务器适配器状态
-      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
-      responses:
-        '200':
-          description: 包含仅限后台可见的适配器状态
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AdminServerStatusResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-  /api/v1/admin/server/commands:
-    post:
-      tags: [Admin]
-      operationId: executeRestrictedServerCommand
-      summary: 执行受限 RCON 命令
-      description: 仅允许服务端白名单中定义的命令；服务端必须记录操作者、命令、结果与 request_id。
-      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/ServerCommandRequest' }
-      responses:
-        '200':
-          description: 命令已受理或执行
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ServerCommandResponse' }
-        '400': { $ref: '#/components/responses/ValidationError' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
-        '502':
-          description: 服务器适配器不可用或执行失败
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
 components:
   securitySchemes:
     BearerAuth:
@@ -2369,18 +2289,6 @@ components:
         description: { type: string, maxLength: 500 }
         article_count: { type: integer, minimum: 0 }
         updated_at: { type: string, format: date-time }
-    ServerStatus:
-      type: object
-      required: [enabled, label, state, updated_at]
-      properties:
-        enabled: { type: boolean }
-        label: { type: string, maxLength: 100 }
-        state: { type: string, enum: [online, maintenance, offline] }
-        version: { type: [string, 'null'] }
-        online_players: { type: [integer, 'null'], minimum: 0 }
-        max_players: { type: [integer, 'null'], minimum: 1 }
-        updated_at: { type: string, format: date-time }
-        apply_url: { type: [string, 'null'], format: uri-reference }
     OrganizationResponse:
       type: object
       required: [data, meta]
@@ -2417,12 +2325,6 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/KnowledgeArticle' } }
         meta: { $ref: '#/components/schemas/ListMeta' }
-    ServerStatusResponse:
-      type: object
-      required: [data, meta]
-      properties:
-        data: { $ref: '#/components/schemas/ServerStatus' }
-        meta: { $ref: '#/components/schemas/Meta' }
     PortalApplicationRequest:
       type: object
       required: [name, email]
@@ -3274,7 +3176,7 @@ components:
           description: 必填的拒绝原因，仅在 Admin API 中展示。
     AdminApplication:
       type: object
-      required: [id, applicant, type, submitted_at, note, status, class_name, game_id, qq_number, email, decision_reason, server_sync]
+      required: [id, applicant, type, submitted_at, note, status, class_name, game_id, qq_number, email, decision_reason]
       properties:
         id: { type: string }
         applicant: { type: string, maxLength: 80 }
@@ -3292,42 +3194,6 @@ components:
           type: string
           maxLength: 500
           description: 审核备注或拒绝原因，仅限 Admin API。
-        server_sync:
-          oneOf:
-            - $ref: '#/components/schemas/ApplicationServerSync'
-            - type: 'null'
-          description: 白名单批准后的服务器同步结果；审批决定与此状态相互独立。
-    ApplicationServerSync:
-      type: object
-      required: [id, operation, adapter, mode, status, attempts, message, last_error, requested_at]
-      properties:
-        id: { type: string }
-        operation: { type: string, enum: [whitelist.add] }
-        adapter: { type: string, maxLength: 64 }
-        mode: { type: string, enum: [disabled, mock, rcon] }
-        status: { type: string, enum: [pending, succeeded, failed] }
-        attempts: { type: integer, minimum: 0 }
-        message: { type: string, maxLength: 500 }
-        last_error:
-          type: string
-          maxLength: 500
-          description: 已脱敏的稳定错误摘要，不包含 RCON 地址、账号、密码或原始响应。
-        requested_at: { type: string, format: date-time }
-        completed_at: { type: [string, 'null'], format: date-time }
-    AdminServerStatus:
-      type: object
-      required: [enabled, adapter, mode, label, state, online_players, max_players, updated_at]
-      properties:
-        enabled: { type: boolean }
-        adapter: { type: string, maxLength: 64 }
-        mode: { type: string, enum: [disabled, mock, rcon] }
-        label: { type: string, maxLength: 100 }
-        state: { type: string, enum: [online, maintenance, offline] }
-        online_players: { type: integer, minimum: 0 }
-        max_players: { type: integer, minimum: 0 }
-        updated_at: { type: string, format: date-time }
-        last_command_at: { type: [string, 'null'], format: date-time }
-        last_error: { type: string, maxLength: 500 }
     PortalThemeReference:
       type: object
       required: [mode]
@@ -3353,11 +3219,11 @@ components:
         capabilities:
           type: array
           minItems: 1
-          maxItems: 6
+          maxItems: 5
           uniqueItems: true
           items:
             type: string
-            enum: [organization.read, public_content.read, projects.read, assets.read, knowledge.read, server.status.read]
+            enum: [organization.read, public_content.read, projects.read, assets.read, knowledge.read]
         fallback: { type: string, const: md3 }
         integrity:
           type: string
@@ -3405,35 +3271,13 @@ components:
         tone: { type: string, enum: [primary, secondary, warning, neutral] }
     AdminDashboard:
       type: object
-      required: [organization_name, updated_at, metrics, pending_applications, recent_content, server]
+      required: [organization_name, updated_at, metrics, pending_applications, recent_content]
       properties:
         organization_name: { type: string }
         updated_at: { type: string, format: date-time }
         metrics: { type: array, maxItems: 12, items: { $ref: '#/components/schemas/DashboardMetric' } }
         pending_applications: { type: array, items: { $ref: '#/components/schemas/AdminApplication' } }
         recent_content: { type: array, items: { $ref: '#/components/schemas/AdminContent' } }
-        server: { $ref: '#/components/schemas/AdminServerStatus' }
-    ServerCommandRequest:
-      type: object
-      required: [command]
-      properties:
-        command:
-          type: string
-          minLength: 1
-          maxLength: 256
-          description: 仅传入服务端命令白名单允许的命令及参数。
-          example: list
-    ServerCommandResult:
-      type: object
-      required: [accepted, executed, mode, message, executed_at]
-      properties:
-        accepted: { type: boolean }
-        executed:
-          type: boolean
-          description: 是否由真实外部服务执行；Mock 模式固定为 false。
-        mode: { type: string, enum: [disabled, mock, rcon] }
-        message: { type: string }
-        executed_at: { type: string, format: date-time }
     AuthRole:
       type: string
       enum: [owner, administrator, editor, member]
@@ -3852,24 +3696,12 @@ components:
       properties:
         data: { $ref: '#/components/schemas/AdminApplication' }
         meta: { $ref: '#/components/schemas/Meta' }
-    ApplicationServerSyncResponse:
-      type: object
-      required: [data, meta]
-      properties:
-        data: { $ref: '#/components/schemas/ApplicationServerSync' }
-        meta: { $ref: '#/components/schemas/Meta' }
     AdminApplicationListResponse:
       type: object
       required: [data, meta]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/AdminApplication' } }
         meta: { $ref: '#/components/schemas/ListMeta' }
-    AdminServerStatusResponse:
-      type: object
-      required: [data, meta]
-      properties:
-        data: { $ref: '#/components/schemas/AdminServerStatus' }
-        meta: { $ref: '#/components/schemas/Meta' }
     PortalConfigurationResponse:
       type: object
       required: [data, meta]
@@ -3887,10 +3719,4 @@ components:
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/AdminDashboard' }
-        meta: { $ref: '#/components/schemas/Meta' }
-    ServerCommandResponse:
-      type: object
-      required: [data, meta]
-      properties:
-        data: { $ref: '#/components/schemas/ServerCommandResult' }
         meta: { $ref: '#/components/schemas/Meta' }

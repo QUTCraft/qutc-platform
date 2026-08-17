@@ -290,7 +290,7 @@ func defaultPortalManifest() portalmanifest.Manifest {
 		DisplayName:  "QUTCraft MD3 Portal",
 		Entry:        "/index.html",
 		Theme:        portalmanifest.ThemeRef{Mode: "md3"},
-		Capabilities: []string{"organization.read", "public_content.read", "projects.read", "assets.read", "knowledge.read", "server.status.read"},
+		Capabilities: []string{"organization.read", "public_content.read", "projects.read", "assets.read", "knowledge.read"},
 		Fallback:     "md3",
 	}
 }

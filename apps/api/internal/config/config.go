@@ -19,7 +19,6 @@ type Config struct {
 	RedisPassword             string
 	RedisDB                   int
 	PublicCacheTTL            time.Duration
-	ServerAdapterTimeout      time.Duration
 	SuperbedEnabled           bool
 	SuperbedToken             string
 	SuperbedUploadURL         string
@@ -74,7 +73,6 @@ func Load() Config {
 		RedisPassword:             os.Getenv("REDIS_PASSWORD"),
 		RedisDB:                   integer("REDIS_DB", 0),
 		PublicCacheTTL:            duration("PUBLIC_CACHE_TTL", 30*time.Second),
-		ServerAdapterTimeout:      duration("SERVER_ADAPTER_TIMEOUT", 5*time.Second),
 		SuperbedEnabled:           boolean("SUPERBED_ENABLED", false),
 		SuperbedToken:             strings.TrimSpace(os.Getenv("SUPERBED_TOKEN")),
 		SuperbedUploadURL:         value("SUPERBED_UPLOAD_URL", "https://api.superbed.cn/upload"),

@@ -10,8 +10,8 @@ import (
 
 func TestSanitizingHandlerRedactsSensitiveKeys(t *testing.T) {
 	tests := []struct {
-		key   string
-		value string
+		key    string
+		value  string
 		redact bool
 	}{
 		{"password", "secret123", true},
@@ -20,7 +20,6 @@ func TestSanitizingHandlerRedactsSensitiveKeys(t *testing.T) {
 		{"refresh_token", "abc.def.ghi", true},
 		{"authorization", "Bearer xyz", true},
 		{"auth_code", "smtp-code-456", true},
-		{"rcon_password", "minecraft-pass", true},
 		{"minio_secret", "minio-key", true},
 		{"jwt_secret", "jwt-key-789", true},
 		{"api_key", "sk-abcdef", true},

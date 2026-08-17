@@ -15,6 +15,7 @@ const organizationName = computed(() => organization.value?.name ?? (organizatio
 const organizationSubtitle = computed(() => organization.value?.short_name ? `${organization.value.short_name} · 公共门户` : '公共门户')
 
 const goToLogin = () => router.push({ name: 'login' })
+const goToRegister = () => router.push({ name: 'register' })
 const runPrimaryAction = (event: MouseEvent) => {
   if (isQutcraftPortal) {
     navigateToApply(event)
@@ -52,6 +53,7 @@ onMounted(() => {
 
     <div class="header-actions">
       <el-button class="header-login-btn" text :icon="UserFilled" aria-label="成员登录" @click="goToLogin">成员登录</el-button>
+      <el-button class="header-register-btn" text aria-label="注册成员账户" @click="goToRegister">注册</el-button>
       <el-button class="header-join-btn" type="primary" round @click="(event: MouseEvent) => runPrimaryAction(event)">{{ isQutcraftPortal ? '加入我们' : '公开项目' }}</el-button>
       <el-button class="menu-button" text circle :icon="Menu" aria-label="打开导航" @click="mobileOpen = true" />
     </div>
@@ -61,6 +63,7 @@ onMounted(() => {
     <nav class="mobile-nav" aria-label="移动端公开门户导航">
       <RouterLink v-for="link in links" :key="link.to" :to="link.to" @click="mobileOpen = false">{{ link.label }}</RouterLink>
       <RouterLink to="/login" @click="mobileOpen = false">成员登录</RouterLink>
+      <RouterLink to="/register" @click="mobileOpen = false">注册成员账户</RouterLink>
     </nav>
   </el-drawer>
 </template>

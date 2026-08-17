@@ -256,23 +256,6 @@ type Application struct {
 	UpdatedAt      time.Time
 }
 
-type ApplicationServerSync struct {
-	ID             string     `gorm:"primaryKey;type:char(36)"`
-	OrganizationID string     `gorm:"index;type:char(36);not null"`
-	ApplicationID  string     `gorm:"index;type:char(36);not null"`
-	Operation      string     `gorm:"size:64;not null"`
-	Adapter        string     `gorm:"size:64;not null"`
-	Mode           string     `gorm:"size:24;not null"`
-	Status         string     `gorm:"index;size:24;not null;default:pending"`
-	Attempts       int        `gorm:"not null;default:0"`
-	Message        string     `gorm:"size:500;not null;default:''"`
-	LastError      string     `gorm:"size:500;not null;default:''"`
-	RequestedAt    time.Time  `gorm:"index"`
-	CompletedAt    *time.Time `gorm:"index"`
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-}
-
 type PortalConfiguration struct {
 	ID                 string     `gorm:"primaryKey;type:char(36)"`
 	OrganizationID     string     `gorm:"uniqueIndex;type:char(36);not null"`

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Collection, DataAnalysis, Document, Files, Folder, MagicStick, Monitor, Promotion, Setting, SwitchButton, Tickets, UserFilled } from '@element-plus/icons-vue'
+import { ArrowLeft, Collection, DataAnalysis, Document, DocumentChecked, Files, Folder, MagicStick, Promotion, Setting, SwitchButton, Tickets, UserFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { authApi } from '@/api/auth'
 import type { OrganizationMembership } from '@/api/types'
@@ -22,7 +22,7 @@ const navigation = [
   { label: '知识目录', to: '/admin/knowledge', icon: Collection },
   { label: '项目管理', to: '/admin/projects', icon: Folder },
   { label: '成员管理', to: '/admin/users', icon: UserFilled },
-  { label: '审核与服务器', to: '/admin/reviews', icon: Monitor },
+  { label: '申请审核', to: '/admin/reviews', icon: DocumentChecked },
   { label: '审计记录', to: '/admin/audit', icon: Tickets },
   { label: '活动策划', to: '/admin/activity-planner', icon: Promotion },
   { label: '智能体配置', to: '/admin/ai', icon: MagicStick },
@@ -30,10 +30,8 @@ const navigation = [
 ]
 
 const currentOrganization = computed(() => organizations.value.find((item) => item.id === session.user?.organization_id || item.current))
-const isQutcraftOrganization = computed(() => !currentOrganization.value || currentOrganization.value.slug === 'qutcraft')
 const adminBrandName = computed(() => currentOrganization.value?.short_name || currentOrganization.value?.name || 'Commons')
-const navigationLabel = (item: typeof navigation[number]) => item.to === '/admin/reviews' && !isQutcraftOrganization.value ? '申请审核' : item.label
-const title = computed(() => route.path.startsWith('/admin/content/') ? '内容编辑器' : navigation.find((item) => item.to === route.path) ? navigationLabel(navigation.find((item) => item.to === route.path)!) : '后台管理')
+const title = computed(() => route.path.startsWith('/admin/content/') ? '内容编辑器' : navigation.find((item) => item.to === route.path)?.label ?? '后台管理')
 const roleLabel = computed(() => session.user?.roles.includes('owner') ? '所有者' : session.user?.roles.includes('administrator') ? '管理员' : '成员')
 const portalPreviewHref = computed(() => `/?organization=${encodeURIComponent(currentOrganization.value?.slug ?? 'qutcraft')}`)
 
@@ -109,7 +107,7 @@ onMounted(loadOrganizations)
           @click="menuOpen = false"
         >
           <el-icon><component :is="item.icon" /></el-icon>
-          <span>{{ navigationLabel(item) }}</span>
+          <span>{{ item.label }}</span>
         </RouterLink>
       </nav>
 

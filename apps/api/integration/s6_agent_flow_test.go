@@ -134,12 +134,7 @@ func TestS6AgentKnowledgeGenerationBoundary(t *testing.T) {
 		t.Fatalf("load owner: %v", err)
 	}
 	startedAt := time.Now().UTC().Add(-time.Second)
-	var originalConfiguration model.AgentConfiguration
-	configurationError := db.Where("organization_id = ?", organization.ID).First(&originalConfiguration).Error
-	hadConfiguration := configurationError == nil
-	if configurationError != nil && !errors.Is(configurationError, gorm.ErrRecordNotFound) {
-		t.Fatalf("load original agent configuration: %v", configurationError)
-	}
+	forceMockAgentConfiguration(t, db, organization.ID, owner.ID)
 
 	uniqueTerm := "S6知识资料" + uuid.NewString()
 	sourceID := uuid.NewString()
@@ -179,11 +174,6 @@ func TestS6AgentKnowledgeGenerationBoundary(t *testing.T) {
 			"organization_id = ? AND action = ? AND target_type = ? AND created_at >= ?",
 			organization.ID, "ai.config_update", "agent_configuration", startedAt,
 		).Delete(&model.AuditEvent{}).Error
-		if hadConfiguration {
-			_ = db.Save(&originalConfiguration).Error
-		} else {
-			_ = db.Where("organization_id = ?", organization.ID).Delete(&model.AgentConfiguration{}).Error
-		}
 		_ = db.Where("id IN ?", []string{sourceID, otherSourceID}).Delete(&model.Content{}).Error
 		_ = db.Where("id = ?", otherOrganizationID).Delete(&model.Organization{}).Error
 	})
@@ -357,6 +347,7 @@ func TestS6ActivityPlannerApprovalBoundary(t *testing.T) {
 	if err := db.Where("email = ?", cfg.adminEmail).First(&owner).Error; err != nil {
 		t.Fatalf("load owner: %v", err)
 	}
+	forceMockAgentConfiguration(t, db, organization.ID, owner.ID)
 
 	sourceID := uuid.NewString()
 	const injectionMarker = "S6_PROMPT_INJECTION_PWNED"
@@ -606,6 +597,53 @@ func TestS6ActivityPlannerApprovalBoundary(t *testing.T) {
 	if rollbackProjectCount != 0 || rollbackContentCount != 0 || rollbackAuditCount != 0 {
 		t.Fatalf("failed approval left half-created data: projects=%d content=%d audits=%d", rollbackProjectCount, rollbackContentCount, rollbackAuditCount)
 	}
+}
+
+func forceMockAgentConfiguration(t *testing.T, db *gorm.DB, organizationID, actorUserID string) {
+	t.Helper()
+	var original model.AgentConfiguration
+	err := db.Where("organization_id = ?", organizationID).First(&original).Error
+	hadConfiguration := err == nil
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("load original agent configuration: %v", err)
+	}
+
+	configuration := original
+	if !hadConfiguration {
+		configuration = model.AgentConfiguration{
+			ID: uuid.NewString(), OrganizationID: organizationID, Enabled: true,
+			RunLimitPerHour: 20, RequestTimeoutSeconds: 30, MaxSources: 10, MaxContextCharacters: 30000,
+		}
+	}
+	configuration.Provider = "mock"
+	configuration.ProviderBaseURL = ""
+	configuration.ProviderAPIKey = ""
+	configuration.ProviderModel = ""
+	configuration.Enabled = true
+	configuration.UpdatedBy = actorUserID
+	if configuration.RunLimitPerHour < 1 {
+		configuration.RunLimitPerHour = 20
+	}
+	if configuration.RequestTimeoutSeconds < 1 {
+		configuration.RequestTimeoutSeconds = 30
+	}
+	if configuration.MaxSources < 1 {
+		configuration.MaxSources = 10
+	}
+	if configuration.MaxContextCharacters < 1 {
+		configuration.MaxContextCharacters = 30000
+	}
+	if err := db.Save(&configuration).Error; err != nil {
+		t.Fatalf("activate integration mock provider: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if hadConfiguration {
+			_ = db.Save(&original).Error
+		} else {
+			_ = db.Where("organization_id = ?", organizationID).Delete(&model.AgentConfiguration{}).Error
+		}
+	})
 }
 
 func findActivityPlan(plans []activityPlanSummaryDTO, planID string) (activityPlanSummaryDTO, bool) {

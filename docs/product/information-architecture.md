@@ -18,7 +18,7 @@
        └─ /admin, /admin/content, /admin/assets, /admin/knowledge, /admin/projects, /admin/users, /admin/reviews, /admin/activity-planner, /admin/audit, /admin/ai, /admin/settings
 ```
 
-门户不出现成员邮箱、角色、审核队列、草稿、RCON 面板或“后台管理”入口。后台可提供“查看门户”链接，但不得把它作为权限绕过手段。
+门户不出现成员邮箱、角色、审核队列、草稿或“后台管理”入口。后台可提供“查看门户”链接，但不得把它作为权限绕过手段。
 
 ## 2. 公开门户路由
 
@@ -91,7 +91,7 @@
 
 | 层级 | 责任 | 不应承担的责任 |
 | --- | --- | --- |
-| `layouts/PortalLayout` | 公开导航、页脚、主题 Token、公开空错状态 | 登录态、审批、写操作、RCON。 |
+| `layouts/PortalLayout` | 公开导航、页脚、主题 Token、公开空错状态 | 登录态、审批和写操作。 |
 | `layouts/AdminLayout` | 后台导航、账户上下文、权限提示、工作台框架 | 直接做服务端授权决定。 |
 | `views/*` | 页面编排、加载/空/错状态和用户交互 | 复制 API 协议、硬编码权限。 |
 | `api/*` | 类型化请求、响应封装、错误转换 | 业务展示、DOM 操作。 |

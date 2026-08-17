@@ -19,7 +19,6 @@ import (
 
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/handler"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/model"
-	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/serveradapter"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/storage"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -196,7 +195,7 @@ func TestS1PublishedAssetDownloadBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create integration media storage: %v", err)
 	}
-	workspace := handler.NewWorkspaceHandlerWithDependencies(db, nil, "integration", serveradapter.NewMock(), 5*time.Second, mediaStorage)
+	workspace := handler.NewWorkspaceHandlerWithDependencies(db, nil, "integration", mediaStorage)
 	if response := downloadPublicAsset(workspace, cfg.organizationSlug, assetID); response.Code != http.StatusNotFound {
 		t.Fatalf("draft asset status = %d, want 404", response.Code)
 	}

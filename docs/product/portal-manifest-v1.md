@@ -28,8 +28,7 @@ Manifest 是门户呈现层的注册声明，不是可执行插件，也不是�
     "public_content.read",
     "projects.read",
     "assets.read",
-    "knowledge.read",
-    "server.status.read"
+    "knowledge.read"
   ],
   "fallback": "md3"
 }
@@ -70,9 +69,7 @@ Manifest 是门户呈现层的注册声明，不是可执行插件，也不是�
 | `projects.read` | 公开项目 | 项目目录与摘要。 |
 | `assets.read` | 公开资源与受控下载地址 | 资源列表与下载入口。 |
 | `knowledge.read` | 已发布知识文章元数据 | Wiki/知识库目录。 |
-| `server.status.read` | 脱敏服务器状态 | 在线状态、版本、申请入口。 |
-
-禁止声明或授予：`admin.*`、`membership.*`、`application.*`、`audit.*`、`server.command`、数据库访问、对象存储密钥、Refresh Token、管理 JWT、任意脚本执行或任意网络代理。
+禁止声明或授予：`admin.*`、`membership.*`、`application.*`、`audit.*`、数据库访问、对象存储密钥、Refresh Token、管理 JWT、任意脚本执行或任意网络代理。
 
 ## 5. 主题 Token
 

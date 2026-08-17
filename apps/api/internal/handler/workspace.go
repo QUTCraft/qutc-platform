@@ -14,7 +14,6 @@ import (
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/middleware"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/model"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/cache"
-	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/serveradapter"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/storage"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/platform/superbed"
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
@@ -29,7 +28,6 @@ type WorkspaceHandler struct {
 	db              *gorm.DB
 	cache           *cache.Cache
 	cacheNamespace  string
-	serverAdapter   serveradapter.Adapter
 	mediaStorage    storage.Store
 	storageResolver MediaStorageResolver
 	applications    *service.ApplicationDecisionService
@@ -51,31 +49,20 @@ var (
 var markdownAdminAssetPattern = regexp.MustCompile(`/api/v1/admin/assets/([a-zA-Z0-9-]+)/download`)
 
 func NewWorkspaceHandler(db *gorm.DB, publicCache *cache.Cache, environment string) *WorkspaceHandler {
-	return NewWorkspaceHandlerWithServerAdapterTimeout(db, publicCache, environment, serveradapter.NewMock(), 5*time.Second)
-}
-
-func NewWorkspaceHandlerWithServerAdapter(db *gorm.DB, publicCache *cache.Cache, environment string, adapter serveradapter.Adapter) *WorkspaceHandler {
-	return NewWorkspaceHandlerWithServerAdapterTimeout(db, publicCache, environment, adapter, 5*time.Second)
-}
-
-func NewWorkspaceHandlerWithServerAdapterTimeout(db *gorm.DB, publicCache *cache.Cache, environment string, adapter serveradapter.Adapter, timeout time.Duration) *WorkspaceHandler {
 	mediaStorage, err := storage.NewLocal("/tmp/qutcraft-uploads")
 	if err != nil {
 		panic(err)
 	}
-	return NewWorkspaceHandlerWithDependencies(db, publicCache, environment, adapter, timeout, mediaStorage)
+	return NewWorkspaceHandlerWithDependencies(db, publicCache, environment, mediaStorage)
 }
 
-func NewWorkspaceHandlerWithDependencies(db *gorm.DB, publicCache *cache.Cache, environment string, adapter serveradapter.Adapter, timeout time.Duration, mediaStorage storage.Store) *WorkspaceHandler {
-	return NewWorkspaceHandlerWithDependenciesAndNotifications(db, publicCache, environment, adapter, timeout, mediaStorage, nil)
+func NewWorkspaceHandlerWithDependencies(db *gorm.DB, publicCache *cache.Cache, environment string, mediaStorage storage.Store) *WorkspaceHandler {
+	return NewWorkspaceHandlerWithDependenciesAndNotifications(db, publicCache, environment, mediaStorage, nil)
 }
 
-func NewWorkspaceHandlerWithDependenciesAndNotifications(db *gorm.DB, publicCache *cache.Cache, environment string, adapter serveradapter.Adapter, timeout time.Duration, mediaStorage storage.Store, notifications *service.NotificationService) *WorkspaceHandler {
+func NewWorkspaceHandlerWithDependenciesAndNotifications(db *gorm.DB, publicCache *cache.Cache, environment string, mediaStorage storage.Store, notifications *service.NotificationService) *WorkspaceHandler {
 	if strings.TrimSpace(environment) == "" {
 		environment = "development"
-	}
-	if adapter == nil {
-		adapter = serveradapter.NewMock()
 	}
 	if mediaStorage == nil {
 		var err error
@@ -84,14 +71,12 @@ func NewWorkspaceHandlerWithDependenciesAndNotifications(db *gorm.DB, publicCach
 			panic(err)
 		}
 	}
-	adapter = serveradapter.WithTimeout(adapter, timeout)
 	return &WorkspaceHandler{
 		db:             db,
 		cache:          publicCache,
 		cacheNamespace: environment,
-		serverAdapter:  adapter,
 		mediaStorage:   mediaStorage,
-		applications:   service.NewApplicationDecisionServiceWithNotifications(db, adapter, notifications),
+		applications:   service.NewApplicationDecisionServiceWithNotifications(db, notifications),
 	}
 }
 
@@ -418,24 +403,6 @@ func (h *WorkspaceHandler) knowledgeDirectoryNames(organizationID string, conten
 	}
 	return names
 }
-func (h *WorkspaceHandler) PortalServer(c *gin.Context) {
-	var organization model.Organization
-	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&organization).Error; err != nil {
-		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
-		return
-	}
-	if organization.Slug != "qutcraft" {
-		respond(c, http.StatusOK, gin.H{"enabled": false, "label": "未配置服务器适配器", "state": "offline", "version": nil, "online_players": nil, "max_players": nil, "updated_at": time.Now().UTC(), "apply_url": nil})
-		return
-	}
-	status, err := h.serverAdapter.Status(c.Request.Context())
-	if err != nil {
-		respond(c, http.StatusOK, gin.H{"enabled": false, "label": "Minecraft 服务", "state": "offline", "version": nil, "online_players": nil, "max_players": nil, "updated_at": time.Now().UTC(), "apply_url": "#join"})
-		return
-	}
-	respond(c, http.StatusOK, gin.H{"enabled": status.Enabled, "label": status.Label, "state": status.State, "version": status.Version, "online_players": status.OnlinePlayers, "max_players": status.MaxPlayers, "updated_at": status.UpdatedAt, "apply_url": "#join"})
-}
-
 func (h *WorkspaceHandler) AdminDashboard(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -464,12 +431,8 @@ func (h *WorkspaceHandler) AdminDashboard(c *gin.Context) {
 	for _, item := range pendingApplications {
 		pendingItems = append(pendingItems, h.applicationAdminItem(item))
 	}
-	server := h.serverStatus(c.Request.Context())
 	lastMetric := gin.H{"label": "进行中项目", "value": activeProjects, "change": "当前组织项目", "tone": "neutral"}
-	if organization.Slug == "qutcraft" {
-		lastMetric = gin.H{"label": "在线玩家", "value": server["online_players"], "change": "服务器适配器：" + h.serverAdapter.Mode(), "tone": "neutral"}
-	}
-	respond(c, http.StatusOK, gin.H{"organization_name": organization.Name, "updated_at": time.Now().UTC(), "metrics": []gin.H{{"label": "活跃成员", "value": activeMembers, "change": "当前组织成员", "tone": "primary"}, {"label": "已发布内容", "value": published, "change": "当前公开内容", "tone": "secondary"}, {"label": "内容总数", "value": total, "change": "含草稿", "tone": "neutral"}, lastMetric}, "pending_applications": pendingItems, "recent_content": recentItems, "server": server})
+	respond(c, http.StatusOK, gin.H{"organization_name": organization.Name, "updated_at": time.Now().UTC(), "metrics": []gin.H{{"label": "活跃成员", "value": activeMembers, "change": "当前组织成员", "tone": "primary"}, {"label": "已发布内容", "value": published, "change": "当前公开内容", "tone": "secondary"}, {"label": "内容总数", "value": total, "change": "含草稿", "tone": "neutral"}, lastMetric}, "pending_applications": pendingItems, "recent_content": recentItems})
 }
 func contentItems() []gin.H {
 	return []gin.H{{"id": "content_001", "title": "QUTCraft CMS 项目正式启动", "type": "news", "status": "published", "author": "QUTCraft Admin", "updated_at": "2026-07-17T03:00:00Z"}}
@@ -1835,11 +1798,6 @@ func (h *WorkspaceHandler) AdminApplications(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "application.invalid_type_filter", "type 仅支持 whitelist 或 membership。")
 		return
 	}
-	syncStatus := strings.TrimSpace(c.Query("server_sync_status"))
-	if syncStatus != "" && syncStatus != "none" && syncStatus != "pending" && syncStatus != "succeeded" && syncStatus != "failed" {
-		fail(c, http.StatusBadRequest, "application.invalid_server_sync_status_filter", "server_sync_status 仅支持 none、pending、succeeded 或 failed。")
-		return
-	}
 	search, ok := queryMax(c, "query", 80)
 	if !ok {
 		return
@@ -1859,23 +1817,6 @@ func (h *WorkspaceHandler) AdminApplications(c *gin.Context) {
 			term, term, term, term,
 		)
 	}
-	if syncStatus == "none" {
-		query = query.Where("NOT EXISTS (SELECT 1 FROM application_server_syncs syncs WHERE syncs.application_id = applications.id AND syncs.organization_id = applications.organization_id)")
-	} else if syncStatus != "" {
-		query = query.Where(`EXISTS (
-			SELECT 1 FROM application_server_syncs syncs
-			WHERE syncs.application_id = applications.id
-			  AND syncs.organization_id = applications.organization_id
-			  AND syncs.status = ?
-			  AND syncs.created_at = (
-				SELECT MAX(latest_sync.created_at)
-				FROM application_server_syncs latest_sync
-				WHERE latest_sync.application_id = applications.id
-				  AND latest_sync.organization_id = applications.organization_id
-			  )
-		)`, syncStatus)
-	}
-
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "application.list_failed", "申请列表暂时无法加载。")
@@ -1914,7 +1855,7 @@ func (h *WorkspaceHandler) AdminApplicationDecision(c *gin.Context) {
 			return
 		}
 	}
-	application, _, err := h.applications.Decide(c.Request.Context(), principal.OrganizationID, principal.UserID, decision, next, body.Reason, ensureRequestID(c))
+	application, err := h.applications.Decide(principal.OrganizationID, principal.UserID, decision, next, body.Reason, ensureRequestID(c))
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrApplicationNotFound):
@@ -1933,77 +1874,6 @@ func (h *WorkspaceHandler) AdminApplicationDecision(c *gin.Context) {
 	respond(c, http.StatusOK, h.applicationAdminItem(application))
 }
 
-func (h *WorkspaceHandler) AdminRetryApplicationServerSync(c *gin.Context) {
-	principal, ok := middleware.PrincipalFromContext(c)
-	if !ok {
-		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
-		return
-	}
-	record, err := h.applications.RetryServerSync(c.Request.Context(), principal.OrganizationID, principal.UserID, c.Param("id"), ensureRequestID(c))
-	if err != nil {
-		switch {
-		case errors.Is(err, service.ErrApplicationNotFound), errors.Is(err, service.ErrApplicationSyncNotFound):
-			fail(c, http.StatusNotFound, "application.server_sync_not_found", "申请或服务器同步记录不存在。")
-		case errors.Is(err, service.ErrApplicationSyncNotRetryable):
-			fail(c, http.StatusConflict, "application.server_sync_not_retryable", "当前服务器同步状态不能重试。")
-		default:
-			fail(c, http.StatusInternalServerError, "application.server_sync_retry_failed", "服务器同步暂时无法重试。")
-		}
-		return
-	}
-	respond(c, http.StatusOK, applicationServerSyncItem(record))
-}
-
 func (h *WorkspaceHandler) applicationAdminItem(application model.Application) gin.H {
-	item := gin.H{"id": application.ID, "applicant": application.ApplicantName, "type": application.Type, "submitted_at": application.CreatedAt, "note": application.Note, "status": application.Status, "class_name": application.ClassName, "game_id": application.GameID, "qq_number": application.QQNumber, "email": application.Email, "decided_at": application.DecidedAt, "decided_by": application.DecidedBy, "decision_reason": application.DecisionReason}
-	var syncRecord model.ApplicationServerSync
-	if err := h.db.Where("application_id = ?", application.ID).Order("created_at DESC").First(&syncRecord).Error; err == nil {
-		item["server_sync"] = applicationServerSyncItem(syncRecord)
-	} else {
-		item["server_sync"] = nil
-	}
-	return item
-}
-
-func applicationServerSyncItem(record model.ApplicationServerSync) gin.H {
-	return gin.H{"id": record.ID, "operation": record.Operation, "adapter": record.Adapter, "mode": record.Mode, "status": record.Status, "attempts": record.Attempts, "message": record.Message, "last_error": record.LastError, "requested_at": record.RequestedAt, "completed_at": record.CompletedAt}
-}
-
-func (h *WorkspaceHandler) AdminServerStatus(c *gin.Context) {
-	respond(c, http.StatusOK, h.serverStatus(c.Request.Context()))
-}
-
-func (h *WorkspaceHandler) serverStatus(ctx context.Context) gin.H {
-	status, err := h.serverAdapter.Status(ctx)
-	if err != nil {
-		return gin.H{"enabled": false, "adapter": h.serverAdapter.Name(), "mode": h.serverAdapter.Mode(), "label": "Minecraft 服务", "state": "offline", "online_players": 0, "max_players": 1, "updated_at": time.Now().UTC(), "last_error": "服务器适配器暂时不可用。"}
-	}
-	return gin.H{"enabled": status.Enabled, "adapter": status.Adapter, "mode": status.Mode, "label": status.Label, "state": status.State, "online_players": status.OnlinePlayers, "max_players": status.MaxPlayers, "updated_at": status.UpdatedAt, "last_command_at": status.LastCommandAt}
-}
-
-func (h *WorkspaceHandler) AdminServerCommand(c *gin.Context) {
-	var body struct {
-		Command string `json:"command"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil || body.Command == "" {
-		fail(c, http.StatusBadRequest, "server.command_invalid", "命令不能为空。")
-		return
-	}
-	body.Command = strings.TrimSpace(body.Command)
-	if len([]rune(body.Command)) > 256 || strings.ContainsAny(body.Command, "\r\n") || !serveradapter.AllowedCommand(body.Command) {
-		fail(c, http.StatusForbidden, "server.command_not_allowed", "命令不在服务端白名单中。")
-		return
-	}
-	principal, _ := middleware.PrincipalFromContext(c)
-	result, err := h.serverAdapter.Execute(c.Request.Context(), body.Command)
-	auditResult := "accepted"
-	if err != nil {
-		auditResult = "failed"
-	}
-	_ = h.db.Create(&model.AuditEvent{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ActorUserID: principal.UserID, Action: "server.command", TargetType: "server", Result: auditResult, RequestID: ensureRequestID(c), CreatedAt: time.Now().UTC()}).Error
-	if err != nil {
-		fail(c, http.StatusBadGateway, "server.adapter_failed", "服务器适配器执行失败。")
-		return
-	}
-	respond(c, http.StatusOK, result)
+	return gin.H{"id": application.ID, "applicant": application.ApplicantName, "type": application.Type, "submitted_at": application.CreatedAt, "note": application.Note, "status": application.Status, "class_name": application.ClassName, "game_id": application.GameID, "qq_number": application.QQNumber, "email": application.Email, "decided_at": application.DecidedAt, "decided_by": application.DecidedBy, "decision_reason": application.DecisionReason}
 }

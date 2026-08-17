@@ -30,7 +30,6 @@ var allowedCapabilities = map[string]struct{}{
 	"projects.read":       {},
 	"assets.read":         {},
 	"knowledge.read":      {},
-	"server.status.read":  {},
 }
 
 type Manifest struct {

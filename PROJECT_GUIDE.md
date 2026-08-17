@@ -21,11 +21,11 @@
 
 必须保持的边界：
 
-- 浏览器不直接访问 MySQL、Redis、SMTP、RCON 或对象存储凭据。
+- 浏览器不直接访问 MySQL、Redis、SMTP 或对象存储凭据。
 - Portal 只读取当前组织已发布的公开数据；草稿、成员隐私、申请材料和审计不会进入 Portal。
 - Admin 的按钮隐藏不是权限控制；Go 服务端必须执行组织范围、RBAC、状态机和审计校验。
 - AI 当前是 API 进程内的单机 Worker：queued 写入 MySQL 后领取；重启保留未领取任务，将中断的 running 标记为 failed，不承诺多实例调度。
-- QUTCraft 服务器能力当前使用明确标识的 Mock ServerAdapter；真实 RCON 已延期。
+- 加入申请只更新平台内审批状态；代码库不包含游戏服务器命令或自动同步能力。
 
 ### 1.1 服务和端口
 
@@ -188,7 +188,7 @@ docker compose --env-file .env --profile docs up -d swagger
 
 ## 4. 数据库、迁移与数据生命周期
 
-当前迁移为 001—017。SQL 嵌入 API 二进制，按文件名顺序执行并写入 schema_migrations。001—008 兼容旧 AutoMigrate 数据卷；009 以后是显式迁移。014 提供通知、内容修订、下载统计、默认组织和 AI 引用正文基础；015 为既有内容补齐 version 1 修订基线；016 增加模型供应商配置；017 增加组织级加密服务接入配置。
+当前迁移为 001—018。SQL 嵌入 API 二进制，按文件名顺序执行并写入 schema_migrations。001—008 兼容旧 AutoMigrate 数据卷；009 以后是显式迁移。014 提供通知、内容修订、下载统计、默认组织和 AI 引用正文基础；015 为既有内容补齐 version 1 修订基线；016 增加模型供应商配置；017 增加组织级加密服务接入配置；018 为媒体资产补齐外部图床提供方与 URL 字段。
 
 新增表或字段时：
 
@@ -363,7 +363,7 @@ Set-Location D:\qutc-platform
 | scripts/run-route-smoke.ps1 | SPA 路由、CSP、Portal 404、liveness/readiness |
 | scripts/run-s1-integration.ps1 | 内容、发布、缓存、资源下载 |
 | scripts/run-s2-integration.ps1 | 邀请、注册、成员、组织切换、项目里程碑 |
-| scripts/run-s3-integration.ps1 | 申请审批、Mock ServerAdapter、失败重试 |
+| scripts/run-s3-integration.ps1 | 申请提交、筛选、审批事务、审计与已退役接口检查 |
 | scripts/run-s4-integration.ps1 | 自定义 Portal、MD3 回退、安全头 |
 | scripts/run-s5-observability-integration.ps1 | readiness、Request ID、审计、组织隔离 |
 | scripts/run-s6-agent-integration.ps1 | AI 知识隔离、Prompt Injection、活动策划批准 |
@@ -382,7 +382,7 @@ Set-Location D:\qutc-platform
 - Token 只存哈希或 HttpOnly Cookie；前端 Access Token 只驻留内存。
 - Markdown/HTML、上传文件、AI 输出和知识资料均是不可信输入；预览需清洗，上传需限制类型/大小。
 - 不记录密码、Token、SMTP/AI 凭据、完整申请材料或未脱敏模型结果。
-- 外部适配器失败不能伪造成功：审批、ServerAdapter、邮件 Outbox 和 AI 运行状态分别保存。
+- 外部服务失败不能伪造成功：审批、邮件 Outbox 和 AI 运行状态分别保存。
 - 不为测试放宽 CORS、RBAC、命令白名单或生产 Mock 限制。
 
 ## 9. 发布前检查清单
@@ -396,7 +396,7 @@ Set-Location D:\qutc-platform
 - [ ] /healthz、/readyz 正常，日志可按 request_id 关联。
 - [ ] 备份已创建并完成隔离恢复验证，记录提交版本和迁移版本。
 - [ ] AI 方案有引用，人工批准只创建非公开项目/里程碑/公告草稿。
-- [ ] 模型、SMTP、ServerAdapter 故障均不会伪报成功。
+- [ ] 模型与 SMTP 故障均不会伪报成功。
 
 ## 10. 相关文档
 
@@ -404,9 +404,9 @@ Set-Location D:\qutc-platform
 - [项目排期](schedule.md)：阶段门、完成项和延期边界。
 - [完整 API 文档](docs/api/API.md)：认证、权限、字段和错误语义。
 - [API 协作说明](docs/api/README.md)：OpenAPI、Swagger、Apifox 和契约流程。
-- [数据库迁移规范](docs/operations/database-migrations.md)：001—015 迁移与回退边界。
+- [数据库迁移规范](docs/operations/database-migrations.md)：001—018 迁移与回退边界。
 - [备份与恢复手册](docs/operations/backup-restore.md)：备份格式、隔离恢复和 S3/MinIO 边界。
-- [已知限制与延期项](docs/operations/known-issues.md)：RCON、AI、邮件、限流和赛后路线。
+- [已知限制与延期项](docs/operations/known-issues.md)：AI、邮件、限流和赛后路线。
 - [比赛演示运行手册](docs/product/competition-demo-runbook.md)：比赛版主路径和故障回退。
 - [贡献指南](CONTRIBUTING.md)：分支、提交和 PR 约定。
 - [安全策略](SECURITY.md)：漏洞报告和敏感信息处理。

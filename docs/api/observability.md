@@ -33,7 +33,7 @@ API 将每次请求输出为单行 JSON。固定字段如下：
 日志禁止记录：
 
 - `Authorization`、Cookie、Access/Refresh Token 或邀请明文 Token；
-- 查询串、请求体、密码、邮箱、QQ、SMTP/RCON/MinIO 凭据；
+- 查询串、请求体、密码、邮箱、QQ、SMTP/MinIO 凭据；
 - 数据库 DSN、对象键或外部适配器的原始认证错误。
 
 `2xx/3xx` 使用 info，`4xx` 使用 warn，`5xx` 使用 error。业务审计不能由访问日志替代：访问日志说明“请求发生了”，审计事件说明“哪个组织中的谁对什么对象执行了什么结果”。

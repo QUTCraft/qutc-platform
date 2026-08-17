@@ -175,6 +175,8 @@ func invitationCreateFailure(err error) *invitationFailure {
 		return &invitationFailure{HTTPStatus: http.StatusConflict, Code: "invitation.already_pending", Message: "该邮箱已有尚未处理的邀请。"}
 	case errors.Is(err, service.ErrInvitationAlreadyMember):
 		return &invitationFailure{HTTPStatus: http.StatusConflict, Code: "membership.already_active", Message: "该邮箱已经是当前组织的有效成员。"}
+	case errors.Is(err, service.ErrInvitationMemberExists):
+		return &invitationFailure{HTTPStatus: http.StatusConflict, Code: "membership.already_managed", Message: "该邮箱已有停用或离开记录，请直接在成员管理中处理。"}
 	default:
 		return &invitationFailure{HTTPStatus: http.StatusInternalServerError, Code: "invitation.create_failed", Message: "邀请暂时无法创建。"}
 	}

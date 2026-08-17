@@ -45,7 +45,7 @@ func WithRequestID(ctx context.Context, requestID string) context.Context {
 // 匹配方式为 key 名包含任一下列片段（不区分大小写）。
 var sensitiveKeyFragments = []string{
 	"password", "passwd", "secret", "token", "authorization",
-	"auth_code", "smtp_password", "rcon_password", "minio_secret",
+	"auth_code", "smtp_password", "minio_secret",
 	"jwt_secret", "api_key", "private_key",
 }
 

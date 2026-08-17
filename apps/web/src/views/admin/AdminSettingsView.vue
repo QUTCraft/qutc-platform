@@ -11,7 +11,6 @@ const allowedCapabilities: Array<{ value: PortalManifest['capabilities'][number]
   { value: 'projects.read', label: '公开项目' },
   { value: 'assets.read', label: '公开资源' },
   { value: 'knowledge.read', label: '公开知识库' },
-  { value: 'server.status.read', label: '脱敏服务器状态' },
 ]
 
 const organization = reactive<Pick<Organization, 'name' | 'short_name' | 'tagline' | 'introduction' | 'contact_email' | 'social_links' | 'is_public'>>({
@@ -608,7 +607,7 @@ onMounted(() => {
 
     <aside class="admin-panel settings-note">
       <h2>门户安全边界</h2>
-      <p>Manifest 只能声明公开读取能力，不能访问成员、审批、审计、管理接口或服务器命令。</p>
+      <p>Manifest 只能声明公开读取能力，不能访问成员、审批、审计或任何管理接口。</p>
       <p>入口和主题资源必须来自本站同源路径；加载失败时始终回退到默认 MD3 门户。</p>
       <p>预览只打开草稿声明的入口。只有点击“启用此草稿”后，新配置才会成为运行时生效版本。</p>
       <p>若自定义入口持续异常，可点击“恢复默认 MD3”永久恢复；访问 <code>/?portal=md3</code> 只对当前访问临时强制回退。</p>

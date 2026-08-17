@@ -12,7 +12,7 @@ func validManifest() Manifest {
 		Theme:       ThemeRef{Mode: "custom", Tokens: "/portals/campus-club/theme.json"},
 		Capabilities: []string{
 			"organization.read", "public_content.read", "projects.read",
-			"assets.read", "knowledge.read", "server.status.read",
+			"assets.read", "knowledge.read",
 		},
 		Fallback: "md3",
 	}

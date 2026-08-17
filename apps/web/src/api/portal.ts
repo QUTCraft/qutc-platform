@@ -1,5 +1,5 @@
 import { get, getPage, post } from '@/api/client'
-import type { ApplicationPayload, KnowledgeArticle, KnowledgeDirectory, Organization, PortalRuntimeConfiguration, Project, PublicContentDetail, PublicPost, Resource, ServerStatus } from '@/api/types'
+import type { ApplicationPayload, KnowledgeArticle, KnowledgeDirectory, Organization, PortalRuntimeConfiguration, Project, PublicContentDetail, PublicPost, Resource } from '@/api/types'
 
 const defaultOrganizationSlug = import.meta.env.VITE_ORGANIZATION_SLUG ?? 'qutcraft'
 const organizationStorageKey = 'qutc.portal_organization_slug'
@@ -60,6 +60,5 @@ export const portalApi = {
   getResources: (params: PortalPageQuery = {}) => getPage<Resource>(withQuery(`${portalBase}/resources`, params)),
   getKnowledgeArticles: (params: PortalPageQuery = {}) => getPage<KnowledgeArticle>(withQuery(`${portalBase}/knowledge/articles`, params)),
   getKnowledgeDirectories: (params: PortalPageQuery = {}) => getPage<KnowledgeDirectory>(withQuery(`${portalBase}/knowledge/directories`, params)),
-  getServerStatus: () => get<ServerStatus>(`${portalBase}/server-status`),
   submitApplication: (payload: ApplicationPayload) => post<{ id: string; status: string }>(`${portalBase}/apply`, payload),
 }

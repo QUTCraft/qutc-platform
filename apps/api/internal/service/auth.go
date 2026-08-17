@@ -108,12 +108,6 @@ func (s *AuthService) register(email, displayName, password, invitationToken str
 
 	var pair TokenPair
 	err = s.db.Transaction(func(tx *gorm.DB) error {
-		var existing model.User
-		if err := tx.Where("email = ?", email).First(&existing).Error; err == nil {
-			return ErrEmailInUse
-		} else if err != gorm.ErrRecordNotFound {
-			return err
-		}
 		organizationID := defaultOrganization.ID
 		roleKey := "member"
 		reason := "registered"
@@ -131,12 +125,47 @@ func (s *AuthService) register(email, displayName, password, invitationToken str
 			roleKey = invitation.Role
 			reason = "invitation_accepted"
 		}
-		user := model.User{ID: uuid.NewString(), Email: email, DisplayName: displayName, PasswordHash: string(hash), State: "active", DefaultOrganizationID: organizationID}
-		if err := tx.Create(&user).Error; err != nil {
-			return err
+
+		var user model.User
+		existingErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("email = ?", email).First(&user).Error
+		if existingErr != nil && existingErr != gorm.ErrRecordNotFound {
+			return existingErr
 		}
-		membership := model.Membership{ID: uuid.NewString(), OrganizationID: organizationID, UserID: user.ID, State: "active"}
-		if err := tx.Create(&membership).Error; err != nil {
+		if existingErr == nil && (strings.TrimSpace(invitationToken) == "" || user.State != "invited") {
+			return ErrEmailInUse
+		}
+		if existingErr == gorm.ErrRecordNotFound {
+			user = model.User{ID: uuid.NewString(), Email: email, DisplayName: displayName, PasswordHash: string(hash), State: "active", DefaultOrganizationID: organizationID}
+			if err := tx.Create(&user).Error; err != nil {
+				return err
+			}
+		} else {
+			if err := tx.Model(&user).Updates(map[string]interface{}{
+				"display_name":            displayName,
+				"password_hash":           string(hash),
+				"state":                   "active",
+				"default_organization_id": organizationID,
+				"updated_at":              time.Now().UTC(),
+			}).Error; err != nil {
+				return err
+			}
+			user.DisplayName = displayName
+			user.PasswordHash = string(hash)
+			user.State = "active"
+			user.DefaultOrganizationID = organizationID
+		}
+
+		var membership model.Membership
+		membershipErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("organization_id = ? AND user_id = ?", organizationID, user.ID).First(&membership).Error
+		if membershipErr != nil && membershipErr != gorm.ErrRecordNotFound {
+			return membershipErr
+		}
+		if membershipErr == gorm.ErrRecordNotFound {
+			membership = model.Membership{ID: uuid.NewString(), OrganizationID: organizationID, UserID: user.ID, State: "active"}
+			if err := tx.Create(&membership).Error; err != nil {
+				return err
+			}
+		} else if err := tx.Model(&membership).Updates(map[string]interface{}{"state": "active", "updated_at": time.Now().UTC()}).Error; err != nil {
 			return err
 		}
 		if err := tx.Create(&model.MembershipEvent{ID: uuid.NewString(), MembershipID: membership.ID, State: "active", Reason: reason}).Error; err != nil {
@@ -144,6 +173,9 @@ func (s *AuthService) register(email, displayName, password, invitationToken str
 		}
 		memberRole, err := roleByKey(tx, roleKey)
 		if err != nil {
+			return err
+		}
+		if err := tx.Where("membership_id = ?", membership.ID).Delete(&model.MembershipRole{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Create(&model.MembershipRole{MembershipID: membership.ID, RoleID: memberRole.ID}).Error; err != nil {

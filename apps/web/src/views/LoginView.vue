@@ -118,7 +118,24 @@ onMounted(() => {
             登录工作台 →
           </el-button>
         </el-form>
+        <p class="register-entry">
+          还没有账户？
+          <RouterLink :to="{ name: 'register' }">注册成员账户</RouterLink>
+        </p>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.register-entry {
+  margin: 20px 0 0;
+  color: var(--md-sys-color-on-surface-variant);
+  text-align: center;
+}
+
+.register-entry a {
+  color: var(--md-sys-color-primary);
+  font-weight: 750;
+}
+</style>

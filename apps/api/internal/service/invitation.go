@@ -24,6 +24,7 @@ var (
 	ErrInvitationAccepted      = errors.New("invitation already accepted")
 	ErrInvitationPending       = errors.New("invitation already pending")
 	ErrInvitationAlreadyMember = errors.New("user is already an active member")
+	ErrInvitationMemberExists  = errors.New("user already has a managed membership")
 	ErrInvitationEmailMismatch = errors.New("invitation email does not match account")
 	ErrInvitationInvalidEmail  = errors.New("invitation email is invalid")
 	ErrInvitationInvalidRole   = errors.New("invitation role is invalid")
@@ -67,38 +68,92 @@ func (s *AuthService) CreateInvitation(organizationID, invitedBy, email, role st
 		return InvitationCreateResult{}, ErrInvitationInvalidExpiry
 	}
 
-	now := time.Now().UTC()
-	var existingUser model.User
-	if err := s.db.Where("email = ?", email).First(&existingUser).Error; err == nil {
-		var membership model.Membership
-		if membershipErr := s.db.Where("organization_id = ? AND user_id = ?", organizationID, existingUser.ID).First(&membership).Error; membershipErr == nil && membership.State == "active" {
-			return InvitationCreateResult{}, ErrInvitationAlreadyMember
-		}
-	}
-	var pending model.Invitation
-	if err := s.db.Where("organization_id = ? AND email = ? AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?", organizationID, email, now).First(&pending).Error; err == nil {
-		return InvitationCreateResult{}, ErrInvitationPending
-	} else if err != gorm.ErrRecordNotFound {
-		return InvitationCreateResult{}, err
-	}
-
 	token, err := randomToken()
 	if err != nil {
 		return InvitationCreateResult{}, err
 	}
-	invit := model.Invitation{
-		ID:             uuid.NewString(),
-		OrganizationID: organizationID,
-		InvitedBy:      invitedBy,
-		Email:          email,
-		Role:           role,
-		TokenHash:      tokenHash(token),
-		ExpiresAt:      now.Add(expiresIn),
-	}
-	if err := s.db.Create(&invit).Error; err != nil {
-		return InvitationCreateResult{}, err
-	}
-	return s.invitationCreateResult(invit, token)
+
+	now := time.Now().UTC()
+	var result InvitationCreateResult
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		var pending model.Invitation
+		if err := tx.Where("organization_id = ? AND email = ? AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?", organizationID, email, now).First(&pending).Error; err == nil {
+			return ErrInvitationPending
+		} else if err != gorm.ErrRecordNotFound {
+			return err
+		}
+
+		invitationRole, err := roleByKey(tx, role)
+		if err != nil {
+			return err
+		}
+
+		var user model.User
+		userErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("email = ?", email).First(&user).Error
+		if userErr != nil && userErr != gorm.ErrRecordNotFound {
+			return userErr
+		}
+		if userErr == gorm.ErrRecordNotFound {
+			user = model.User{
+				ID:                    uuid.NewString(),
+				Email:                 email,
+				DisplayName:           invitedDisplayName(email),
+				PasswordHash:          "",
+				State:                 "invited",
+				DefaultOrganizationID: organizationID,
+			}
+			if err := tx.Create(&user).Error; err != nil {
+				return err
+			}
+		}
+
+		var membership model.Membership
+		membershipErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("organization_id = ? AND user_id = ?", organizationID, user.ID).
+			First(&membership).Error
+		switch {
+		case membershipErr == nil && membership.State == "active":
+			return ErrInvitationAlreadyMember
+		case membershipErr == nil && membership.State != "invited":
+			return ErrInvitationMemberExists
+		case membershipErr != nil && membershipErr != gorm.ErrRecordNotFound:
+			return membershipErr
+		case membershipErr == gorm.ErrRecordNotFound:
+			membership = model.Membership{ID: uuid.NewString(), OrganizationID: organizationID, UserID: user.ID, State: "invited"}
+			if err := tx.Create(&membership).Error; err != nil {
+				return err
+			}
+			if err := tx.Create(&model.MembershipEvent{ID: uuid.NewString(), MembershipID: membership.ID, State: "invited", Reason: "invitation_created"}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("membership_id = ?", membership.ID).Delete(&model.MembershipRole{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&model.MembershipRole{MembershipID: membership.ID, RoleID: invitationRole.ID}).Error; err != nil {
+			return err
+		}
+
+		invit := model.Invitation{
+			ID:             uuid.NewString(),
+			OrganizationID: organizationID,
+			InvitedBy:      invitedBy,
+			Email:          email,
+			Role:           role,
+			TokenHash:      tokenHash(token),
+			ExpiresAt:      now.Add(expiresIn),
+		}
+		if err := tx.Create(&invit).Error; err != nil {
+			return err
+		}
+		view, err := s.invitationViewWithDB(tx, invit)
+		if err != nil {
+			return err
+		}
+		result = InvitationCreateResult{InvitationView: view, Token: token}
+		return nil
+	})
+	return result, err
 }
 
 func (s *AuthService) LookupInvitation(rawToken string) (InvitationView, error) {
@@ -176,6 +231,9 @@ func (s *AuthService) RevokeInvitation(organizationID, invitationID string) (Inv
 		}
 		invitation.RevokedAt = &now
 		invitation.UpdatedAt = now
+		if err := s.removePrecreatedMembership(tx, invitation); err != nil {
+			return err
+		}
 		view, err := s.invitationViewWithDB(tx, invitation)
 		if err != nil {
 			return err
@@ -283,14 +341,6 @@ func (s *AuthService) AcceptInvitation(principal Principal, rawToken string) (In
 	return result, err
 }
 
-func (s *AuthService) invitationCreateResult(invit model.Invitation, token string) (InvitationCreateResult, error) {
-	view, err := s.invitationView(invit)
-	if err != nil {
-		return InvitationCreateResult{}, err
-	}
-	return InvitationCreateResult{InvitationView: view, Token: token}, nil
-}
-
 func (s *AuthService) invitationView(invit model.Invitation) (InvitationView, error) {
 	return s.invitationViewWithDB(s.db, invit)
 }
@@ -361,4 +411,55 @@ func validInvitationRole(role string) bool {
 
 func normalizeInvitationEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func invitedDisplayName(email string) string {
+	local := strings.TrimSpace(strings.SplitN(email, "@", 2)[0])
+	if local == "" {
+		return "待激活成员"
+	}
+	value := []rune(local)
+	if len(value) > 80 {
+		value = value[:80]
+	}
+	return string(value)
+}
+
+func (s *AuthService) removePrecreatedMembership(tx *gorm.DB, invitation model.Invitation) error {
+	var user model.User
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("email = ?", invitation.Email).First(&user).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil
+		}
+		return err
+	}
+	var membership model.Membership
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("organization_id = ? AND user_id = ? AND state = ?", invitation.OrganizationID, user.ID, "invited").
+		First(&membership).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil
+		}
+		return err
+	}
+	if err := tx.Where("membership_id = ?", membership.ID).Delete(&model.MembershipRole{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("membership_id = ?", membership.ID).Delete(&model.MembershipEvent{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Delete(&membership).Error; err != nil {
+		return err
+	}
+	if user.State != "invited" {
+		return nil
+	}
+	var remaining int64
+	if err := tx.Model(&model.Membership{}).Where("user_id = ?", user.ID).Count(&remaining).Error; err != nil {
+		return err
+	}
+	if remaining == 0 {
+		return tx.Delete(&user).Error
+	}
+	return nil
 }

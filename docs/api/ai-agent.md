@@ -37,7 +37,7 @@
 当前未实现：
 
 - 面向任意智能体的通用 `AgentToolCall`、`AgentApproval` 工作流设计器；活动策划已实现领域专用批准接口；
-- 公开 Portal 问答、自动周报、多智能体和 RCON/ServerAdapter 工具。
+- 公开 Portal 问答、自动周报、多智能体和任意外部命令工具。
 
 ## 2. 权限
 
@@ -340,7 +340,7 @@ Content-Type: application/json
 }
 ```
 
-服务端只接受上述固定键，拒绝重复键、未知键和缺少 `create_project` 的里程碑操作。批准必须满足 `ai:use`、`project:manage` 和 `content:create`，并且只能执行一次。所有选中对象在同一事务中创建：项目固定为非公开，里程碑固定为 `planned`，公告固定为 `draft`；任一创建或审计失败都会整体回滚。接口没有发布、审批、邮件或 ServerAdapter/RCON 能力。
+服务端只接受上述固定键，拒绝重复键、未知键和缺少 `create_project` 的里程碑操作。批准必须满足 `ai:use`、`project:manage` 和 `content:create`，并且只能执行一次。所有选中对象在同一事务中创建：项目固定为非公开，里程碑固定为 `planned`，公告固定为 `draft`；任一创建或审计失败都会整体回滚。接口没有发布、审批、邮件或任意外部命令能力。
 
 活动策划历史按组织分页返回：
 

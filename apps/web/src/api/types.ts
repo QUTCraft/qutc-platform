@@ -112,24 +112,12 @@ export interface KnowledgeDirectory {
   updated_at: string
 }
 
-export interface ServerStatus {
-  enabled: boolean
-  label: string
-  state: 'online' | 'maintenance' | 'offline'
-  version?: string
-  online_players?: number
-  max_players?: number
-  updated_at: string
-  apply_url?: string
-}
-
 export interface AdminDashboard {
   organization_name: string
   updated_at: string
   metrics: Array<{ label: string; value: number; change?: string; tone: 'primary' | 'secondary' | 'warning' | 'neutral' }>
   pending_applications: AdminApplication[]
   recent_content: AdminContent[]
-  server: AdminServerStatus
 }
 
 export interface AdminContent {
@@ -478,7 +466,7 @@ export interface AdminInvitationSummary extends Invitation {
 }
 
 export interface ManagedRuntimeItem {
-  key: 'database' | 'cache' | 'security' | 'server'
+  key: 'database' | 'cache' | 'security'
   label: string
   state: 'deployment' | 'deferred'
   description: string
@@ -615,7 +603,6 @@ export interface AdminApplication {
   decided_at?: string | null
   decided_by?: string
   decision_reason: string
-  server_sync?: ApplicationServerSync | null
 }
 
 export interface AdminApplicationFilters {
@@ -623,42 +610,7 @@ export interface AdminApplicationFilters {
   page_size?: number
   status?: '' | AdminApplication['status']
   type?: '' | AdminApplication['type']
-  server_sync_status?: '' | 'none' | ApplicationServerSync['status']
   query?: string
-}
-
-export interface ApplicationServerSync {
-  id: string
-  operation: 'whitelist.add'
-  adapter: string
-  mode: 'disabled' | 'mock' | 'rcon'
-  status: 'pending' | 'succeeded' | 'failed'
-  attempts: number
-  message: string
-  last_error: string
-  requested_at: string
-  completed_at?: string | null
-}
-
-export interface AdminServerStatus {
-  enabled: boolean
-  adapter: string
-  mode: 'disabled' | 'mock' | 'rcon'
-  label: string
-  state: 'online' | 'maintenance' | 'offline'
-  online_players: number
-  max_players: number
-  last_command_at?: string
-  updated_at: string
-  last_error?: string
-}
-
-export interface ServerCommandResult {
-  accepted: boolean
-  executed: boolean
-  mode: 'disabled' | 'mock' | 'rcon'
-  message: string
-  executed_at: string
 }
 
 export interface PortalManifest {
@@ -671,7 +623,7 @@ export interface PortalManifest {
     mode: 'md3' | 'custom'
     tokens?: string
   }
-  capabilities: Array<'organization.read' | 'public_content.read' | 'projects.read' | 'assets.read' | 'knowledge.read' | 'server.status.read'>
+  capabilities: Array<'organization.read' | 'public_content.read' | 'projects.read' | 'assets.read' | 'knowledge.read'>
   fallback: 'md3'
   integrity?: string
 }

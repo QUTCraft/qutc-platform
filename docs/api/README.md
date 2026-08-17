@@ -4,7 +4,7 @@
 
 面向实现者的完整中文说明见 [API.md](API.md)。它解释了响应封装、认证、权限边界、字段、错误语义与调用示例；字段和路径以 `openapi.yaml` 为准。
 
-申请审批、服务器同步、失败重试、Mock 语义和受限命令的完整状态规范见 [申请审批与 ServerAdapter API 规范](server-adapter.md)。
+申请提交、人工审批、通知与审计的完整状态规范见 [申请审批 API 规范](application-review.md)。
 
 成员邀请的 SMTP 配置、组织级邀请模板、token 轮换重试、申请审批通知 Outbox 和凭据边界见 [邮件与通知适配器规范](email-adapter.md)。
 
@@ -76,6 +76,6 @@ python scripts/check-apifox-collection.py
 - Portal API 无认证，只读且只返回已发布的公开数据。
 - Auth API 负责注册、登录、刷新令牌、退出和当前会话；刷新令牌通过 HttpOnly Cookie 投递、在服务端只保存哈希并于刷新时轮换，Access Token 只驻留于前端内存。
 - Admin API 以 `/api/v1/admin` 开头，必须携带 Bearer JWT，并由服务端以组织成员身份和 RBAC 二次授权。
-- 草稿、成员隐私、审核、后台 Dashboard 和 RCON 命令只允许出现在 Admin API，绝不可从 Portal API 泄露。
+- 草稿、成员隐私、审核和后台 Dashboard 只允许出现在 Admin API，绝不可从 Portal API 泄露。
 - 资源下载地址由服务端返回受控 Portal 路径（未来可替换为短时签名 URL）；没有关联文件时返回 `null`，前端不得暴露或拼接对象存储凭据。
 - 媒体存储通过服务端 `local`/`s3` 驱动切换，MinIO/S3 bucket、对象键和凭据不属于 API 契约；配置与迁移规则见 [媒体存储适配规范](storage-adapter.md)。

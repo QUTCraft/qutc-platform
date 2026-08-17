@@ -226,7 +226,6 @@ func validPortalManifest() portalmanifest.Manifest {
 			"projects.read",
 			"assets.read",
 			"knowledge.read",
-			"server.status.read",
 		},
 		Fallback: "md3",
 	}
