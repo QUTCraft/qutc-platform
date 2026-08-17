@@ -20,9 +20,19 @@ async function loadPortalOrganization() {
   return pendingRequest
 }
 
+function setPortalOrganization(value: Organization) {
+  organization.value = value
+}
+
+function clearPortalOrganization() {
+  organization.value = null
+}
+
 export function usePortalIdentity() {
   return {
     organization: readonly(organization),
     loadPortalOrganization,
+    setPortalOrganization,
+    clearPortalOrganization,
   }
 }

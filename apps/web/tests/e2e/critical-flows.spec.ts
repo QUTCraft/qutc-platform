@@ -177,6 +177,33 @@ test('owner can open dashboard and organization settings', async ({ page }) => {
   await expect.poll(() => numberControl.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe('rgb(255, 255, 255)')
 })
 
+test('owner can configure the public logo and filing footer', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByRole('button', { name: /登录工作台/ }).click()
+  await page.locator('[data-testid="admin-nav-admin-settings"]').evaluate((element) => (element as HTMLElement).click())
+  await expect(page).toHaveURL(/\/admin\/settings$/)
+  await expect(page.getByRole('heading', { name: '组织公开资料' })).toBeVisible()
+
+  const logoInput = page.locator('.organization-logo-editor input[type="file"]')
+  await logoInput.setInputFiles({
+    name: 'organization-logo.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'),
+  })
+  await expect(page.getByText('Logo 已上传，请保存组织资料后应用到门户。')).toBeVisible()
+  await page.getByLabel('网站备案号').fill('鲁ICP备2026000000号-1')
+  await page.getByRole('button', { name: '保存组织资料', exact: true }).click()
+  await expect(page.getByText('组织公开资料已保存并立即应用到门户。')).toBeVisible()
+
+  await page.goto('/')
+  const publicLogo = page.locator('.brand-mark img')
+  await expect(publicLogo).toHaveAttribute('alt', 'QUTCraft Commons Logo')
+  await expect.poll(() => publicLogo.evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+  const filing = page.locator('.app-footer-filing')
+  await expect(filing).toHaveText('鲁ICP备2026000000号-1')
+  await expect(filing).toHaveJSProperty('tagName', 'SPAN')
+})
+
 test('login is restored by a timed cookie and expires without a stored user snapshot', async ({ page, context }) => {
   await page.goto('/login')
   await page.getByRole('button', { name: /登录工作台/ }).click()

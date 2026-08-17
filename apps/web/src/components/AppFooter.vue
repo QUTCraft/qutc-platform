@@ -5,6 +5,7 @@ import { usePortalIdentity } from '@/composables/usePortalIdentity'
 
 const { organization, loadPortalOrganization } = usePortalIdentity()
 const organizationName = computed(() => organization.value?.name ?? (organizationSlug === 'qutcraft' ? 'QUTCraft Commons' : organizationSlug))
+const filingNumber = computed(() => organization.value?.filing_number?.trim() ?? '')
 
 onMounted(() => {
   void loadPortalOrganization().catch(() => undefined)
@@ -13,7 +14,10 @@ onMounted(() => {
 
 <template>
   <footer class="app-footer">
-    <div><strong>{{ organizationName }}</strong><span> · 公共门户</span></div>
-    <p>内容由独立管理端发布；门户仅消费公开 API 数据。</p>
+    <div class="app-footer-identity"><strong>{{ organizationName }}</strong><span> · 公共门户</span></div>
+    <div class="app-footer-meta">
+      <p>内容由独立管理端发布；门户仅消费公开 API 数据。</p>
+      <span v-if="filingNumber" class="app-footer-filing">{{ filingNumber }}</span>
+    </div>
   </footer>
 </template>

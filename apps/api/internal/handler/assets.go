@@ -307,10 +307,16 @@ func (h *WorkspaceHandler) DownloadAsset(c *gin.Context) {
 	}
 	if slug := c.Param("slug"); slug != "" {
 		var organization model.Organization
-		var content model.Content
-		if h.db.Where("slug = ? AND id = ? AND is_public = ?", slug, asset.OrganizationID, true).First(&organization).Error != nil || asset.ContentID == "" || h.db.Where("id = ? AND organization_id = ? AND status = ?", asset.ContentID, asset.OrganizationID, "published").First(&content).Error != nil {
+		if h.db.Where("slug = ? AND id = ? AND is_public = ?", slug, asset.OrganizationID, true).First(&organization).Error != nil {
 			fail(c, http.StatusNotFound, "asset.not_public", "媒体资源尚未公开。")
 			return
+		}
+		if organization.LogoAssetID != asset.ID {
+			var content model.Content
+			if asset.ContentID == "" || h.db.Where("id = ? AND organization_id = ? AND status = ?", asset.ContentID, asset.OrganizationID, "published").First(&content).Error != nil {
+				fail(c, http.StatusNotFound, "asset.not_public", "媒体资源尚未公开。")
+				return
+			}
 		}
 	} else {
 		principal, ok := middleware.PrincipalFromContext(c)
@@ -439,7 +445,15 @@ func (h *WorkspaceHandler) DeleteAsset(c *gin.Context) {
 	}
 	removedContentID := ""
 	detachedContentID := asset.ContentID
+	clearedLogo := false
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&model.Organization{}).
+			Where("id = ? AND logo_asset_id = ?", principal.OrganizationID, asset.ID).
+			Update("logo_asset_id", "")
+		if result.Error != nil {
+			return result.Error
+		}
+		clearedLogo = result.RowsAffected > 0
 		if err := tx.Where("id = ? AND organization_id = ?", asset.ID, principal.OrganizationID).Delete(&model.MediaAsset{}).Error; err != nil {
 			return err
 		}
@@ -485,6 +499,7 @@ func (h *WorkspaceHandler) DeleteAsset(c *gin.Context) {
 	respond(c, http.StatusOK, gin.H{
 		"removed":             true,
 		"id":                  asset.ID,
+		"cleared_logo":        clearedLogo,
 		"detached_content_id": detachedContentValue,
 		"removed_content_id":  removedContentValue,
 	})

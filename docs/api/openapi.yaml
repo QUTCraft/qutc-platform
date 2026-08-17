@@ -71,6 +71,7 @@ paths:
       tags: [Portal]
       operationId: getPortalOrganization
       summary: 获取组织公开资料
+      description: 返回组织公开品牌、官网 Logo 同源地址和可选备案号；不返回任何管理配置或存储凭据。
       parameters:
         - $ref: '#/components/parameters/OrganizationSlug'
       responses:
@@ -783,7 +784,7 @@ paths:
       tags: [Admin]
       operationId: deleteAdminAsset
       summary: 永久删除媒体资源
-      description: 删除资产元数据和存储对象。公开文件必须先下架；删除非公开 resource 的最后一个关联文件时，同时删除对应资源记录及版本历史。动态和知识库内容只解除文件关联并保留编辑记录。
+      description: 删除资产元数据和存储对象。公开文件必须先下架；当前官网 Logo 可直接删除并自动清空组织 Logo 关联；删除非公开 resource 的最后一个关联文件时，同时删除对应资源记录及版本历史。动态和知识库内容只解除文件关联并保留编辑记录。
       security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: asset_id
@@ -825,7 +826,7 @@ paths:
     get:
       tags: [Portal]
       operationId: downloadPortalAsset
-      summary: 获取已公开媒体资源
+      summary: 获取已公开媒体资源或当前官网 Logo
       parameters:
         - $ref: '#/components/parameters/OrganizationSlug'
         - name: asset_id
@@ -833,7 +834,7 @@ paths:
           required: true
           schema: { type: string, minLength: 1, maxLength: 64 }
       responses:
-        '200': { description: 文件流；图片媒体以内联方式返回，其余类型作为附件下载 }
+        '200': { description: 已发布内容的文件流或当前组织 Logo；图片媒体以内联方式返回，其余类型作为附件下载 }
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/admin/users:
@@ -1975,7 +1976,7 @@ paths:
       tags: [Admin]
       operationId: updateAdminOrganizationProfile
       summary: 更新当前组织公开资料
-      description: 需要 organization:configure；保存后立即影响 Portal，并写入 organization.profile_update 审计。
+      description: 需要 organization:configure；可设置备案号，并引用当前组织已上传的 PNG/JPEG/WebP 资产作为官网 Logo。保存后立即影响 Portal，并写入 organization.profile_update 审计。
       security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
@@ -1991,6 +1992,7 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/admin/portal/config/enable:
     post:
       tags: [Admin]
@@ -2154,7 +2156,7 @@ components:
             redis: { type: string, enum: [ok, unavailable] }
     Organization:
       type: object
-      required: [id, slug, name, short_name, tagline, introduction, contact_email, social_links, is_public, updated_at]
+      required: [id, slug, name, short_name, tagline, introduction, contact_email, filing_number, logo_asset_id, logo_url, social_links, is_public, updated_at]
       properties:
         id: { type: string, example: org_qutcraft }
         slug: { type: string, example: qutcraft }
@@ -2165,6 +2167,17 @@ components:
         contact_email:
           oneOf:
             - { type: string, format: email }
+            - { type: string, const: '' }
+        filing_number: { type: string, maxLength: 80, description: 网站备案号；空字符串表示不在门户展示。 }
+        logo_asset_id:
+          description: 当前官网 Logo 的媒体资产 ID；空字符串表示使用内置字母标识。
+          oneOf:
+            - { type: string, format: uuid }
+            - { type: string, const: '' }
+        logo_url:
+          description: 当前官网 Logo 的同源公开读取地址；无自定义 Logo 时为空字符串。
+          oneOf:
+            - { type: string, format: uri-reference }
             - { type: string, const: '' }
         social_links:
           type: array
@@ -2178,7 +2191,7 @@ components:
         updated_at: { type: string, format: date-time }
     OrganizationProfileRequest:
       type: object
-      required: [name, short_name, tagline, introduction, contact_email, social_links, is_public]
+      required: [name, short_name, tagline, introduction, contact_email, filing_number, logo_asset_id, social_links, is_public]
       properties:
         name: { type: string, minLength: 1, maxLength: 160 }
         short_name: { type: string, minLength: 1, maxLength: 40 }
@@ -2187,6 +2200,12 @@ components:
         contact_email:
           oneOf:
             - { type: string, format: email, maxLength: 254 }
+            - { type: string, const: '' }
+        filing_number: { type: string, maxLength: 80 }
+        logo_asset_id:
+          description: 必须为空或指向当前组织已上传的 PNG/JPEG/WebP 资产。
+          oneOf:
+            - { type: string, format: uuid }
             - { type: string, const: '' }
         social_links:
           type: array
@@ -3456,10 +3475,11 @@ components:
         meta: { $ref: '#/components/schemas/ListMeta' }
     AssetDeleteResult:
       type: object
-      required: [removed, id, detached_content_id, removed_content_id]
+      required: [removed, id, cleared_logo, detached_content_id, removed_content_id]
       properties:
         removed: { type: boolean, const: true }
         id: { type: string }
+        cleared_logo: { type: boolean, description: 删除的资产是否曾是当前官网 Logo；为 true 时组织 Logo 关联已在同一事务中清空。 }
         detached_content_id: { type: [string, 'null'], description: 文件已解除关联但仍保留的非公开内容 ID；未关联或对应资源记录已一并删除时为 null。 }
         removed_content_id: { type: [string, 'null'], description: 随最后一个文件一并删除的非公开 resource 内容 ID；其余情况为 null。 }
     AssetDeleteResponse:

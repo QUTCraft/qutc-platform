@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -25,9 +26,16 @@ type organizationProfileRequest struct {
 	Tagline      string                   `json:"tagline"`
 	Introduction string                   `json:"introduction"`
 	ContactEmail string                   `json:"contact_email"`
+	FilingNumber string                   `json:"filing_number"`
+	LogoAssetID  string                   `json:"logo_asset_id"`
 	SocialLinks  []organizationSocialLink `json:"social_links"`
 	IsPublic     bool                     `json:"is_public"`
 }
+
+var (
+	errOrganizationLogoNotFound = errors.New("organization logo asset not found")
+	errOrganizationLogoInvalid  = errors.New("organization logo asset is not an image")
+)
 
 func normalizeOrganizationProfile(body organizationProfileRequest) (organizationProfileRequest, bool) {
 	body.Name = strings.TrimSpace(body.Name)
@@ -35,8 +43,18 @@ func normalizeOrganizationProfile(body organizationProfileRequest) (organization
 	body.Tagline = strings.TrimSpace(body.Tagline)
 	body.Introduction = strings.TrimSpace(body.Introduction)
 	body.ContactEmail = strings.ToLower(strings.TrimSpace(body.ContactEmail))
+	body.FilingNumber = strings.TrimSpace(body.FilingNumber)
+	body.LogoAssetID = strings.TrimSpace(body.LogoAssetID)
 	if body.Name == "" || len([]rune(body.Name)) > 160 || body.ShortName == "" || len([]rune(body.ShortName)) > 40 || len([]rune(body.Tagline)) > 160 || len([]rune(body.Introduction)) > 2000 {
 		return body, false
+	}
+	if len([]rune(body.FilingNumber)) > 80 {
+		return body, false
+	}
+	if body.LogoAssetID != "" {
+		if _, err := uuid.Parse(body.LogoAssetID); err != nil {
+			return body, false
+		}
 	}
 	if body.ContactEmail != "" {
 		parsed, err := mail.ParseAddress(body.ContactEmail)
@@ -63,10 +81,16 @@ func organizationProfileItem(organization model.Organization) gin.H {
 	if strings.TrimSpace(organization.SocialLinksJSON) != "" {
 		_ = json.Unmarshal([]byte(organization.SocialLinksJSON), &links)
 	}
+	logoURL := ""
+	if organization.LogoAssetID != "" {
+		logoURL = "/api/v1/portal/organizations/" + url.PathEscape(organization.Slug) + "/assets/" + url.PathEscape(organization.LogoAssetID) + "/download"
+	}
 	return gin.H{
 		"id": organization.ID, "slug": organization.Slug, "name": organization.Name,
 		"short_name": organization.ShortName, "tagline": organization.Tagline,
 		"introduction": organization.Introduction, "contact_email": organization.ContactEmail,
+		"filing_number": organization.FilingNumber,
+		"logo_asset_id": organization.LogoAssetID, "logo_url": logoURL,
 		"social_links": links, "is_public": organization.IsPublic, "updated_at": organization.UpdatedAt,
 	}
 }
@@ -103,16 +127,33 @@ func (h *WorkspaceHandler) AdminUpdateOrganization(c *gin.Context) {
 		if err := tx.Where("id = ?", principal.OrganizationID).First(&organization).Error; err != nil {
 			return err
 		}
+		if normalized.LogoAssetID != "" {
+			var logo model.MediaAsset
+			if err := tx.Select("id", "mime_type").Where("id = ? AND organization_id = ?", normalized.LogoAssetID, principal.OrganizationID).First(&logo).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return errOrganizationLogoNotFound
+				}
+				return err
+			}
+			if !isImageAsset(logo.MimeType) {
+				return errOrganizationLogoInvalid
+			}
+		}
 		organization.Name, organization.ShortName = normalized.Name, normalized.ShortName
 		organization.Tagline, organization.Introduction = normalized.Tagline, normalized.Introduction
-		organization.ContactEmail, organization.SocialLinksJSON, organization.IsPublic = normalized.ContactEmail, string(linksJSON), normalized.IsPublic
+		organization.ContactEmail, organization.FilingNumber = normalized.ContactEmail, normalized.FilingNumber
+		organization.LogoAssetID, organization.SocialLinksJSON, organization.IsPublic = normalized.LogoAssetID, string(linksJSON), normalized.IsPublic
 		if err := tx.Save(&organization).Error; err != nil {
 			return err
 		}
 		return tx.Create(&model.AuditEvent{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, ActorUserID: principal.UserID, Action: "organization.profile_update", TargetType: "organization", TargetID: organization.ID, Result: "success", RequestID: ensureRequestID(c)}).Error
 	})
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, errOrganizationLogoNotFound) {
+			fail(c, http.StatusNotFound, "asset.not_found", "Logo 图片不存在或不属于当前组织。")
+		} else if errors.Is(err, errOrganizationLogoInvalid) {
+			fail(c, http.StatusBadRequest, "organization.logo_invalid", "门户 Logo 必须使用 PNG、JPEG 或 WebP 图片。")
+		} else if errors.Is(err, gorm.ErrRecordNotFound) {
 			fail(c, http.StatusNotFound, "organization.not_found", "组织不存在。")
 		} else {
 			fail(c, http.StatusInternalServerError, "organization.update_failed", "组织资料保存失败。")

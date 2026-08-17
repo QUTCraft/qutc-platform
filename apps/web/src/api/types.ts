@@ -25,6 +25,9 @@ export interface Organization {
   tagline: string
   introduction: string
   contact_email: string
+  filing_number: string
+  logo_asset_id: string
+  logo_url: string
   social_links: Array<{ label: string; href: string }>
 	is_public: boolean
 	updated_at: string

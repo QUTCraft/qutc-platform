@@ -98,15 +98,18 @@ func TestValidMembershipApplicationDoesNotRequireMinecraftFields(t *testing.T) {
 func TestNormalizeOrganizationProfile(t *testing.T) {
 	value, valid := normalizeOrganizationProfile(organizationProfileRequest{
 		Name: "  Campus Makers  ", ShortName: " Makers ", ContactEmail: "TEAM@EXAMPLE.ORG",
+		FilingNumber: " 鲁ICP备2026000000号-1 ", LogoAssetID: "d7f5f777-cd40-4e28-901f-31f864793fb8",
 		SocialLinks: []organizationSocialLink{{Label: " GitHub ", Href: "https://github.com/example/project"}}, IsPublic: true,
 	})
-	if !valid || value.Name != "Campus Makers" || value.ShortName != "Makers" || value.ContactEmail != "team@example.org" {
+	if !valid || value.Name != "Campus Makers" || value.ShortName != "Makers" || value.ContactEmail != "team@example.org" || value.FilingNumber != "鲁ICP备2026000000号-1" {
 		t.Fatalf("organization profile was not normalized: %#v, valid=%v", value, valid)
 	}
 	for _, invalid := range []organizationProfileRequest{
 		{Name: "", ShortName: "Makers", IsPublic: true},
 		{Name: "Makers", ShortName: "", IsPublic: true},
 		{Name: "Makers", ShortName: "Makers", ContactEmail: "invalid", IsPublic: true},
+		{Name: "Makers", ShortName: "Makers", FilingNumber: string(make([]rune, 81)), IsPublic: true},
+		{Name: "Makers", ShortName: "Makers", LogoAssetID: "not-a-uuid", IsPublic: true},
 		{Name: "Makers", ShortName: "Makers", SocialLinks: []organizationSocialLink{{Label: "Docs", Href: "javascript:alert(1)"}}, IsPublic: true},
 	} {
 		if _, ok := normalizeOrganizationProfile(invalid); ok {

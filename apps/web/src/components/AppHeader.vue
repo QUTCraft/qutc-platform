@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Menu, UserFilled } from '@element-plus/icons-vue'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { resolveApiUrl } from '@/api/client'
 import { organizationSlug } from '@/api/portal'
 import { useApplyTransition } from '@/composables/useApplyTransition'
 import { usePortalIdentity } from '@/composables/usePortalIdentity'
@@ -13,6 +14,12 @@ const { organization, loadPortalOrganization } = usePortalIdentity()
 const isQutcraftPortal = organizationSlug === 'qutcraft'
 const organizationName = computed(() => organization.value?.name ?? (organizationSlug === 'qutcraft' ? 'QUTCraft Commons' : organizationSlug))
 const organizationSubtitle = computed(() => organization.value?.short_name ? `${organization.value.short_name} · 公共门户` : '公共门户')
+const organizationLogo = computed(() => organization.value?.logo_url ? resolveApiUrl(organization.value.logo_url) : '')
+const logoLoadFailed = ref(false)
+
+watch(organizationLogo, () => {
+  logoLoadFailed.value = false
+})
 
 const goToLogin = () => router.push({ name: 'login' })
 const goToRegister = () => router.push({ name: 'register' })
@@ -40,7 +47,10 @@ onMounted(() => {
 <template>
   <header class="app-header">
     <RouterLink class="brand" to="/" :aria-label="`${organizationName} 首页`">
-      <span class="brand-mark">Q</span>
+      <span class="brand-mark" :class="{ 'has-image': organizationLogo && !logoLoadFailed }">
+        <img v-if="organizationLogo && !logoLoadFailed" :src="organizationLogo" :alt="`${organizationName} Logo`" @error="logoLoadFailed = true" />
+        <span v-else>Q</span>
+      </span>
       <span>
         <strong>{{ organizationName }}</strong>
         <small>{{ organizationSubtitle }}</small>

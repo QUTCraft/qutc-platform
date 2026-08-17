@@ -10,6 +10,8 @@ type Organization struct {
 	Tagline                   string `gorm:"size:160;not null;default:''"`
 	Introduction              string `gorm:"size:2000;not null;default:''"`
 	ContactEmail              string `gorm:"size:254;not null;default:''"`
+	FilingNumber              string `gorm:"size:80;not null;default:''"`
+	LogoAssetID               string `gorm:"index;type:char(36);not null;default:''"`
 	SocialLinksJSON           string `gorm:"type:text;not null;default:'[]'"`
 	IsPublic                  bool   `gorm:"index;not null;default:true"`
 	InvitationSubjectTemplate string `gorm:"size:255;not null;default:''"`

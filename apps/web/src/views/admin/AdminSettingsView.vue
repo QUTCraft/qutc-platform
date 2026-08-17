@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/admin'
+import { resolveApiUrl } from '@/api/client'
+import { organizationSlug } from '@/api/portal'
 import type { IntegrationSettings, IntegrationSettingsUpdate, InvitationTemplate, NotificationOutbox, Organization, PortalConfiguration, PortalManifest } from '@/api/types'
+import { usePortalIdentity } from '@/composables/usePortalIdentity'
 import { clearPortalFallback } from '@/portal/runtime'
 
 const allowedCapabilities: Array<{ value: PortalManifest['capabilities'][number]; label: string }> = [
@@ -13,12 +16,52 @@ const allowedCapabilities: Array<{ value: PortalManifest['capabilities'][number]
   { value: 'knowledge.read', label: '公开知识库' },
 ]
 
-const organization = reactive<Pick<Organization, 'name' | 'short_name' | 'tagline' | 'introduction' | 'contact_email' | 'social_links' | 'is_public'>>({
-  name: '', short_name: '', tagline: '', introduction: '', contact_email: '', social_links: [], is_public: true,
+const organization = reactive<Pick<Organization, 'name' | 'short_name' | 'tagline' | 'introduction' | 'contact_email' | 'filing_number' | 'logo_asset_id' | 'logo_url' | 'social_links' | 'is_public'>>({
+  name: '', short_name: '', tagline: '', introduction: '', contact_email: '', filing_number: '', logo_asset_id: '', logo_url: '', social_links: [], is_public: true,
 })
 const organizationLoading = ref(false)
 const organizationSaving = ref(false)
+const logoUploading = ref(false)
+const localLogoPreview = ref('')
 const initialLoading = ref(true)
+const { setPortalOrganization } = usePortalIdentity()
+const organizationLogoPreview = computed(() => localLogoPreview.value || (organization.logo_url ? resolveApiUrl(organization.logo_url) : ''))
+
+function releaseLocalLogoPreview() {
+  if (localLogoPreview.value.startsWith('blob:')) URL.revokeObjectURL(localLogoPreview.value)
+  localLogoPreview.value = ''
+}
+
+async function uploadOrganizationLogo(file: File) {
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+    ElMessage.error('门户 Logo 仅支持 PNG、JPEG 或 WebP 图片。')
+    return false
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.error('门户 Logo 不能超过 10 MB。')
+    return false
+  }
+  logoUploading.value = true
+  try {
+    const asset = await adminApi.uploadAsset(file)
+    releaseLocalLogoPreview()
+    localLogoPreview.value = URL.createObjectURL(file)
+    organization.logo_asset_id = asset.id
+    organization.logo_url = ''
+    ElMessage.success('Logo 已上传，请保存组织资料后应用到门户。')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '门户 Logo 上传失败。')
+  } finally {
+    logoUploading.value = false
+  }
+  return false
+}
+
+function removeOrganizationLogo() {
+  releaseLocalLogoPreview()
+  organization.logo_asset_id = ''
+  organization.logo_url = ''
+}
 
 async function loadOrganization() {
   organizationLoading.value = true
@@ -34,10 +77,20 @@ async function loadOrganization() {
 async function saveOrganization() {
   organizationSaving.value = true
   try {
-    Object.assign(organization, await adminApi.updateOrganization({
-      ...organization,
+    const saved = await adminApi.updateOrganization({
+      name: organization.name,
+      short_name: organization.short_name,
+      tagline: organization.tagline,
+      introduction: organization.introduction,
+      contact_email: organization.contact_email,
+      filing_number: organization.filing_number,
+      logo_asset_id: organization.logo_asset_id,
       social_links: organization.social_links.map((link) => ({ label: link.label.trim(), href: link.href.trim() })),
-    }))
+      is_public: organization.is_public,
+    })
+    Object.assign(organization, saved)
+    releaseLocalLogoPreview()
+    if (saved.slug === organizationSlug) setPortalOrganization(saved)
     ElMessage.success('组织公开资料已保存并立即应用到门户。')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '组织资料保存失败。')
@@ -331,6 +384,8 @@ async function loadInitialSettings() {
 onMounted(() => {
   void loadInitialSettings()
 })
+
+onBeforeUnmount(releaseLocalLogoPreview)
 </script>
 
 <template>
@@ -352,6 +407,23 @@ onMounted(() => {
 		  <el-switch v-model="organization.is_public" inline-prompt active-text="公开" inactive-text="隐藏" />
 		</div>
 		<el-form :model="organization" label-position="top">
+		  <el-form-item label="官网 Logo">
+			<div class="organization-logo-editor">
+			  <div class="organization-logo-preview" :class="{ empty: !organizationLogoPreview }">
+				<img v-if="organizationLogoPreview" :src="organizationLogoPreview" alt="当前官网 Logo 预览" />
+				<strong v-else>Q</strong>
+			  </div>
+			  <div class="organization-logo-actions">
+				<div>
+				  <el-upload accept="image/png,image/jpeg,image/webp" :show-file-list="false" :before-upload="uploadOrganizationLogo">
+					<el-button type="primary" plain round :loading="logoUploading" aria-label="上传官网 Logo">上传图片</el-button>
+				  </el-upload>
+				  <el-button v-if="organization.logo_asset_id || organizationLogoPreview" text type="danger" @click="removeOrganizationLogo">移除 Logo</el-button>
+				</div>
+				<small class="field-help">支持 PNG、JPEG、WebP，最大 10 MB；建议使用方形透明底图片。上传或移除后需点击“保存组织资料”。</small>
+			  </div>
+			</div>
+		  </el-form-item>
 		  <div class="form-grid">
 			<el-form-item label="组织全称" required><el-input v-model="organization.name" maxlength="160" show-word-limit /></el-form-item>
 			<el-form-item label="组织简称" required><el-input v-model="organization.short_name" maxlength="40" show-word-limit /></el-form-item>
@@ -359,6 +431,8 @@ onMounted(() => {
 		  <el-form-item label="门户标语"><el-input v-model="organization.tagline" maxlength="160" show-word-limit /></el-form-item>
 		  <el-form-item label="组织介绍"><el-input v-model="organization.introduction" type="textarea" :rows="5" maxlength="2000" show-word-limit /></el-form-item>
 		  <el-form-item label="公开联系邮箱"><el-input v-model="organization.contact_email" type="email" placeholder="contact@example.org" /></el-form-item>
+		  <el-form-item label="网站备案号"><el-input v-model="organization.filing_number" maxlength="80" show-word-limit placeholder="例如：鲁ICP备XXXXXXXX号-X" /></el-form-item>
+		  <small class="filing-help">备案号按原样显示在门户页脚；留空时不展示。</small>
 		  <el-form-item label="公开链接">
 			<div class="social-links-editor">
 			  <div v-for="(link, index) in organization.social_links" :key="index" class="social-link-row">
@@ -655,6 +729,61 @@ onMounted(() => {
   width: 100%;
 }
 
+.organization-logo-editor {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 18px;
+  background: var(--el-fill-color-light);
+}
+
+.organization-logo-preview {
+  display: grid;
+  flex: 0 0 88px;
+  width: 88px;
+  height: 88px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--el-border-color);
+  border-radius: 22px;
+  background: var(--el-bg-color-overlay);
+}
+
+.organization-logo-preview.empty {
+  color: var(--el-color-primary);
+  background: linear-gradient(135deg, var(--el-color-primary-light-7), var(--el-color-warning-light-7));
+  font-size: 32px;
+}
+
+.organization-logo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.organization-logo-actions {
+  flex: 1;
+  min-width: 0;
+}
+
+.organization-logo-actions > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.filing-help {
+  display: block;
+  margin: -8px 0 18px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .social-link-row {
   display: grid;
   grid-template-columns: minmax(140px, .4fr) minmax(240px, 1fr) auto;
@@ -826,6 +955,11 @@ onMounted(() => {
 
   .social-link-row {
 	grid-template-columns: 1fr;
+  }
+
+  .organization-logo-editor {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .same-origin-summary,

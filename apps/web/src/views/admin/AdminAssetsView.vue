@@ -5,12 +5,14 @@ import { CircleCheck, CircleClose, CopyDocument, Delete, Document, FolderOpened,
 import { adminApi } from '@/api/admin'
 import { resolveApiUrl } from '@/api/client'
 import type { AdminContent, IntegrationSettings, MediaAsset, Page, Resource } from '@/api/types'
+import { usePortalIdentity } from '@/composables/usePortalIdentity'
 import { session } from '@/stores/session'
 import { formatBytes, formatDate } from '@/utils/format'
 
 const maxAssetSize = 10 * 1024 * 1024
 const acceptedExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp', '.pdf', '.zip', '.mp4'])
 const acceptedMimeTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'application/zip', 'video/mp4', 'application/x-zip-compressed'])
+const { clearPortalOrganization } = usePortalIdentity()
 
 type UploadState = 'waiting' | 'uploading' | 'success' | 'error'
 interface UploadTask {
@@ -282,6 +284,7 @@ async function deleteAsset(asset: MediaAsset) {
     await ElMessageBox.confirm(`确定永久删除“${asset.original_name}”？MinIO / 本地存储中的文件也会被删除，无法恢复。${linkedNotice}`, '永久删除文件', { type: 'warning', confirmButtonText: '永久删除', cancelButtonText: '取消' })
     deletingId.value = asset.id
     const removed = await adminApi.deleteAsset(asset.id)
+    if (removed.cleared_logo) clearPortalOrganization()
     uploadQueue.value = uploadQueue.value.filter((task) => task.asset?.id !== removed.id)
     if (removed.removed_content_id) {
       contentItems.value = contentItems.value.filter((item) => item.id !== removed.removed_content_id)
@@ -291,7 +294,11 @@ async function deleteAsset(asset: MediaAsset) {
       contentItems.value = contentItems.value.map((item) => item.id === removed.detached_content_id ? { ...item, asset: null } : item)
       if (selectedContentId.value === removed.detached_content_id) selectedContentId.value = ''
     }
-    ElMessage.success(removed.removed_content_id ? '文件及对应门户资源记录已永久删除。' : '文件及其存储对象已永久删除。')
+    ElMessage.success(removed.cleared_logo
+      ? '文件已永久删除，官网 Logo 已恢复为默认标识。'
+      : removed.removed_content_id
+        ? '文件及对应门户资源记录已永久删除。'
+        : '文件及其存储对象已永久删除。')
     await refreshAssets()
   } catch (error) {
     if (error === 'cancel' || error === 'close') return

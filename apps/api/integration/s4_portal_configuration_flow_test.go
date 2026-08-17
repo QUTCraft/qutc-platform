@@ -3,6 +3,8 @@
 package integration_test
 
 import (
+	"bytes"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"testing"
@@ -31,11 +33,15 @@ type portalRuntimeConfigurationDTO struct {
 
 type organizationProfileDTO struct {
 	ID           string `json:"id"`
+	Slug         string `json:"slug"`
 	Name         string `json:"name"`
 	ShortName    string `json:"short_name"`
 	Tagline      string `json:"tagline"`
 	Introduction string `json:"introduction"`
 	ContactEmail string `json:"contact_email"`
+	FilingNumber string `json:"filing_number"`
+	LogoAssetID  string `json:"logo_asset_id"`
+	LogoURL      string `json:"logo_url"`
 	SocialLinks  []struct {
 		Label string `json:"label"`
 		Href  string `json:"href"`
@@ -54,8 +60,16 @@ func TestS4OrganizationProfileAndPublicBoundary(t *testing.T) {
 		t.Fatalf("load organization: %v", err)
 	}
 	startedAt := time.Now().UTC().Add(-time.Second)
+	logoAssetID := ""
 	t.Cleanup(func() {
 		_ = db.Save(&original).Error
+		if logoAssetID != "" {
+			var assetCount int64
+			if err := db.Model(&model.MediaAsset{}).Where("id = ?", logoAssetID).Count(&assetCount).Error; err == nil && assetCount > 0 {
+				requireStatus(t, client, http.MethodDelete, cfg.apiURL+"/api/v1/admin/assets/"+logoAssetID, ownerToken, nil, http.StatusOK)
+			}
+			_ = db.Where("target_id = ? AND created_at >= ?", logoAssetID, startedAt).Delete(&model.AuditEvent{}).Error
+		}
 		_ = db.Where("target_id = ? AND action = ? AND created_at >= ?", original.ID, "organization.profile_update", startedAt).Delete(&model.AuditEvent{}).Error
 	})
 
@@ -64,15 +78,22 @@ func TestS4OrganizationProfileAndPublicBoundary(t *testing.T) {
 	requireStatus(t, client, http.MethodGet, adminURL, "", nil, http.StatusUnauthorized)
 	var current apiEnvelope[organizationProfileDTO]
 	decodeJSON(t, request(t, client, http.MethodGet, adminURL, ownerToken, nil, http.StatusOK), &current)
+	pngBytes, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatalf("decode organization logo fixture: %v", err)
+	}
+	logoAssetID = uploadAssetFixture(t, client, cfg.apiURL+"/api/v1/admin/assets", ownerToken, "", pngBytes)
 
 	payload := map[string]any{
 		"name": current.Data.Name, "short_name": current.Data.ShortName,
 		"tagline": "S4 organization profile " + uuid.NewString()[:8], "introduction": current.Data.Introduction,
-		"contact_email": current.Data.ContactEmail, "social_links": current.Data.SocialLinks, "is_public": true,
+		"contact_email": current.Data.ContactEmail, "filing_number": "鲁ICP备2026000000号-1",
+		"logo_asset_id": logoAssetID,
+		"social_links":  current.Data.SocialLinks, "is_public": true,
 	}
 	var updated apiEnvelope[organizationProfileDTO]
 	decodeJSON(t, request(t, client, http.MethodPatch, adminURL, ownerToken, payload, http.StatusOK), &updated)
-	if updated.Data.Tagline != payload["tagline"] || !updated.Data.IsPublic {
+	if updated.Data.Tagline != payload["tagline"] || updated.Data.FilingNumber != payload["filing_number"] || updated.Data.LogoAssetID != logoAssetID || updated.Data.LogoURL == "" || !updated.Data.IsPublic {
 		t.Fatalf("updated organization = %+v", updated.Data)
 	}
 	var public apiEnvelope[organizationProfileDTO]
@@ -80,6 +101,23 @@ func TestS4OrganizationProfileAndPublicBoundary(t *testing.T) {
 	if public.Data.Tagline != updated.Data.Tagline {
 		t.Fatalf("portal tagline = %q, want %q", public.Data.Tagline, updated.Data.Tagline)
 	}
+	logoResponse := request(t, client, http.MethodGet, cfg.apiURL+public.Data.LogoURL, "", nil, http.StatusOK)
+	if !bytes.Equal(logoResponse, pngBytes) {
+		t.Fatal("public organization logo differs from uploaded image")
+	}
+	var deleted apiEnvelope[struct {
+		ClearedLogo bool `json:"cleared_logo"`
+	}]
+	decodeJSON(t, request(t, client, http.MethodDelete, cfg.apiURL+"/api/v1/admin/assets/"+logoAssetID, ownerToken, nil, http.StatusOK), &deleted)
+	if !deleted.Data.ClearedLogo {
+		t.Fatal("deleting the active organization logo did not clear its reference")
+	}
+	var afterLogoDelete apiEnvelope[organizationProfileDTO]
+	decodeJSON(t, request(t, client, http.MethodGet, adminURL, ownerToken, nil, http.StatusOK), &afterLogoDelete)
+	if afterLogoDelete.Data.LogoAssetID != "" || afterLogoDelete.Data.LogoURL != "" {
+		t.Fatalf("organization logo survived asset deletion: %+v", afterLogoDelete.Data)
+	}
+	payload["logo_asset_id"] = ""
 
 	payload["is_public"] = false
 	requireStatus(t, client, http.MethodPatch, adminURL, ownerToken, payload, http.StatusOK)

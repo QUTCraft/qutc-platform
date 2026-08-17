@@ -51,6 +51,9 @@ const organization: Organization = {
   tagline: '把社团正在发生的事，认真地呈现出来。',
   introduction: 'QUTCraft 是青岛理工大学的 Minecraft 社团。我们围绕 Minecraft、创作和技术协作，持续建设属于成员的公共项目与知识资产。',
   contact_email: 'contact@qutcraft.example',
+  filing_number: '',
+  logo_asset_id: '',
+  logo_url: '',
   social_links: [
     { label: 'GitHub', href: 'https://github.com/QUTCraft/qutc-platform' },
 	{ label: '加入我们', href: 'https://qutcraft.example/join' },
@@ -67,10 +70,39 @@ const campusOrganization: Organization = {
   tagline: '让组织信息、协作与公共内容持续流动。',
   introduction: '面向校园社团与民间组织的公共门户、内容分发和协作平台。',
   contact_email: 'hello@campus-commons.example',
+  filing_number: '',
+  logo_asset_id: '',
+  logo_url: '',
   social_links: [],
   is_public: true,
   updated_at: new Date().toISOString(),
 }
+
+const mockOrganizationProfilesKey = 'qutc.mock_organization_profiles'
+
+function restoreMockOrganizationProfiles() {
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(mockOrganizationProfilesKey) ?? '{}') as Record<string, Organization>
+    if (saved[organization.slug]) Object.assign(organization, saved[organization.slug])
+    if (saved[campusOrganization.slug]) Object.assign(campusOrganization, saved[campusOrganization.slug])
+  } catch {
+    window.sessionStorage.removeItem(mockOrganizationProfilesKey)
+  }
+}
+
+function persistMockOrganizationProfiles() {
+  try {
+    window.sessionStorage.setItem(mockOrganizationProfilesKey, JSON.stringify({
+      [organization.slug]: organization,
+      [campusOrganization.slug]: campusOrganization,
+    }))
+  } catch {
+    // Large data-URL previews may exceed browser storage in mock mode. The
+    // in-memory profile remains usable for the current page in that case.
+  }
+}
+
+restoreMockOrganizationProfiles()
 
 const mockOrganizations: OrganizationMembership[] = [
   { id: 'org_qutcraft', slug: 'qutcraft', name: 'QUTCraft Commons', short_name: 'QUTCraft', roles: ['owner'], current: true },
@@ -917,6 +949,14 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     const file = formData.get('file') as File | null
     const contentID = String(formData.get('content_id') ?? '') || null
     const now = new Date().toISOString()
+    const imageDataURL = file && file.type.startsWith('image/')
+      ? await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result ?? ''))
+          reader.onerror = () => reject(reader.error ?? new Error('Mock 图片读取失败。'))
+          reader.readAsDataURL(file)
+        })
+      : ''
     const asset: MediaAsset = {
       id: assetID,
       content_id: contentID,
@@ -926,7 +966,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
       download_count: 0,
       last_downloaded_at: null,
       created_at: now,
-      download_url: `/api/v1/admin/assets/${assetID}/download`,
+      download_url: imageDataURL || `/api/v1/admin/assets/${assetID}/download`,
     }
     adminAssets = [asset, ...adminAssets]
     assetDownloadStats[assetID] = { download_count: 0, last_downloaded_at: null }
@@ -1034,6 +1074,10 @@ export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
 	if (path.endsWith('/admin/organization')) {
 		const currentOrganization = mockUser?.organization_id === campusOrganization.id ? campusOrganization : organization
 		Object.assign(currentOrganization, body as Partial<Organization>, { updated_at: new Date().toISOString() })
+		currentOrganization.logo_url = currentOrganization.logo_asset_id
+			? adminAssets.find((asset) => asset.id === currentOrganization.logo_asset_id)?.download_url ?? ''
+			: ''
+		persistMockOrganizationProfiles()
 		return structuredClone(currentOrganization) as T
 	}
 	if (path.endsWith('/admin/notifications/invitation-template')) {
@@ -1185,6 +1229,13 @@ export async function mockDelete<T>(path: string): Promise<T> {
     const content = asset.content_id ? adminContent.find((item) => item.id === asset.content_id) : undefined
     if (content?.status === 'published') throw new Error('该文件仍在门户公开，请先下架后再删除。')
     adminAssets.splice(assetIndex, 1)
+    const currentOrganization = mockUser?.organization_id === campusOrganization.id ? campusOrganization : organization
+    const clearedLogo = currentOrganization.logo_asset_id === asset.id
+    if (clearedLogo) {
+      currentOrganization.logo_asset_id = ''
+      currentOrganization.logo_url = ''
+      persistMockOrganizationProfiles()
+    }
     let removedContentId: string | null = null
     let detachedContentId: string | null = asset.content_id ?? null
     const remainingLinkedAsset = asset.content_id ? adminAssets.find((item) => item.content_id === asset.content_id) : undefined
@@ -1200,7 +1251,7 @@ export async function mockDelete<T>(path: string): Promise<T> {
       content.asset = remainingLinkedAsset ?? null
     }
     delete assetDownloadStats[assetMatch[1]]
-    return { removed: true, id: assetMatch[1], detached_content_id: detachedContentId, removed_content_id: removedContentId } as T
+    return { removed: true, id: assetMatch[1], cleared_logo: clearedLogo, detached_content_id: detachedContentId, removed_content_id: removedContentId } as T
   }
   const invitationMatch = path.match(/\/admin\/invitations\/([^/]+)$/)
   if (invitationMatch) {

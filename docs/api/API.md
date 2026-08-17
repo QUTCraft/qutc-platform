@@ -287,7 +287,7 @@ Access Cookie 默认 15 分钟有效，Refresh Cookie 与会话到期标记默�
 `GET /api/v1/portal/organizations/{organization_slug}`  
 Operation ID：`getPortalOrganization`
 
-返回官网标题、介绍、联系邮箱和可公开社交链接；不返回组织内部信息。
+返回官网标题、介绍、Logo、可选备案号、联系邮箱和可公开社交链接；不返回组织内部信息或媒体存储凭据。
 
 **200 `data` 字段**
 
@@ -300,6 +300,9 @@ Operation ID：`getPortalOrganization`
 | `tagline` | string | 门户主标语。 |
 | `introduction` | string | 门户简介正文。 |
 | `contact_email` | string(email) 或空字符串 | 可公开联系邮箱；组织不公开邮箱时为空。 |
+| `filing_number` | string 或空字符串 | 网站备案号；为空时门户页脚不展示备案号。 |
+| `logo_asset_id` | string(uuid) 或空字符串 | 当前官网 Logo 资产 ID；为空时门户使用内置字母标识。 |
+| `logo_url` | string(uri-reference) 或空字符串 | 当前 Logo 的同源公开图片地址；客户端应直接使用此字段，不自行拼接对象存储地址。 |
 | `social_links` | array | `{ label, href }` 形式的公开 HTTPS/HTTP 外链。 |
 | `is_public` | boolean | 是否允许通过 Portal API 公开访问。 |
 | `updated_at` | string(date-time) | 组织资料更新时间。 |
@@ -314,6 +317,9 @@ Operation ID：`getPortalOrganization`
     "tagline": "把社团正在发生的事，认真地呈现出来。",
     "introduction": "QUTCraft 是青岛理工大学的 Minecraft 社团。",
     "contact_email": "contact@qutcraft.example",
+	"filing_number": "鲁ICP备2026000000号-1",
+	"logo_asset_id": "d7f5f777-cd40-4e28-901f-31f864793fb8",
+	"logo_url": "/api/v1/portal/organizations/qutcraft/assets/d7f5f777-cd40-4e28-901f-31f864793fb8/download",
 	"social_links": [{ "label": "GitHub", "href": "https://github.com/QUTCraft/qutc-platform" }],
 	"is_public": true,
 	"updated_at": "2026-08-01T10:00:00Z"
@@ -324,7 +330,7 @@ Operation ID：`getPortalOrganization`
 
 可能返回：`404`（组织不存在或未启用公开门户）。
 
-后台使用 `GET /api/v1/admin/organization` 读取当前组织资料，使用 `PATCH /api/v1/admin/organization` 修改。两个端点都需要 `organization:configure`；修改在数据库事务中写入 `organization.profile_update` 审计并失效当前组织的 Portal 缓存。组织 `slug` 和内部 ID 不允许通过该接口修改。
+后台使用 `GET /api/v1/admin/organization` 读取当前组织资料，使用 `PATCH /api/v1/admin/organization` 修改。两个端点都需要 `organization:configure`；修改在数据库事务中写入 `organization.profile_update` 审计并失效当前组织的 Portal 缓存。组织 `slug` 和内部 ID 不允许通过该接口修改。`filing_number` 是按原样展示的可选字符串；`logo_asset_id` 必须为空或属于当前组织的 PNG/JPEG/WebP 资产，否则返回 `400 organization.logo_invalid` 或 `404 asset.not_found`。
 
 ### 5.2 获取公开动态
 
@@ -533,8 +539,8 @@ Operation ID：`createAdminContent`
 - `POST /api/v1/admin/assets/{asset_id}/publish`：把一个尚未关联内容的文件归档为公开 `resource`，请求体包含 `title`、`kind`（`document|template|package|video`）与可选 `description`；需要同时具备 `asset:manage` 和 `content:publish`。服务端在同一事务中创建草稿修订、发布修订、关联文件并写入审计，成功返回 `201` 和已发布的 `AdminContent`；已关联文件返回 `409 asset.already_linked`。
 - `GET /api/v1/admin/assets/{asset_id}/download`：管理端受权限保护的下载，需要 `asset:read`。
 - `GET /api/v1/admin/assets/{asset_id}/stats`：读取当前组织资产的 `download_count` 与 `last_downloaded_at`，需要 `asset:read`。
-- `DELETE /api/v1/admin/assets/{asset_id}`：永久删除资产元数据和 MinIO/S3/本地存储对象，需要 `asset:manage`。未关联文件可直接删除；仍在门户公开的文件返回 `409 asset.still_public`，必须先调用内容下线接口。删除非公开 `resource` 的最后一个关联文件时，会同步删除该门户资源记录及其版本历史，响应通过 `removed_content_id` 返回记录 ID，避免资源继续残留在“关联门户内容”候选项中；若同一资源仍有其他文件，或文件关联的是动态/知识库内容，则保留内容记录并通过 `detached_content_id` 返回其 ID。
-- `GET /api/v1/portal/organizations/{organization_slug}/assets/{asset_id}/download`：仅当资产关联的内容已发布时允许下载，不返回草稿或管理字段。
+- `DELETE /api/v1/admin/assets/{asset_id}`：永久删除资产元数据和 MinIO/S3/本地存储对象，需要 `asset:manage`。未关联文件可直接删除；若文件是当前官网 Logo，会在同一事务中清空组织 Logo 关联，并通过 `cleared_logo=true` 明确返回。仍在门户公开的内容文件返回 `409 asset.still_public`，必须先调用内容下线接口。删除非公开 `resource` 的最后一个关联文件时，会同步删除该门户资源记录及其版本历史，响应通过 `removed_content_id` 返回记录 ID，避免资源继续残留在“关联门户内容”候选项中；若同一资源仍有其他文件，或文件关联的是动态/知识库内容，则保留内容记录并通过 `detached_content_id` 返回其 ID。
+- `GET /api/v1/portal/organizations/{organization_slug}/assets/{asset_id}/download`：仅当资产关联的内容已发布，或该资产正被组织用作官网 Logo 时允许读取；不返回草稿或管理字段。
 
 上传响应只返回资产元数据和服务端生成的下载地址，并包含下载计数。上传本身不会自动公开文件；管理员可以在 `/admin/assets` 对未关联文件执行“归档到门户”，对公开文件依次执行“下架”和“删除文件”，也可以把文件关联到现有内容并通过常规内容发布流程公开。客户端不得根据原始文件名、对象存储 bucket 或资产 ID 自行拼接下载 URL。每次管理端或已公开 Portal 受控下载成功后递增计数，不记录访客身份。API 可通过 `STORAGE_DRIVER=local|s3` 使用本地目录或 MinIO/S3；存储凭据、驱动和对象键不进入公开响应。存储暂不可用时上传/下载返回 `503`，详细配置、迁移与补偿边界见 [媒体存储适配规范](storage-adapter.md)。
 

@@ -20,7 +20,7 @@ function withQuery(path: string, params: object = {}) {
 export const adminApi = {
   getDashboard: () => get<AdminDashboard>(`${adminBase}/dashboard`),
 	getOrganization: () => get<Organization>(`${adminBase}/organization`),
-	updateOrganization: (payload: Pick<Organization, 'name' | 'short_name' | 'tagline' | 'introduction' | 'contact_email' | 'social_links' | 'is_public'>) => patch<Organization>(`${adminBase}/organization`, payload),
+	updateOrganization: (payload: Pick<Organization, 'name' | 'short_name' | 'tagline' | 'introduction' | 'contact_email' | 'filing_number' | 'logo_asset_id' | 'social_links' | 'is_public'>) => patch<Organization>(`${adminBase}/organization`, payload),
   getContent: (params: PageQuery = {}) => getPage<AdminContent>(withQuery(`${adminBase}/content`, params)),
   getContentById: (id: string) => get<AdminContent>(`${adminBase}/content/${id}`),
   getContentRevisions: (id: string, params: PageQuery = {}) => getPage<ContentRevision>(withQuery(`${adminBase}/content/${id}/revisions`, params)),
@@ -38,7 +38,7 @@ export const adminApi = {
   },
   getAssets: (params: PageQuery & { query?: string } = {}) => getPage<MediaAsset>(withQuery(`${adminBase}/assets`, params)),
   publishAssetAsResource: (id: string, payload: PublishAssetResourceInput) => post<AdminContent>(`${adminBase}/assets/${id}/publish`, payload),
-  deleteAsset: (id: string) => del<{ removed: boolean; id: string; detached_content_id: string | null; removed_content_id: string | null }>(`${adminBase}/assets/${id}`),
+  deleteAsset: (id: string) => del<{ removed: boolean; id: string; cleared_logo: boolean; detached_content_id: string | null; removed_content_id: string | null }>(`${adminBase}/assets/${id}`),
   getKnowledgeDirectories: (params: PageQuery = {}) => getPage<AdminKnowledgeDirectory>(withQuery(`${adminBase}/knowledge/directories`, params)),
   createKnowledgeDirectory: (payload: Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>) => post<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories`, payload),
   updateKnowledgeDirectory: (id: string, payload: Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>) => patch<AdminKnowledgeDirectory>(`${adminBase}/knowledge/directories/${id}`, payload),
