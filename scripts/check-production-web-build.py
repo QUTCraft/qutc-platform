@@ -5,6 +5,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "apps" / "web" / "dist"
+NGINX_CONFIG = ROOT / "apps" / "web" / "nginx.conf"
 FORBIDDEN_MARKERS = {
     b"demo-admin-pass": "demo login credential",
     b"http://mock.local": "fixture API origin",
@@ -24,6 +25,11 @@ def main() -> int:
         return 1
 
     violations: list[str] = []
+    nginx_payload = NGINX_CONFIG.read_bytes()
+    image_policies = re.findall(rb"img-src\s+([^;]+);", nginx_payload, re.IGNORECASE)
+    if not image_policies or any(b"https:" not in policy for policy in image_policies):
+        violations.append("apps/web/nginx.conf does not allow HTTPS images in every Content-Security-Policy")
+
     for path in DIST.rglob("*"):
         if not path.is_file():
             continue
