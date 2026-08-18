@@ -31,9 +31,12 @@ router.onError((error) => {
 })
 
 window.addEventListener('qutc:session-expired', () => {
-  const redirect = router.currentRoute.value.fullPath
+  const currentRoute = router.currentRoute.value
+  const redirect = currentRoute.fullPath
   expireSession()
-  if (router.currentRoute.value.name !== 'login') {
+  // An anonymous/expired session is normal on the public portal. Only an
+  // authenticated workspace route should send the visitor to the login page.
+  if (currentRoute.meta.requiresAuth && currentRoute.name !== 'login') {
     void router.replace({ name: 'login', query: { redirect } })
   }
 })
