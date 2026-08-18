@@ -9,10 +9,16 @@ const apiMode = isMockApiMode ? 'mock' : 'remote'
 type MockApi = typeof import('@/api/mock')
 let mockApiPromise: Promise<MockApi> | undefined
 const loadMockApi = () => (mockApiPromise ??= import('@/api/mock'))
-// Production uses the web container's same-origin /api reverse proxy, so the
-// browser never needs an administrator-maintained API hostname. A Vite value
-// remains available for split-port local development only.
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL?.trim() || window.location.origin).replace(/\/$/, '')
+// Production always uses the web container's same-origin /api reverse proxy.
+// VITE_API_BASE_URL is intentionally honored only by the local Vite dev
+// server: baking a loopback address into a production bundle would make every
+// visitor call their own computer instead of the deployed API.
+const configuredDevelopmentApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
+const apiBaseUrl = (
+  import.meta.env.DEV && configuredDevelopmentApiBaseUrl
+    ? configuredDevelopmentApiBaseUrl
+    : window.location.origin
+).replace(/\/$/, '')
 
 export function resolveApiUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path

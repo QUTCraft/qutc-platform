@@ -5,10 +5,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
 ARG VITE_API_MODE=remote
-ARG VITE_API_BASE_URL=
 ARG VITE_ORGANIZATION_SLUG=qutcraft
 ENV VITE_API_MODE=$VITE_API_MODE
-ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 ENV VITE_ORGANIZATION_SLUG=$VITE_ORGANIZATION_SLUG
 RUN pnpm build
 

@@ -103,7 +103,6 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_MODE: remote
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
         VITE_ORGANIZATION_SLUG: ${VITE_ORGANIZATION_SLUG:-qutcraft}
     restart: unless-stopped
     ports:

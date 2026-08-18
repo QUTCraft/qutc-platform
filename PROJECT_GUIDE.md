@@ -41,15 +41,13 @@
 | MinIO API | 9000 | 9000 | storage profile，可选 |
 | MinIO Console | 9001 | 9001 | storage profile，可选 |
 
-生产和 Compose 默认由 Web 容器将同源 `/api` 代理到 API，浏览器不需要知道 API 宿主机端口。只有本地 Vite 与 API 分端口调试时才设置：
+生产和 Compose 固定由 Web 容器将同源 `/api` 代理到 API，浏览器不需要知道 API 宿主机端口。只有直接运行本地 Vite、且它与 API 分端口调试时，才在 `apps/web/.env.local` 设置：
 
 ```dotenv
-API_PORT=18080
 VITE_API_BASE_URL=http://127.0.0.1:18080
-CORS_ALLOWED_ORIGINS=http://localhost:8082,http://127.0.0.1:8082
 ```
 
-生产 `VITE_API_BASE_URL` 应留空；这样域名和宿主机端口变化不需要重建 Web。
+生产构建会忽略 `VITE_API_BASE_URL`，始终使用当前站点同源 API；这样不会把本机回环地址误打包进线上网页，域名和宿主机端口变化也不需要重建 Web。
 
 ## 2. 部署
 
@@ -287,7 +285,7 @@ Copy-Item .env.example .env.local
 pnpm dev
 ```
 
-本地 Vite 离线调试可显式设置 VITE_API_MODE=mock；生产构建会强制使用 remote。真实 Compose 联调设置：
+本地 Vite 离线调试可显式设置 VITE_API_MODE=mock；生产构建会强制使用 remote。本地 Vite 连接真实 API 时可设置：
 
 ```dotenv
 VITE_API_MODE=remote
@@ -295,7 +293,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8080
 VITE_ORGANIZATION_SLUG=qutcraft
 ```
 
-改动 VITE_* 后重启 Vite；改动 Compose 构建参数后重建 Web。前端请求集中写入 apps/web/src/api，组件不应散落 URL、Token 或组织判断。
+改动 VITE_* 后重启 Vite。Compose 与生产站点始终走同源 `/api`，不读取 `VITE_API_BASE_URL`。前端请求集中写入 apps/web/src/api，组件不应散落 URL、Token 或组织判断。
 
 ### 7.3 API
 

@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import sys
 
 
@@ -11,6 +12,9 @@ FORBIDDEN_MARKERS = {
     "QUTCraft CMS 项目正式启动".encode(): "fixture content",
     b"QUTCraft Minecraft Mock": "simulated server status",
     "开发 Mock".encode(): "development model label",
+}
+FORBIDDEN_PATTERNS = {
+    re.compile(rb"https?://(?:localhost|127\.0\.0\.1)(?::\d+)?", re.IGNORECASE): "loopback service origin",
 }
 
 
@@ -27,6 +31,9 @@ def main() -> int:
         for marker, label in FORBIDDEN_MARKERS.items():
             if marker in payload:
                 violations.append(f"{path.relative_to(ROOT)} contains {label}")
+        for pattern, label in FORBIDDEN_PATTERNS.items():
+            if pattern.search(payload):
+                violations.append(f"{path.relative_to(ROOT)} contains {label}")
 
     if violations:
         print("PRODUCTION_WEB_GUARD_FAILED:", file=sys.stderr)
@@ -34,7 +41,7 @@ def main() -> int:
             print(f"- {violation}", file=sys.stderr)
         return 1
 
-    print("PRODUCTION_WEB_GUARD_OK: production bundle contains no fixture data or development model labels")
+    print("PRODUCTION_WEB_GUARD_OK: production bundle contains no fixture data, development labels, or loopback service origins")
     return 0
 
 

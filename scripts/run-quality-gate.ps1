@@ -41,9 +41,14 @@ try {
 
     Push-Location "apps/web"
     try {
+        # Deliberately contaminate the build environment with a loopback API
+        # origin. Production code must ignore it and remain same-origin.
+        $previousViteApiBaseUrl = $env:VITE_API_BASE_URL
+        $env:VITE_API_BASE_URL = "http://127.0.0.1:18080"
         Invoke-Checked "Web typecheck and production build" { pnpm check }
     }
     finally {
+        $env:VITE_API_BASE_URL = $previousViteApiBaseUrl
         Pop-Location
     }
     Invoke-Checked "Production web fixture guard" { python scripts/check-production-web-build.py }
