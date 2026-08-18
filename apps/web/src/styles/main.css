@@ -2168,6 +2168,15 @@ h1, h2, h3, h4, h5, h6, p {
 
 .app-footer-filing {
   color: inherit;
+  text-decoration-color: color-mix(in srgb, currentColor 48%, transparent);
+  text-underline-offset: 3px;
+  transition: color 180ms ease, text-decoration-color 180ms ease;
+}
+
+.app-footer-filing:hover,
+.app-footer-filing:focus-visible {
+  color: var(--md-sys-color-primary);
+  text-decoration-color: currentColor;
 }
 
 /* Admin Workspace Overhaul Styles */

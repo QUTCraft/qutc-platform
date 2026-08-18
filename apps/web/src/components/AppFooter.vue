@@ -17,7 +17,14 @@ onMounted(() => {
     <div class="app-footer-identity"><strong>{{ organizationName }}</strong><span> · 公共门户</span></div>
     <div class="app-footer-meta">
       <p>内容由独立管理端发布；门户仅消费公开 API 数据。</p>
-      <span v-if="filingNumber" class="app-footer-filing">{{ filingNumber }}</span>
+      <a
+        v-if="filingNumber"
+        class="app-footer-filing"
+        href="https://beian.miit.gov.cn/"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="前往工业和信息化部政务服务平台查询备案信息"
+      >{{ filingNumber }}</a>
     </div>
   </footer>
 </template>

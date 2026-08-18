@@ -201,7 +201,10 @@ test('owner can configure the public logo and filing footer', async ({ page }) =
   await expect.poll(() => publicLogo.evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
   const filing = page.locator('.app-footer-filing')
   await expect(filing).toHaveText('鲁ICP备2026000000号-1')
-  await expect(filing).toHaveJSProperty('tagName', 'SPAN')
+  await expect(filing).toHaveJSProperty('tagName', 'A')
+  await expect(filing).toHaveAttribute('href', 'https://beian.miit.gov.cn/')
+  await expect(filing).toHaveAttribute('target', '_blank')
+  await expect(filing).toHaveAttribute('rel', 'noopener noreferrer')
 })
 
 test('login is restored by a timed cookie and expires without a stored user snapshot', async ({ page, context }) => {

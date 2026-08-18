@@ -432,7 +432,7 @@ onBeforeUnmount(releaseLocalLogoPreview)
 		  <el-form-item label="组织介绍"><el-input v-model="organization.introduction" type="textarea" :rows="5" maxlength="2000" show-word-limit /></el-form-item>
 		  <el-form-item label="公开联系邮箱"><el-input v-model="organization.contact_email" type="email" placeholder="contact@example.org" /></el-form-item>
 		  <el-form-item label="网站备案号"><el-input v-model="organization.filing_number" maxlength="80" show-word-limit placeholder="例如：鲁ICP备XXXXXXXX号-X" /></el-form-item>
-		  <small class="filing-help">备案号按原样显示在门户页脚；留空时不展示。</small>
+		  <small class="filing-help">备案号按原样显示在门户页脚，并链接到工信部备案查询平台；留空时不展示。</small>
 		  <el-form-item label="公开链接">
 			<div class="social-links-editor">
 			  <div v-for="(link, index) in organization.social_links" :key="index" class="social-link-row">
