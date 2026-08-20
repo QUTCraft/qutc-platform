@@ -148,7 +148,33 @@ let adminKnowledgeDirectories: AdminKnowledgeDirectory[] = knowledgeDirectories.
 
 const contentDetails: Record<string, PublicContentDetail> = {
   post_cms: { id: 'post_cms', title: 'QUTCraft CMS 项目正式启动', type: 'news', category: '社团动态', excerpt: posts[0].excerpt, body: 'QUTCraft CMS 内容闭环演示内容。我们将官网、资源分发与组织协作能力拆成清晰边界，让社团长期积累的内容能够被持续维护和公开访问。', published_at: posts[0].published_at, updated_at: posts[0].published_at, reading_minutes: 4 },
-  knowledge_handoff: { id: 'knowledge_handoff', title: '如何让社团项目可交接', type: 'knowledge', category: '项目协作', excerpt: knowledge[0].summary, body: '从目标、角色、决策记录到发布节奏，建立不依赖个人记忆的知识库。每次交接都应该留下可复用的背景、当前状态和下一步行动。', published_at: knowledge[0].updated_at, updated_at: knowledge[0].updated_at, reading_minutes: 8 },
+  knowledge_handoff: {
+    id: 'knowledge_handoff', title: '如何让社团项目可交接', type: 'knowledge', category: '项目协作', excerpt: knowledge[0].summary,
+    body: [
+      '---',
+      'code-fold: true',
+      '---',
+      '从目标、角色、决策记录到发布节奏，建立不依赖个人记忆的知识库。每次交接都应该留下可复用的背景、当前状态和下一步行动。',
+      '',
+      '```typescript',
+      'export interface ProjectHandoff {',
+      '  currentState: string',
+      '  nextActions: string[]',
+      '  decisionLog: string[]',
+      '}',
+      '```',
+      '',
+      '<code-fold: show>',
+      '```json',
+      '{',
+      '  "owner": "next-maintainer",',
+      '  "status": "ready"',
+      '}',
+      '```',
+      '</code-fold>',
+    ].join('\n'),
+    published_at: knowledge[0].updated_at, updated_at: knowledge[0].updated_at, reading_minutes: 8,
+  },
   resource_overview: { id: 'resource_overview', title: 'QUTCraft CMS 产品说明', type: 'resource', category: 'document', excerpt: resources[0].description, body: 'QUTCraft CMS 的公开产品说明与接入资料。当前资源条目没有关联可下载文件，请以管理端上传资源文件后生成受控下载地址。', published_at: resources[0].updated_at, updated_at: resources[0].updated_at, reading_minutes: 3, asset: null, download_url: null },
 }
 

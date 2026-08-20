@@ -6,8 +6,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/admin'
 import type { AdminContent, ContentRevision } from '@/api/types'
 import AIContentAssistant from '@/components/admin/AIContentAssistant.vue'
+import MarkdownContent from '@/components/MarkdownContent.vue'
 import { useAsyncData } from '@/composables/useAsyncData'
-import { renderMarkdown } from '@/utils/markdown'
 
 type ContentType = AdminContent['type']
 
@@ -49,9 +49,6 @@ const previewMarkdown = computed(() => {
   let markdown = form.body
   for (const [source, preview] of Object.entries(assetPreviewUrls.value)) markdown = markdown.split(source).join(preview)
   return markdown
-})
-const previewHtml = computed(() => {
-  return renderMarkdown(previewMarkdown.value)
 })
 
 function resetForm() {
@@ -425,7 +422,7 @@ onBeforeUnmount(() => {
           </div>
           <span class="preview-mode-label">门户正文样式</span>
         </div>
-        <div v-if="form.body.trim()" class="markdown-preview" v-html="previewHtml" />
+        <MarkdownContent v-if="form.body.trim()" class="markdown-preview" :markdown="previewMarkdown" />
         <el-empty v-else description="开始输入 Markdown，预览会显示在这里。" :image-size="96" />
       </article>
     </section>

@@ -2248,7 +2248,7 @@ components:
         type: { $ref: '#/components/schemas/PortalContentType' }
         category: { type: string, maxLength: 64 }
         excerpt: { type: string, maxLength: 500 }
-        body: { type: string, description: '标准 Markdown 正文；正文中的 CMS 媒体会以 /api/v1/portal/organizations/{organization_slug}/assets/{asset_id}/download 公开地址返回。' }
+        body: { type: string, description: '标准 Markdown 正文；可携带可选 code-fold Front Matter 或围栏代码块折叠设置；正文中的 CMS 媒体会以 /api/v1/portal/organizations/{organization_slug}/assets/{asset_id}/download 公开地址返回。' }
         published_at: { type: [string, 'null'], format: date-time }
         updated_at: { type: string, format: date-time }
         reading_minutes: { type: integer, minimum: 1 }
@@ -2403,7 +2403,7 @@ components:
         category: { type: string, maxLength: 64 }
         knowledge_directory_id: { type: [string, 'null'], maxLength: 64, description: '仅 knowledge 类型使用；必须关联当前组织中的知识库目录。' }
         excerpt: { type: string, maxLength: 500 }
-        body: { type: string, description: '标准 Markdown 正文；正文中的 CMS 媒体可使用 /api/v1/admin/assets/{asset_id}/download 链接。' }
+        body: { type: string, description: '标准 Markdown 正文；可携带可选 code-fold Front Matter 或围栏代码块折叠设置；正文中的 CMS 媒体可使用 /api/v1/admin/assets/{asset_id}/download 链接。' }
     UpdateAdminContentRequest:
       type: object
       required: [title, type]
@@ -2413,7 +2413,7 @@ components:
         category: { type: string, maxLength: 64 }
         knowledge_directory_id: { type: [string, 'null'], maxLength: 64, description: '仅 knowledge 类型使用；必须关联当前组织中的知识库目录。' }
         excerpt: { type: string, maxLength: 500 }
-        body: { type: string, description: '标准 Markdown 正文；发布后门户客户端会将 CMS 媒体链接转换为公开媒体地址。' }
+        body: { type: string, description: '标准 Markdown 正文；可携带可选 code-fold Front Matter 或围栏代码块折叠设置；发布后门户客户端会将 CMS 媒体链接转换为公开媒体地址。' }
     PublishAssetResourceRequest:
       type: object
       required: [title, kind]

@@ -4,7 +4,7 @@ import { Check, Clock, MagicStick, Refresh, Search } from '@element-plus/icons-v
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/admin'
 import type { ActivityPlan, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AIConfiguration, AIKnowledgeResult } from '@/api/types'
-import { renderMarkdown } from '@/utils/markdown'
+import MarkdownContent from '@/components/MarkdownContent.vue'
 
 const step = ref(0)
 const loadingFoundation = ref(false)
@@ -49,7 +49,6 @@ const providerLabel = computed(() => {
   if (configuration.value?.provider.mode === 'real') return '真实模型'
   return '未启用'
 })
-const planHtml = computed(() => renderMarkdown(plan.value?.run.output_markdown ?? ''))
 const activityAgentAvailable = computed(() => configuration.value?.enabled && configuration.value.provider.enabled)
 const evaluationComplete = computed(() => [evaluationForm.accuracy, evaluationForm.feasibility, evaluationForm.campus_fit, evaluationForm.clarity, evaluationForm.adoptability].every((score) => score >= 1 && score <= 5))
 const evaluationAverage = computed(() => {
@@ -444,7 +443,7 @@ function statusType(status: ActivityPlanSummary['status']) {
             <el-tag :type="plan.status === 'applied' ? 'success' : 'warning'" effect="plain">{{ plan.status === 'applied' ? '已人工批准' : '等待人工批准' }}</el-tag>
           </div>
           <div class="result-grid">
-            <article class="plan-preview markdown-body" v-html="planHtml" />
+            <MarkdownContent class="plan-preview markdown-body" :markdown="plan.run.output_markdown" />
             <aside class="plan-review">
               <section class="review-block">
                 <span class="block-label">固定引用</span>

@@ -423,6 +423,8 @@ Operation ID：`getPortalContentDetail`
 
 当 `content_id` 对应已发布且公开的 `knowledge` 内容时，响应返回 `PortalContentDetail`：`id`、`title`、`type`、`category`、`excerpt`、标准 Markdown `body`、`published_at`、`updated_at`、`reading_minutes`、可选 `asset` 与受控 `download_url`。草稿、下线内容、未公开目录文章和跨组织 ID 统一返回 `404`。正文中的 CMS 媒体必须使用服务端返回的 `/assets/{asset_id}/download` 地址；客户端不得自行拼接对象存储路径。
 
+`body` 可以在文档开头携带可选的 `code-fold` Front Matter，也可以在围栏代码块上携带单块折叠设置。服务端将其视为 Markdown 文本，不据此改变权限、状态或返回结构；默认门户负责安全渲染、代码复制和折叠交互。完整语法与自定义门户兼容要求见 [Markdown 内容编写与代码块折叠](../product/markdown-authoring.md)。
+
 `GET /api/v1/portal/organizations/{organization_slug}/knowledge/directories` 返回已公开的知识库目录及其已发布文章数量。目录字段为 `id`、`name`、`slug`、`description`、`article_count`、`updated_at`；目录不是文章正文，文章仍通过上面的文章列表接口读取。
 
 ### 5.6 提交公开加入申请

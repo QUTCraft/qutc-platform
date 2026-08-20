@@ -4,7 +4,7 @@ import { Check, Close, DocumentAdd, MagicStick, Refresh, Search } from '@element
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/admin'
 import type { AdminContent, AIAgentCatalog, AIAgentRun, AIConfiguration, AIKnowledgeResult } from '@/api/types'
-import { renderMarkdown } from '@/utils/markdown'
+import MarkdownContent from '@/components/MarkdownContent.vue'
 
 const props = defineProps<{
   modelValue: boolean
@@ -78,8 +78,6 @@ const proposalMarkdown = computed(() => {
   })
   return `${markdown}\n\n## 引用资料\n\n${references.join('\n')}`
 })
-const proposalHtml = computed(() => renderMarkdown(proposalMarkdown.value))
-const currentHtml = computed(() => renderMarkdown(props.currentBody))
 const comparisonSummary = computed(() => {
   const before = props.currentBody.trim()
   const after = proposalMarkdown.value.trim()
@@ -421,14 +419,14 @@ onBeforeUnmount(() => {
           <el-radio-button value="citations">引用资料</el-radio-button>
         </el-radio-group>
 
-        <div v-if="resultTab === 'proposal'" class="ai-markdown-preview" v-html="proposalHtml" />
+        <MarkdownContent v-if="resultTab === 'proposal'" class="ai-markdown-preview" :markdown="proposalMarkdown" />
         <div v-else-if="resultTab === 'compare'" class="ai-comparison">
           <article>
             <header>
               <strong>当前编辑器</strong>
               <span>{{ comparisonSummary.beforeCharacters }} 字符 · {{ comparisonSummary.beforeLines }} 行</span>
             </header>
-            <div v-if="currentBody.trim()" class="ai-markdown-preview" v-html="currentHtml" />
+            <MarkdownContent v-if="currentBody.trim()" class="ai-markdown-preview" :markdown="currentBody" />
             <el-empty v-else description="当前编辑器为空" :image-size="72" />
           </article>
           <article>
@@ -436,7 +434,7 @@ onBeforeUnmount(() => {
               <strong>生成提案</strong>
               <span>{{ comparisonSummary.afterCharacters }} 字符 · {{ comparisonSummary.afterLines }} 行</span>
             </header>
-            <div class="ai-markdown-preview" v-html="proposalHtml" />
+            <MarkdownContent class="ai-markdown-preview" :markdown="proposalMarkdown" />
           </article>
         </div>
         <div v-else class="ai-citation-list">

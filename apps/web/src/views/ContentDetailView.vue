@@ -2,12 +2,12 @@
 import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AsyncState from '@/components/AsyncState.vue'
+import MarkdownContent from '@/components/MarkdownContent.vue'
 import { ApiClientError, resolveApiUrl } from '@/api/client'
 import { portalApi } from '@/api/portal'
 import type { PublicContentDetail } from '@/api/types'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { formatBytes, formatDate } from '@/utils/format'
-import { renderMarkdown } from '@/utils/markdown'
 
 const props = defineProps<{ contentType: PublicContentDetail['type'] }>()
 const route = useRoute()
@@ -15,7 +15,6 @@ const { data, error, loading, refresh } = useAsyncData(() => portalApi.getConten
 const typeLabels: Record<PublicContentDetail['type'], string> = { news: '社团动态', resource: '共享资源', knowledge: '公共知识库' }
 const content = computed(() => data.value?.type === props.contentType ? data.value : undefined)
 const notFound = computed(() => !loading.value && ((error.value instanceof ApiClientError && error.value.status === 404) || (!!data.value && !content.value)))
-const bodyHtml = computed(() => renderMarkdown(content.value?.body ?? '', true))
 const backPath = computed(() => props.contentType === 'news' ? '/posts' : props.contentType === 'resource' ? '/resources' : '/knowledge')
 
 watch(() => route.params.id, () => refresh())
@@ -38,7 +37,7 @@ watch(() => route.params.id, () => refresh())
           <small>{{ formatDate(content.published_at ?? content.updated_at) }} · {{ content.reading_minutes }} 分钟阅读</small>
         </header>
 
-        <section class="content-detail-body" v-html="bodyHtml" />
+        <MarkdownContent class="content-detail-body" :markdown="content.body" public-assets />
 
         <aside v-if="content.type === 'resource'" class="content-detail-asset surface-panel">
           <div>

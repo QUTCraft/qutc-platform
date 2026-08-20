@@ -92,6 +92,31 @@ test('public portal routes remain navigable', async ({ page }) => {
   await expect(page.locator('body')).not.toContainText(/正在打开(?:管理)?页面/)
 })
 
+test('knowledge code blocks support folding and copying', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'http://127.0.0.1:4173' })
+  await page.goto('/knowledge/knowledge_handoff')
+  await expect(page.getByRole('heading', { name: '如何让社团项目可交接' })).toBeVisible()
+
+  const article = page.locator('.content-detail-body')
+  await expect(article).not.toContainText('code-fold: true')
+  const blocks = article.locator('.markdown-code-block')
+  await expect(blocks).toHaveCount(2)
+
+  const collapsedBlock = blocks.nth(0)
+  await expect(collapsedBlock.locator('details')).not.toHaveAttribute('open', '')
+  await expect(collapsedBlock.locator('code')).not.toBeVisible()
+  await collapsedBlock.getByText('展开代码', { exact: true }).click()
+  await expect(collapsedBlock.locator('code')).toBeVisible()
+  await collapsedBlock.getByRole('button', { name: '复制代码' }).click()
+  await expect(collapsedBlock.getByRole('button')).toHaveText('已复制')
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('export interface ProjectHandoff')
+
+  const expandedBlock = blocks.nth(1)
+  await expect(expandedBlock.locator('details')).toHaveAttribute('open', '')
+  await expect(expandedBlock.locator('code')).toBeVisible()
+  await expect(expandedBlock.locator('.markdown-code-language')).toHaveText('json')
+})
+
 test('public registration entry creates a member account', async ({ page }) => {
   await page.goto('/')
   const desktopRegistration = page.getByRole('button', { name: '注册成员账户' })
