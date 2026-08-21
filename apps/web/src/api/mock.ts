@@ -19,6 +19,7 @@ import type {
   AuditEvent,
   AuthUser,
   BatchInvitationResponse,
+	ContentReviewRequest,
   ContentRevision,
   EmailAdapterStatus,
   KnowledgeArticle,
@@ -179,12 +180,18 @@ const contentDetails: Record<string, PublicContentDetail> = {
 }
 
 let adminContent: AdminContent[] = [
-  { id: 'content_001', title: 'QUTCraft CMS 项目正式启动', type: 'news', status: 'published', author: 'BBKarasu', updated_at: '2026-07-17T03:00:00Z' },
-  { id: 'content_002', title: '暑期建筑活动资源包', type: 'resource', status: 'review', author: 'Lin', updated_at: '2026-07-16T08:00:00Z' },
-  { id: 'content_003', title: '自定义门户接入约定', type: 'knowledge', status: 'draft', author: 'Mori', updated_at: '2026-07-15T03:00:00Z' },
+	{ id: 'content_001', title: 'QUTCraft CMS 项目正式启动', type: 'news', status: 'published', author_user_id: 'user_bk', author: 'BBKarasu', updated_at: '2026-07-17T03:00:00Z' },
+	{ id: 'content_002', title: '暑期建筑活动资源包', type: 'resource', status: 'review', author_user_id: 'user_lin', author: 'Lin', updated_at: '2026-07-16T08:00:00Z' },
+	{ id: 'content_003', title: '自定义门户接入约定', type: 'knowledge', status: 'draft', author_user_id: 'user_mori', author: 'Mori', updated_at: '2026-07-15T03:00:00Z' },
 ]
 
 const contentRevisions: Record<string, ContentRevision[]> = {}
+const contentReviews: Record<string, ContentReviewRequest | undefined> = {}
+contentReviews.content_002 = {
+	id: 'review_content_002', type: 'publish', status: 'pending', revision_id: 'revision_content_002',
+	requester_user_id: 'user_lin', requester: 'Lin', note: '请审核暑期活动资源包。', feedback: '',
+	created_at: '2026-07-16T08:00:00Z', reviewed_at: null,
+}
 const invitationTemplate: InvitationTemplate = {
   subject_template: '【{{organization}}】邀请加入组织',
   body_template: '你好，\n\n你收到了加入 {{organization}} 的邀请。\n角色：{{role}}\n邀请链接：{{invite_url}}\n有效期至：{{expires_at}}\n',
@@ -215,11 +222,19 @@ let adminAssets: MediaAsset[] = []
 
 function recordContentRevision(content: AdminContent, reason: ContentRevision['reason']) {
   const revisions = contentRevisions[content.id] ?? []
+	const previous = revisions[0]
+	const changedFields = previous ? (['title', 'type', 'category', 'knowledge_directory_id', 'excerpt', 'body', 'status'] as const).filter((field) => {
+		if (field === 'knowledge_directory_id') return previous.knowledge_directory_id !== content.knowledge_directory_id
+		return previous[field] !== content[field]
+	}) : []
+	const previousLines = new Set((previous?.body ?? '').split('\n'))
+	const currentLines = new Set((content.body ?? '').split('\n'))
   const revision: ContentRevision = {
     id: `revision_${content.id}_${Date.now()}_${revisions.length + 1}`,
     content_id: content.id,
     version: revisions.length + 1,
     created_by: mockUser?.id ?? 'user_bk',
+		created_by_name: mockUser?.display_name ?? 'BBKarasu',
     reason,
     title: content.title,
     type: content.type,
@@ -230,10 +245,34 @@ function recordContentRevision(content: AdminContent, reason: ContentRevision['r
     body: content.body ?? '',
     published_at: content.published_at ?? null,
     created_at: new Date().toISOString(),
+		changed_fields: [...changedFields],
+		body_diff: {
+			added_lines: [...currentLines].filter((line) => !previousLines.has(line)).length,
+			removed_lines: [...previousLines].filter((line) => !currentLines.has(line)).length,
+		},
   }
   contentRevisions[content.id] = [revision, ...revisions]
   content.revision_count = contentRevisions[content.id].length
   return revision
+}
+
+function mockContentView(content: AdminContent): AdminContent {
+	const roles = mockUser?.roles ?? []
+	const canModerate = roles.includes('owner') || roles.includes('administrator')
+	const isAuthor = content.author_user_id === mockUser?.id
+	const pending = contentReviews[content.id] ?? null
+	const editableState = content.status === 'draft' || content.status === 'archived'
+	return {
+		...structuredClone(content),
+		is_author: isAuthor,
+		pending_review: pending ? structuredClone(pending) : null,
+		can_edit: editableState && (isAuthor || canModerate),
+		can_submit: editableState && (isAuthor || canModerate),
+		can_publish: canModerate && ['draft', 'review', 'archived'].includes(content.status),
+		can_archive: canModerate && content.status === 'published',
+		can_request_archive: isAuthor && content.status === 'published' && !pending,
+		can_review: canModerate && Boolean(pending),
+	}
 }
 
 function ensureContentRevisions(content: AdminContent) {
@@ -410,9 +449,9 @@ export async function mockGet<T>(path: string): Promise<T> {
     const content = adminContent.find((item) => item.id === contentDetailMatch[1])
     if (!content) throw new Error('内容不存在。')
     ensureContentRevisions(content)
-    return structuredClone(content) as T
+		return mockContentView(content) as T
   }
-	if (requestUrl.pathname.endsWith('/admin/content')) return page(adminContent) as T
+	if (requestUrl.pathname.endsWith('/admin/content')) return page(adminContent.map(mockContentView)) as T
 	if (requestUrl.pathname.endsWith('/admin/assets')) {
 		const search = requestUrl.searchParams.get('query')?.trim().toLowerCase() ?? ''
 		const pageNumber = Math.max(1, Number(requestUrl.searchParams.get('page') ?? 1))
@@ -644,6 +683,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
 			type: 'resource',
 			category: payload.kind,
 			status: 'draft',
+			author_user_id: mockUser?.id,
 			author: mockUser?.display_name ?? 'QUTCraft Admin',
 			excerpt: description,
 			body: description,
@@ -701,6 +741,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
 	if (restoreRevisionMatch) {
 		const content = adminContent.find((item) => item.id === restoreRevisionMatch[1])
 		if (!content) throw new Error('内容不存在。')
+		if (!mockContentView(content).can_edit) throw new Error('普通编辑只能恢复自己创建的草稿。')
 		ensureContentRevisions(content)
 		const revision = contentRevisions[content.id]?.find((item) => item.id === restoreRevisionMatch[2])
 		if (!revision) throw new Error('修订版本不存在。')
@@ -884,7 +925,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
 		const payload = body as Pick<AdminContent, 'title' | 'type' | 'category' | 'knowledge_directory_id' | 'excerpt' | 'body'>
 		if (payload.type === 'knowledge' && !payload.knowledge_directory_id) throw new Error('知识库文章必须关联目录。')
 		if (payload.knowledge_directory_id && !adminKnowledgeDirectories.some((directory) => directory.id === payload.knowledge_directory_id)) throw new Error('知识库目录不存在。')
-		const content: AdminContent = { id: `content_${Date.now()}`, title: payload.title, type: payload.type, category: payload.category, knowledge_directory_id: payload.knowledge_directory_id ?? null, excerpt: payload.excerpt, body: payload.body, status: 'draft', author: mockUser?.display_name ?? 'BBKarasu', updated_at: new Date().toISOString() }
+		const content: AdminContent = { id: `content_${Date.now()}`, title: payload.title, type: payload.type, category: payload.category, knowledge_directory_id: payload.knowledge_directory_id ?? null, excerpt: payload.excerpt, body: payload.body, status: 'draft', author_user_id: mockUser?.id, author: mockUser?.display_name ?? 'BBKarasu', updated_at: new Date().toISOString() }
     adminContent = [content, ...adminContent]
 		recordContentRevision(content, 'create')
     return content as T
@@ -1034,6 +1075,50 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     project.milestone_count = milestones.length
     return milestone as T
   }
+	const contentSubmit = path.match(/\/admin\/content\/([^/]+)\/submit$/)
+	if (contentSubmit) {
+		const content = adminContent.find((item) => item.id === contentSubmit[1])
+		if (!content || !mockContentView(content).can_submit) throw new Error('普通编辑只能提交自己创建的草稿。')
+		if (contentReviews[content.id]) throw new Error('该内容已有待处理审核。')
+		content.status = 'review'
+		content.published_at = null
+		content.updated_at = new Date().toISOString()
+		const revision = recordContentRevision(content, 'submitted')
+		contentReviews[content.id] = {
+			id: `review_${Date.now()}`, type: 'publish', status: 'pending', revision_id: revision.id,
+			requester_user_id: mockUser?.id ?? '', requester: mockUser?.display_name ?? '',
+			note: String((body as { note?: string })?.note ?? ''), feedback: '', created_at: new Date().toISOString(), reviewed_at: null,
+		}
+		return mockContentView(content) as T
+	}
+	const contentArchiveRequest = path.match(/\/admin\/content\/([^/]+)\/request-archive$/)
+	if (contentArchiveRequest) {
+		const content = adminContent.find((item) => item.id === contentArchiveRequest[1])
+		if (!content || !mockContentView(content).can_request_archive) throw new Error('只有原作者可以申请下线已发布内容。')
+		const revision = contentRevisions[content.id]?.[0] ?? recordContentRevision(content, 'published')
+		contentReviews[content.id] = {
+			id: `review_${Date.now()}`, type: 'archive', status: 'pending', revision_id: revision.id,
+			requester_user_id: mockUser?.id ?? '', requester: mockUser?.display_name ?? '',
+			note: String((body as { note?: string })?.note ?? ''), feedback: '', created_at: new Date().toISOString(), reviewed_at: null,
+		}
+		return mockContentView(content) as T
+	}
+	const contentReject = path.match(/\/admin\/content\/([^/]+)\/reject-review$/)
+	if (contentReject) {
+		const content = adminContent.find((item) => item.id === contentReject[1])
+		const review = content ? contentReviews[content.id] : undefined
+		if (!content || !review || !mockContentView(content).can_review) throw new Error('该内容没有可处理的审核。')
+		const feedback = String((body as { feedback?: string })?.feedback ?? '').trim()
+		if (!feedback) throw new Error('退回审核必须填写反馈。')
+		if (review.type === 'publish') {
+			content.status = 'draft'
+			content.published_at = null
+			recordContentRevision(content, 'rejected')
+		}
+		delete contentReviews[content.id]
+		content.updated_at = new Date().toISOString()
+		return mockContentView(content) as T
+	}
   const contentDecision = path.match(/\/admin\/content\/([^/]+)\/(publish|archive)$/)
   if (contentDecision) {
     const content = adminContent.find((item) => item.id === contentDecision[1])
@@ -1042,6 +1127,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     content.published_at = contentDecision[2] === 'publish' ? new Date().toISOString() : null
     content.updated_at = new Date().toISOString()
     recordContentRevision(content, contentDecision[2] === 'publish' ? 'published' : 'archived')
+		delete contentReviews[content.id]
     if (content.type === 'resource') {
       const resourceIndex = resources.findIndex((item) => item.id === content.id)
       const asset = adminAssets.find((item) => item.content_id === content.id)
@@ -1068,7 +1154,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
         }
       }
     }
-    return content as T
+		return mockContentView(content) as T
   }
   if (path.endsWith('/admin/projects')) {
     const payload = body as Pick<AdminProject, 'title' | 'summary' | 'status' | 'tags' | 'is_public'>
@@ -1211,6 +1297,7 @@ export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
   if (!match) throw new Error(`Mock endpoint not implemented: ${path}`)
   const item = adminContent.find((content) => content.id === match[1])
   if (!item) throw new Error('内容不存在。')
+	if (!mockContentView(item).can_edit) throw new Error('普通编辑只能修改自己创建的草稿。')
 	const payload = body as Pick<AdminContent, 'title' | 'type' | 'category' | 'knowledge_directory_id' | 'excerpt' | 'body'>
 	if (payload.type === 'knowledge' && !payload.knowledge_directory_id) throw new Error('知识库文章必须关联目录。')
   if (payload.knowledge_directory_id && !adminKnowledgeDirectories.some((directory) => directory.id === payload.knowledge_directory_id)) throw new Error('知识库目录不存在。')

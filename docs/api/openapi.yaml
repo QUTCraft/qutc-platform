@@ -661,6 +661,90 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/content/{content_id}/submit:
+    post:
+      tags: [Admin]
+      operationId: submitAdminContentReview
+      summary: 提交内容发布审核
+      description: 仅原作者或具有内容审核权限的管理员可提交；草稿或已下线内容进入 review 状态，在审核完成前不可继续修改。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      parameters:
+        - name: content_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContentReviewSubmitRequest' }
+      responses:
+        '200':
+          description: 审核请求已创建，内容已进入待审核状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminContentResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/content/{content_id}/request-archive:
+    post:
+      tags: [Admin]
+      operationId: requestAdminContentArchive
+      summary: 原作者申请下线已发布内容
+      description: 申请期间门户继续展示当前已发布版本；管理员批准下线后，原作者可继续编辑并重新提交审核。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      parameters:
+        - name: content_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContentReviewSubmitRequest' }
+      responses:
+        '200':
+          description: 下线申请已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminContentResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/content/{content_id}/reject-review:
+    post:
+      tags: [Admin]
+      operationId: rejectAdminContentReview
+      summary: 退回内容审核或下线申请
+      description: 发布审核退回后内容回到 draft；下线申请退回时已发布内容保持在线。反馈将写入审核记录并进入邮件通知队列。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      parameters:
+        - name: content_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContentReviewDecisionRequest' }
+      responses:
+        '200':
+          description: 审核已退回
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminContentResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/admin/content/{content_id}/archive:
     post:
       tags: [Admin]
@@ -2374,9 +2458,31 @@ components:
     AdminContentStatus:
       type: string
       enum: [draft, review, published, archived]
+    ContentReviewType:
+      type: string
+      enum: [publish, archive]
+    ContentReviewStatus:
+      type: string
+      enum: [pending, approved, rejected]
+    ContentReviewRequest:
+      type: object
+      required: [id, type, status, revision_id, requester_user_id, requester, note, feedback, reviewer_user_id, reviewer, created_at, reviewed_at]
+      properties:
+        id: { type: string }
+        type: { $ref: '#/components/schemas/ContentReviewType' }
+        status: { $ref: '#/components/schemas/ContentReviewStatus' }
+        revision_id: { type: string }
+        requester_user_id: { type: string }
+        requester: { type: string, maxLength: 80 }
+        note: { type: string, maxLength: 1000 }
+        feedback: { type: string, maxLength: 1000 }
+        reviewer_user_id: { type: [string, 'null'] }
+        reviewer: { type: [string, 'null'], maxLength: 80 }
+        created_at: { type: string, format: date-time }
+        reviewed_at: { type: [string, 'null'], format: date-time }
     AdminContent:
       type: object
-      required: [id, title, type, status, author, updated_at]
+      required: [id, title, type, status, author_user_id, author, is_author, updated_at, pending_review, can_edit, can_submit, can_publish, can_archive, can_request_archive, can_review]
       properties:
         id: { type: string }
         title: { type: string, maxLength: 160 }
@@ -2384,7 +2490,9 @@ components:
         category: { type: [string, 'null'], maxLength: 64 }
         knowledge_directory_id: { type: [string, 'null'], maxLength: 64, description: '知识库文章所属目录；type=knowledge 时必填，且必须属于当前组织。' }
         status: { $ref: '#/components/schemas/AdminContentStatus' }
+        author_user_id: { type: string }
         author: { type: string, maxLength: 80 }
+        is_author: { type: boolean }
         excerpt: { type: [string, 'null'], maxLength: 500 }
         body: { type: [string, 'null'] }
         published_at: { type: [string, 'null'], format: date-time }
@@ -2394,6 +2502,16 @@ components:
           oneOf:
             - $ref: '#/components/schemas/AdminAssetSummary'
             - type: 'null'
+        pending_review:
+          oneOf:
+            - $ref: '#/components/schemas/ContentReviewRequest'
+            - type: 'null'
+        can_edit: { type: boolean, description: '当前会话是否可编辑或恢复该内容；普通编辑仅能操作自己的 draft/archived 内容。' }
+        can_submit: { type: boolean, description: '当前会话是否可提交发布审核。' }
+        can_publish: { type: boolean, description: '当前会话是否具有审核发布权限。' }
+        can_archive: { type: boolean, description: '当前会话是否可直接下线已发布内容。' }
+        can_request_archive: { type: boolean, description: '当前会话是否为原作者且可申请下线。' }
+        can_review: { type: boolean, description: '当前会话是否可处理 pending_review。' }
     CreateAdminContentRequest:
       type: object
       required: [title, type]
@@ -2414,6 +2532,15 @@ components:
         knowledge_directory_id: { type: [string, 'null'], maxLength: 64, description: '仅 knowledge 类型使用；必须关联当前组织中的知识库目录。' }
         excerpt: { type: string, maxLength: 500 }
         body: { type: string, description: '标准 Markdown 正文；可携带可选 code-fold Front Matter 或围栏代码块折叠设置；发布后门户客户端会将 CMS 媒体链接转换为公开媒体地址。' }
+    ContentReviewSubmitRequest:
+      type: object
+      properties:
+        note: { type: string, maxLength: 1000, description: '提交审核或申请下线时给管理员的说明。' }
+    ContentReviewDecisionRequest:
+      type: object
+      required: [feedback]
+      properties:
+        feedback: { type: string, minLength: 1, maxLength: 1000, description: '退回原因；会写入审核记录并通知提交人。' }
     PublishAssetResourceRequest:
       type: object
       required: [title, kind]
@@ -3402,13 +3529,14 @@ components:
         meta: { $ref: '#/components/schemas/Meta' }
     ContentRevision:
       type: object
-      required: [id, content_id, version, created_by, reason, title, type, category, status, excerpt, published_at, created_at]
+      required: [id, content_id, version, created_by, created_by_name, reason, title, type, category, status, excerpt, published_at, created_at, changed_fields, body_diff]
       properties:
         id: { type: string }
         content_id: { type: string }
         version: { type: integer, minimum: 1 }
         created_by: { type: string }
-        reason: { type: string, enum: [create, update, published, archived, restore] }
+        created_by_name: { type: string, maxLength: 80 }
+        reason: { type: string, enum: [create, update, submitted, rejected, published, archived, restore] }
         title: { type: string, maxLength: 160 }
         type: { $ref: '#/components/schemas/AdminContentType' }
         category: { type: string, maxLength: 64 }
@@ -3418,6 +3546,8 @@ components:
         body: { type: string }
         published_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
+        changed_fields: { type: array, items: { type: string, enum: [title, type, category, knowledge_directory_id, excerpt, body, status] } }
+        body_diff: { $ref: '#/components/schemas/ContentRevisionDiff' }
     ContentRevisionListResponse:
       type: object
       required: [data, meta]
@@ -3432,13 +3562,14 @@ components:
         meta: { $ref: '#/components/schemas/Meta' }
     ContentRevisionSummary:
       type: object
-      required: [id, content_id, version, created_by, reason, title, type, category, status, excerpt, published_at, created_at]
+      required: [id, content_id, version, created_by, created_by_name, reason, title, type, category, status, excerpt, published_at, created_at, changed_fields, body_diff]
       properties:
         id: { type: string }
         content_id: { type: string }
         version: { type: integer, minimum: 1 }
         created_by: { type: string }
-        reason: { type: string, enum: [create, update, published, archived, restore] }
+        created_by_name: { type: string, maxLength: 80 }
+        reason: { type: string, enum: [create, update, submitted, rejected, published, archived, restore] }
         title: { type: string, maxLength: 160 }
         type: { $ref: '#/components/schemas/AdminContentType' }
         category: { type: string, maxLength: 64 }
@@ -3447,6 +3578,14 @@ components:
         excerpt: { type: string, maxLength: 500 }
         published_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
+        changed_fields: { type: array, items: { type: string, enum: [title, type, category, knowledge_directory_id, excerpt, body, status] } }
+        body_diff: { $ref: '#/components/schemas/ContentRevisionDiff' }
+    ContentRevisionDiff:
+      type: object
+      required: [added_lines, removed_lines]
+      properties:
+        added_lines: { type: integer, minimum: 0 }
+        removed_lines: { type: integer, minimum: 0 }
     AssetDownloadStats:
       type: object
       required: [id, download_count, last_downloaded_at]

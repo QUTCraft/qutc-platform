@@ -31,6 +31,7 @@ type WorkspaceHandler struct {
 	mediaStorage    storage.Store
 	storageResolver MediaStorageResolver
 	applications    *service.ApplicationDecisionService
+	notifications   *service.NotificationService
 	superbed        *superbed.Uploader
 }
 
@@ -77,6 +78,7 @@ func NewWorkspaceHandlerWithDependenciesAndNotifications(db *gorm.DB, publicCach
 		cacheNamespace: environment,
 		mediaStorage:   mediaStorage,
 		applications:   service.NewApplicationDecisionServiceWithNotifications(db, notifications),
+		notifications:  notifications,
 	}
 }
 
@@ -423,7 +425,7 @@ func (h *WorkspaceHandler) AdminDashboard(c *gin.Context) {
 	h.db.Where("organization_id = ?", principal.OrganizationID).Order("updated_at DESC").Limit(12).Find(&recent)
 	recentItems := make([]gin.H, 0, len(recent))
 	for _, item := range recent {
-		recentItems = append(recentItems, contentAdminItem(item, h.db))
+		recentItems = append(recentItems, h.contentAdminItem(item, principal))
 	}
 	var pendingApplications []model.Application
 	h.db.Where("organization_id = ? AND status = ?", principal.OrganizationID, "pending").Order("created_at DESC").Limit(12).Find(&pendingApplications)
@@ -450,7 +452,7 @@ func (h *WorkspaceHandler) AdminContent(c *gin.Context) {
 	}
 	items := make([]gin.H, 0, len(contents))
 	for _, item := range contents {
-		items = append(items, contentAdminItem(item, h.db))
+		items = append(items, h.contentAdminItem(item, principal))
 	}
 	pageOf(c, items)
 }
@@ -470,7 +472,7 @@ func (h *WorkspaceHandler) AdminContentDetail(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "content.detail_failed", "内容暂时无法加载。")
 		return
 	}
-	respond(c, http.StatusOK, contentAdminItem(content, h.db))
+	respond(c, http.StatusOK, h.contentAdminItem(content, principal))
 }
 
 func (h *WorkspaceHandler) AdminKnowledgeDirectories(c *gin.Context) {
@@ -685,7 +687,7 @@ func (h *WorkspaceHandler) AdminCreateContent(c *gin.Context) {
 		return
 	}
 	h.invalidatePortalCache(principal.OrganizationID)
-	respond(c, http.StatusCreated, contentAdminItem(content, h.db))
+	respond(c, http.StatusCreated, h.contentAdminItem(content, principal))
 }
 
 func (h *WorkspaceHandler) AdminUpdateContent(c *gin.Context) {
@@ -705,8 +707,20 @@ func (h *WorkspaceHandler) AdminUpdateContent(c *gin.Context) {
 		fail(c, http.StatusNotFound, "content.not_found", "内容不存在。")
 		return
 	}
-	if content.Status == "published" {
+	if err := requireContentEdit(h.db, principal, content); err != nil {
+		if errors.Is(err, errContentEditForbidden) {
+			fail(c, http.StatusForbidden, "content.author_required", "普通编辑只能修改自己创建的内容。")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "content.permission_check_failed", "内容权限校验失败。")
+		return
+	}
+	if content.Status == service.ContentStatusPublished {
 		fail(c, http.StatusConflict, "content.published_immutable", "已发布内容不能直接编辑，请先下线。")
+		return
+	}
+	if content.Status == service.ContentStatusReview {
+		fail(c, http.StatusConflict, "content.review_immutable", "内容正在审核，退回后才能继续编辑。")
 		return
 	}
 	directoryID, directoryErr := h.resolveContentDirectory(principal.OrganizationID, normalized.Type, normalized.KnowledgeDirectoryID)
@@ -730,7 +744,7 @@ func (h *WorkspaceHandler) AdminUpdateContent(c *gin.Context) {
 		return
 	}
 	h.invalidatePortalCache(principal.OrganizationID)
-	respond(c, http.StatusOK, contentAdminItem(content, h.db))
+	respond(c, http.StatusOK, h.contentAdminItem(content, principal))
 }
 
 func (h *WorkspaceHandler) PublishContent(c *gin.Context) { h.changeContentStatus(c, "published") }
@@ -773,13 +787,20 @@ func (h *WorkspaceHandler) changeContentStatus(c *gin.Context, status string) {
 		if err := createContentRevision(tx, content, principal.UserID, status); err != nil {
 			return err
 		}
+		revision, err := latestContentRevision(tx, principal.OrganizationID, content.ID)
+		if err != nil {
+			return err
+		}
+		if err := h.resolveContentReviewDecision(tx, content, revision, principal, status); err != nil {
+			return err
+		}
 		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "content."+status, "content", content.ID)
 	}); err != nil {
 		fail(c, http.StatusInternalServerError, "content.status_update_failed", "内容状态更新失败。")
 		return
 	}
 	h.invalidatePortalCache(principal.OrganizationID)
-	respond(c, http.StatusOK, contentAdminItem(content, h.db))
+	respond(c, http.StatusOK, h.contentAdminItem(content, principal))
 }
 
 func bindMarkdownAssets(db *gorm.DB, organizationID, contentID, body string) error {
@@ -862,7 +883,7 @@ func (h *WorkspaceHandler) AdminContentRevisions(c *gin.Context) {
 	}
 	items := make([]gin.H, 0, len(revisions))
 	for _, revision := range revisions {
-		items = append(items, contentRevisionItem(revision, false))
+		items = append(items, contentRevisionItem(revision, false, h.db))
 	}
 	respondWithMeta(c, http.StatusOK, items, gin.H{"page": page, "page_size": pageSize, "total": total})
 }
@@ -882,7 +903,7 @@ func (h *WorkspaceHandler) AdminContentRevisionDetail(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "content.revision_detail_failed", "内容修订版本暂时无法加载。")
 		return
 	}
-	respond(c, http.StatusOK, contentRevisionItem(revision, true))
+	respond(c, http.StatusOK, contentRevisionItem(revision, true, h.db))
 }
 
 func (h *WorkspaceHandler) RestoreContentRevision(c *gin.Context) {
@@ -899,6 +920,12 @@ func (h *WorkspaceHandler) RestoreContentRevision(c *gin.Context) {
 		}
 		if err := tx.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&content).Error; err != nil {
 			return err
+		}
+		if err := requireContentEdit(tx, principal, content); err != nil {
+			return err
+		}
+		if content.Status == service.ContentStatusPublished || content.Status == service.ContentStatusReview {
+			return errContentReviewStateInvalid
 		}
 		var directoryID *string
 		if revision.KnowledgeDirectoryID != "" {
@@ -922,15 +949,32 @@ func (h *WorkspaceHandler) RestoreContentRevision(c *gin.Context) {
 			fail(c, http.StatusNotFound, "content.revision_not_found", "内容或修订版本不存在。")
 			return
 		}
+		if errors.Is(err, errContentEditForbidden) {
+			fail(c, http.StatusForbidden, "content.author_required", "普通编辑只能恢复自己创建的内容版本。")
+			return
+		}
+		if errors.Is(err, errContentReviewStateInvalid) {
+			fail(c, http.StatusConflict, "content.revision_restore_state_invalid", "已发布或审核中的内容不能恢复版本，请先完成审核或下线。")
+			return
+		}
 		fail(c, http.StatusInternalServerError, "content.revision_restore_failed", "内容修订版本恢复失败。")
 		return
 	}
 	h.invalidatePortalCache(principal.OrganizationID)
-	respond(c, http.StatusOK, contentAdminItem(content, h.db))
+	respond(c, http.StatusOK, h.contentAdminItem(content, principal))
 }
 
-func contentRevisionItem(revision model.ContentRevision, includeBody bool) gin.H {
-	item := gin.H{"id": revision.ID, "content_id": revision.ContentID, "version": revision.Version, "created_by": revision.CreatedBy, "reason": revision.Reason, "title": revision.Title, "type": revision.Type, "category": revision.Category, "knowledge_directory_id": nil, "status": revision.Status, "excerpt": revision.Excerpt, "published_at": revision.PublishedAt, "created_at": revision.CreatedAt}
+func contentRevisionItem(revision model.ContentRevision, includeBody bool, db *gorm.DB) gin.H {
+	var creator model.User
+	_ = db.Select("display_name").First(&creator, "id = ?", revision.CreatedBy).Error
+	changedFields := []string{}
+	addedLines, removedLines := 0, 0
+	var previous model.ContentRevision
+	if revision.Version > 1 && db.Where("content_id = ? AND version = ?", revision.ContentID, revision.Version-1).First(&previous).Error == nil {
+		changedFields = contentRevisionChangedFields(previous, revision)
+		addedLines, removedLines = contentBodyDiffStats(previous.Body, revision.Body)
+	}
+	item := gin.H{"id": revision.ID, "content_id": revision.ContentID, "version": revision.Version, "created_by": revision.CreatedBy, "created_by_name": creator.DisplayName, "reason": revision.Reason, "title": revision.Title, "type": revision.Type, "category": revision.Category, "knowledge_directory_id": nil, "status": revision.Status, "excerpt": revision.Excerpt, "published_at": revision.PublishedAt, "created_at": revision.CreatedAt, "changed_fields": changedFields, "body_diff": gin.H{"added_lines": addedLines, "removed_lines": removedLines}}
 	if revision.KnowledgeDirectoryID != "" {
 		item["knowledge_directory_id"] = revision.KnowledgeDirectoryID
 	}
@@ -938,6 +982,54 @@ func contentRevisionItem(revision model.ContentRevision, includeBody bool) gin.H
 		item["body"] = revision.Body
 	}
 	return item
+}
+
+func contentRevisionChangedFields(previous, current model.ContentRevision) []string {
+	fields := make([]string, 0, 7)
+	if previous.Title != current.Title {
+		fields = append(fields, "title")
+	}
+	if previous.Type != current.Type {
+		fields = append(fields, "type")
+	}
+	if previous.Category != current.Category {
+		fields = append(fields, "category")
+	}
+	if previous.KnowledgeDirectoryID != current.KnowledgeDirectoryID {
+		fields = append(fields, "knowledge_directory_id")
+	}
+	if previous.Excerpt != current.Excerpt {
+		fields = append(fields, "excerpt")
+	}
+	if previous.Body != current.Body {
+		fields = append(fields, "body")
+	}
+	if previous.Status != current.Status {
+		fields = append(fields, "status")
+	}
+	return fields
+}
+
+func contentBodyDiffStats(previous, current string) (int, int) {
+	previousLines := strings.Split(strings.ReplaceAll(previous, "\r\n", "\n"), "\n")
+	currentLines := strings.Split(strings.ReplaceAll(current, "\r\n", "\n"), "\n")
+	counts := make(map[string]int, len(previousLines))
+	for _, line := range previousLines {
+		counts[line]++
+	}
+	added := 0
+	for _, line := range currentLines {
+		if counts[line] > 0 {
+			counts[line]--
+		} else {
+			added++
+		}
+	}
+	removed := 0
+	for _, count := range counts {
+		removed += count
+	}
+	return added, removed
 }
 
 func canTransitionContentStatus(current, target string) bool {
@@ -1007,21 +1099,49 @@ func (h *WorkspaceHandler) resourcePublicItem(slug string, content model.Content
 	return item
 }
 
-func contentAdminItem(content model.Content, db *gorm.DB) gin.H {
+func (h *WorkspaceHandler) contentAdminItem(content model.Content, principal service.Principal) gin.H {
 	var author model.User
-	_ = db.First(&author, "id = ?", content.AuthorUserID).Error
+	_ = h.db.First(&author, "id = ?", content.AuthorUserID).Error
 	var revisionCount int64
-	_ = db.Model(&model.ContentRevision{}).Where("content_id = ? AND organization_id = ?", content.ID, content.OrganizationID).Count(&revisionCount).Error
+	_ = h.db.Model(&model.ContentRevision{}).Where("content_id = ? AND organization_id = ?", content.ID, content.OrganizationID).Count(&revisionCount).Error
 	var asset model.MediaAsset
 	assetItem := interface{}(nil)
-	if db.Where("content_id = ? AND organization_id = ?", content.ID, content.OrganizationID).Order("created_at ASC").First(&asset).Error == nil {
+	if h.db.Where("content_id = ? AND organization_id = ?", content.ID, content.OrganizationID).Order("created_at ASC").First(&asset).Error == nil {
 		assetItem = gin.H{"id": asset.ID, "original_name": asset.OriginalName, "mime_type": asset.MimeType, "size_bytes": asset.SizeBytes, "download_count": asset.DownloadCount, "last_downloaded_at": asset.LastDownloadedAt, "download_url": "/api/v1/admin/assets/" + asset.ID + "/download"}
 	}
 	var directoryID interface{} = nil
 	if content.KnowledgeDirectoryID != nil && *content.KnowledgeDirectoryID != "" {
 		directoryID = *content.KnowledgeDirectoryID
 	}
-	return gin.H{"id": content.ID, "title": content.Title, "type": content.Type, "category": content.Category, "knowledge_directory_id": directoryID, "status": content.Status, "author": author.DisplayName, "excerpt": content.Excerpt, "body": content.Body, "published_at": content.PublishedAt, "updated_at": content.UpdatedAt, "revision_count": revisionCount, "asset": assetItem}
+	isAuthor := content.AuthorUserID == principal.UserID
+	canModerate, _ := principalCanModerateContent(h.db, principal)
+	canSubmitPermission, _ := principalHasPermission(h.db, principal, "content:submit")
+	canPublishPermission, _ := principalHasPermission(h.db, principal, "content:publish")
+	canArchivePermission, _ := principalHasPermission(h.db, principal, "content:archive")
+	editableState := content.Status == service.ContentStatusDraft || content.Status == service.ContentStatusArchived
+	var pendingReview any
+	var review model.ContentReviewRequest
+	if h.db.Where("organization_id = ? AND content_id = ? AND status = ?", content.OrganizationID, content.ID, contentReviewPending).Order("created_at DESC").First(&review).Error == nil {
+		pendingReview = contentReviewItem(h.db, review)
+	}
+	canReview := false
+	if pendingReview != nil {
+		canReview = (review.Type == contentReviewTypePublish && canPublishPermission) || (review.Type == contentReviewTypeArchive && canArchivePermission)
+	}
+	return gin.H{
+		"id": content.ID, "title": content.Title, "type": content.Type, "category": content.Category,
+		"knowledge_directory_id": directoryID, "status": content.Status,
+		"author_user_id": content.AuthorUserID, "author": author.DisplayName, "is_author": isAuthor,
+		"excerpt": content.Excerpt, "body": content.Body, "published_at": content.PublishedAt,
+		"updated_at": content.UpdatedAt, "revision_count": revisionCount, "asset": assetItem,
+		"pending_review":      pendingReview,
+		"can_edit":            editableState && (isAuthor || canModerate),
+		"can_submit":          editableState && canSubmitPermission && (isAuthor || canModerate),
+		"can_publish":         canPublishPermission && (content.Status == service.ContentStatusReview || content.Status == service.ContentStatusDraft || content.Status == service.ContentStatusArchived),
+		"can_archive":         canArchivePermission && content.Status == service.ContentStatusPublished,
+		"can_request_archive": isAuthor && content.Status == service.ContentStatusPublished && pendingReview == nil,
+		"can_review":          canReview,
+	}
 }
 
 func maxInt(a, b int) int {

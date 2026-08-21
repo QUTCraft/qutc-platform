@@ -73,10 +73,13 @@ func TestCanTransitionContentStatus(t *testing.T) {
 		{name: "review publishes", current: ContentStatusReview, target: ContentStatusPublished, want: true},
 		{name: "published archives", current: ContentStatusPublished, target: ContentStatusArchived, want: true},
 		{name: "archived republishes", current: ContentStatusArchived, target: ContentStatusPublished, want: true},
+		{name: "draft submits for review", current: ContentStatusDraft, target: ContentStatusReview, want: true},
+		{name: "archived submits for review", current: ContentStatusArchived, target: ContentStatusReview, want: true},
+		{name: "review returns to draft", current: ContentStatusReview, target: ContentStatusDraft, want: true},
 		{name: "draft cannot archive", current: ContentStatusDraft, target: ContentStatusArchived, want: false},
 		{name: "published cannot publish twice", current: ContentStatusPublished, target: ContentStatusPublished, want: false},
 		{name: "unknown current rejected", current: "deleted", target: ContentStatusPublished, want: false},
-		{name: "review is not directly writable", current: ContentStatusDraft, target: ContentStatusReview, want: false},
+		{name: "published cannot enter review", current: ContentStatusPublished, target: ContentStatusReview, want: false},
 	}
 
 	for _, test := range tests {

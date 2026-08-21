@@ -194,7 +194,45 @@
       ]
     },
     {
-      "name": "07 - Publish content",
+      "name": "07 - Submit content review",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"note\": \"Apifox smoke review\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/admin/content/{{contentId}}/submit",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "admin", "content", "{{contentId}}", "submit"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('content review is submitted', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().data.status).to.eql('review');",
+              "pm.expect(pm.response.json().data.pending_review.type).to.eql('publish');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07b - Approve and publish content",
       "request": {
         "method": "POST",
         "header": [
@@ -216,7 +254,8 @@
             "type": "text/javascript",
             "exec": [
               "pm.test('content is published', () => pm.response.to.have.status(200));",
-              "pm.expect(pm.response.json().data.status).to.eql('published');"
+              "pm.expect(pm.response.json().data.status).to.eql('published');",
+              "pm.expect(pm.response.json().data.pending_review).to.eql(null);"
             ]
           }
         }

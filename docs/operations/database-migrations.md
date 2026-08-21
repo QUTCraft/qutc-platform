@@ -16,7 +16,7 @@
 
 001—008 发布期间 API 使用 GORM `AutoMigrate`。检测到已有 `organizations` 表但迁移账本为空时，迁移器会登记 001—008 为历史基线，再从 009 开始执行。这一兼容分支只用于升级旧版数据卷；全新数据库从 001 开始执行。
 
-当前仓库最新版本为 `019_organization_branding.sql`。升级完成后，账本应连续包含 001—019；不能只根据某个新增列存在就跳过后续数据回填。
+当前仓库最新版本为 `020_content_review_workflow.sql`。升级完成后，账本应连续包含 001—020；不能只根据某个新增列存在就跳过后续数据回填。
 
 升级后应检查：
 
@@ -64,6 +64,8 @@ SELECT version, applied_at FROM schema_migrations ORDER BY version;
 018 为 `media_assets` 增加 `provider` 与 `external_url`，用于兼容 Superbed 等外部图床与本地/对象存储回退。既有资产以 `provider=local` 安全补齐；该迁移修复了模型字段已更新但旧数据卷缺列时上传和集成测试失败的问题。
 
 019 为 `organizations` 增加备案号字符串和官网 Logo 资产引用。Logo 引用刻意不建立跨表外键：媒体资产删除流程会在同一应用事务中清空引用，既兼容历史数据卷的 collation，也允许存储对象与元数据按现有补偿边界清理。
+
+020 新增 `content_review_requests`，持久化发布审核与下线申请的提交版本、说明、反馈、处理人和处理时间；同时把通知 Outbox 唯一键扩展为“事件 + 目标 + 收件邮箱”，允许一次内容审核安全通知多个审核者。`content_id` 与 `revision_id` 由服务事务和删除清理逻辑维护，不建立跨表外键，以兼容旧 AutoMigrate 数据卷中 `contents.id` 的历史 collation；审核请求仍固定保存不可变修订 ID，且 `review` 状态禁止改稿。
 
 5. 在空数据库再次启动，验证 001 至最新版本可完整执行。
 

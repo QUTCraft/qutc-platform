@@ -82,13 +82,17 @@ func IsContentStatus(value string) bool {
 }
 
 // CanTransitionContentStatus is the only allowed publication state machine.
-// Review is reserved for a future review endpoint, while archive is the
-// public-facing "take offline" operation.
+// Authors submit draft or archived content to review; reviewers can publish or
+// return it to draft, and published content must be archived before editing.
 func CanTransitionContentStatus(current, target string) bool {
 	if !IsContentStatus(current) || !IsContentStatus(target) || current == target {
 		return false
 	}
 	switch target {
+	case ContentStatusDraft:
+		return current == ContentStatusReview
+	case ContentStatusReview:
+		return current == ContentStatusDraft || current == ContentStatusArchived
 	case ContentStatusPublished:
 		return current == ContentStatusDraft || current == ContentStatusReview || current == ContentStatusArchived
 	case ContentStatusArchived:

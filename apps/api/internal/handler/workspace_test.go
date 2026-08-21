@@ -126,11 +126,14 @@ func TestContentStatusTransitions(t *testing.T) {
 		valid   bool
 	}{
 		{name: "draft publishes", current: "draft", target: "published", valid: true},
+		{name: "draft submits", current: "draft", target: "review", valid: true},
+		{name: "archived submits", current: "archived", target: "review", valid: true},
+		{name: "review returns to draft", current: "review", target: "draft", valid: true},
 		{name: "review publishes", current: "review", target: "published", valid: true},
 		{name: "published archives", current: "published", target: "archived", valid: true},
 		{name: "archived republishes", current: "archived", target: "published", valid: true},
 		{name: "draft cannot archive", current: "draft", target: "archived", valid: false},
-		{name: "unknown target rejected", current: "draft", target: "review", valid: false},
+		{name: "published cannot submit", current: "published", target: "review", valid: false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

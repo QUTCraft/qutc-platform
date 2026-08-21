@@ -488,13 +488,18 @@ Operation ID：`listAdminContent`
 | `type` | enum | `news`、`resource`、`knowledge`。 |
 | `category` | string | 可选分类/目录，最长 64 字符。 |
 | `status` | enum | `draft`、`review`、`published`、`archived`。 |
-| `author` | string，最多 80 字符 | 当前负责人显示名。 |
+| `author_user_id` / `author` | string | 原作者用户 ID 与显示名。原作者不会随管理员审核而改变。 |
+| `is_author` | boolean | 当前会话是否为原作者。 |
 | `updated_at` | date-time | 最后修改时刻。 |
 | `excerpt` | string | 可选门户摘要，最长 500 字符。 |
 | `body` | string | 可选正文；管理端可见，Portal 列表不返回正文。 |
 | `knowledge_directory_id` | string 或 null | 知识库内容所属目录。 |
 | `revision_count` | integer | 当前内容已有的不可变修订数量。 |
 | `asset` | object 或 null | 内容关联资产的管理端元数据、受控下载地址和下载统计。 |
+| `pending_review` | object 或 null | 当前待处理的发布审核或下线申请，含提交人、说明、版本和时间。 |
+| `can_edit` / `can_submit` | boolean | 当前会话是否能编辑、恢复或提交该内容。 |
+| `can_publish` / `can_archive` | boolean | 当前会话是否具有发布/下线权限。 |
+| `can_request_archive` / `can_review` | boolean | 当前会话是否能申请下线或处理当前审核。前端只据此呈现操作，服务端仍会再次鉴权。 |
 
 #### 获取单条后台内容
 
@@ -524,15 +529,20 @@ Operation ID：`createAdminContent`
 
 成功返回 `201` 和完整 `AdminContent`，其初始状态为 `draft`。
 
-#### 编辑、发布与下线
+#### 所有权、审核、发布与下线
 
-- `PATCH /api/v1/admin/content/{content_id}`：更新草稿标题、类型、分类、摘要和正文，需要 `content:update`；已发布内容必须先下线。
-- `POST /api/v1/admin/content/{content_id}/publish`：将草稿发布到 Portal，需要 `content:publish`。只有 `published` 内容会出现在公开动态接口。
-- `POST /api/v1/admin/content/{content_id}/archive`：下线内容，需要 `content:archive`；下线使用 `archived` 状态，不物理删除。
+- `PATCH /api/v1/admin/content/{content_id}`：更新标题、类型、分类、摘要和正文，需要 `content:update`。普通 `editor` 还必须是原作者；`review` 与 `published` 均不可修改。越权返回 `403 content.author_required`，审核中修改返回 `409 content.review_immutable`。
+- `POST /api/v1/admin/content/{content_id}/submit`：原作者把 `draft` 或 `archived` 内容提交发布审核，需要 `content:submit`，请求体为可选的 `{ "note": "修改重点" }`。内容进入 `review`，生成 `submitted` 修订快照，并向具备发布权限的成员创建邮件 Outbox 事件。
+- `POST /api/v1/admin/content/{content_id}/publish`：审核者批准并发布，需要 `content:publish`。只有 `published` 内容会出现在 Portal；对应审核请求标记为 `approved`，原作者收到上线通知。管理员仍可直接发布自己负责的草稿，但标准网页流程会先提交审核。
+- `POST /api/v1/admin/content/{content_id}/reject-review`：审核者退回发布审核或下线申请，需要审核权限，请求体 `{ "feedback": "必须修改的内容" }`。发布审核退回后状态回到 `draft`；下线申请退回时线上内容保持不变。反馈写入审核记录并通知提交人。
+- `POST /api/v1/admin/content/{content_id}/request-archive`：已发布内容的原作者申请下线，请求体为可选的 `{ "note": "需要更正正文" }`。申请待处理期间门户继续提供最后一次已发布版本。
+- `POST /api/v1/admin/content/{content_id}/archive`：具备 `content:archive` 的管理员直接下线或批准下线申请；内容进入 `archived`，Portal 缓存立即失效，原作者随后可编辑并重新提交审核。
 - `GET /api/v1/admin/content/{content_id}/revisions` 与 `GET /api/v1/admin/content/{content_id}/revisions/{revision_id}`：读取当前组织的不可变修订摘要或完整 Markdown，需要 `content:read`。
-- `POST /api/v1/admin/content/{content_id}/revisions/{revision_id}/restore`：把指定快照恢复为新的 `draft`，不会直接发布，需要 `content:update`，并写入 `content.revision_restore` 审计。
+- `POST /api/v1/admin/content/{content_id}/revisions/{revision_id}/restore`：把指定快照恢复为新的 `draft`，不会直接发布，需要 `content:update`，且同样受原作者边界约束；审核中或已发布内容必须先退回/下线。
 
-草稿创建、草稿更新、发布、下线和恢复都会生成版本号递增的快照；恢复操作保留当前内容 ID，并通过新版本记录恢复事实。015 迁移会为升级前已经存在且尚无修订的内容补齐 version 1 基线，不覆盖已有历史。当前版本接口提供完整快照，不承诺行级 diff。
+状态主路径为 `draft/archived → review → published → archived`；审核者退回发布审核时为 `review → draft`。一个内容同一时刻最多只有一条 `pending` 审核请求，重复提交返回 `409 content.review_pending`。
+
+草稿创建、草稿更新、提交审核、退回、发布、下线和恢复都会生成版本号递增的快照；恢复操作保留当前内容 ID，并通过新版本记录恢复事实。修订响应包含 `created_by_name` 编辑者标签、`changed_fields` 字段列表，以及与前一版本比较的 `body_diff.added_lines/removed_lines`。015 迁移会为旧内容补齐 version 1 基线；020 新增审核请求及多收件人通知约束。
 
 #### 媒体资源
 

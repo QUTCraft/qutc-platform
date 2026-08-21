@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
 import AsyncState from '@/components/AsyncState.vue'
 import { adminApi } from '@/api/admin'
 import type { AdminContent } from '@/api/types'
@@ -13,17 +12,6 @@ const { data, error, loading, refresh } = useAsyncData(() => adminApi.getContent
 async function changePage(value: number) {
   page.value = value
   await refresh()
-}
-
-async function changeStatus(id: string, action: 'publish' | 'archive') {
-  try {
-    if (action === 'publish') await adminApi.publishContent(id)
-    else await adminApi.archiveContent(id)
-    ElMessage.success(action === 'publish' ? '内容已发布到门户。' : '内容已下线。')
-    await refresh()
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '操作失败。')
-  }
 }
 
 function typeLabel(type: AdminContent['type']) {
@@ -62,23 +50,24 @@ function statusLabel(status: AdminContent['status']) {
             </template>
           </el-table-column>
           <el-table-column prop="author" label="负责人" width="130" />
-          <el-table-column label="状态" width="120">
+		  <el-table-column label="状态" width="170">
             <template #default="scope">
-              <el-tag :type="scope.row.status === 'published' ? 'success' : scope.row.status === 'review' ? 'warning' : scope.row.status === 'archived' ? 'info' : 'info'">
-                {{ statusLabel(scope.row.status) }}
-              </el-tag>
+			  <div class="content-status-cell">
+				<el-tag :type="scope.row.status === 'published' ? 'success' : scope.row.status === 'review' ? 'warning' : scope.row.status === 'archived' ? 'info' : 'info'">
+				  {{ statusLabel(scope.row.status) }}
+				</el-tag>
+				<small v-if="scope.row.pending_review">{{ scope.row.pending_review.type === 'publish' ? '发布审核中' : '申请下线中' }}</small>
+			  </div>
             </template>
           </el-table-column>
           <el-table-column label="最后修改" width="150">
             <template #default="scope">{{ formatDate(scope.row.updated_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="240" fixed="right">
+		  <el-table-column label="操作" width="150" fixed="right">
             <template #default="scope">
               <RouterLink :to="`/admin/content/${scope.row.id}/edit`">
-                <el-button text type="primary">编辑</el-button>
+				<el-button text type="primary">{{ scope.row.can_review ? '处理审核' : scope.row.can_edit ? '编辑' : '查看' }}</el-button>
               </RouterLink>
-              <el-button v-if="scope.row.status !== 'published'" text type="success" @click="changeStatus(scope.row.id, 'publish')">发布</el-button>
-              <el-button v-else text type="danger" @click="changeStatus(scope.row.id, 'archive')">下线</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -102,6 +91,17 @@ function statusLabel(status: AdminContent['status']) {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.content-status-cell {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+}
+
+.content-status-cell small {
+	color: var(--md-sys-color-on-surface-variant);
 }
 
 @media (max-width: 640px) {

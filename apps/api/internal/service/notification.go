@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -78,7 +79,47 @@ func (s *NotificationService) EnqueueApplicationDecision(tx *gorm.DB, applicatio
 		RecipientEmail: application.Email, Status: NotificationStatusPending, AvailableAt: now,
 		CreatedAt: now, UpdatedAt: now,
 	}
-	return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "event_type"}, {Name: "target_type"}, {Name: "target_id"}}, DoNothing: true}).Create(&item).Error
+	return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "event_type"}, {Name: "target_type"}, {Name: "target_id"}, {Name: "recipient_email"}}, DoNothing: true}).Create(&item).Error
+}
+
+func (s *NotificationService) EnqueueContentReview(tx *gorm.DB, request model.ContentReviewRequest, eventType string, recipientEmails []string) error {
+	if s == nil || tx == nil {
+		return nil
+	}
+	validEvents := map[string]bool{
+		"content.review_submitted":  true,
+		"content.review_rejected":   true,
+		"content.published":         true,
+		"content.archive_requested": true,
+		"content.archive_rejected":  true,
+		"content.archived":          true,
+	}
+	if !validEvents[eventType] {
+		return errors.New("unsupported content review notification event")
+	}
+	now := time.Now().UTC()
+	seen := make(map[string]bool, len(recipientEmails))
+	for _, rawEmail := range recipientEmails {
+		parsed, err := mail.ParseAddress(strings.TrimSpace(rawEmail))
+		if err != nil || parsed.Address == "" {
+			continue
+		}
+		email := strings.ToLower(parsed.Address)
+		if seen[email] {
+			continue
+		}
+		seen[email] = true
+		item := model.NotificationOutbox{
+			ID: uuid.NewString(), OrganizationID: request.OrganizationID,
+			EventType: eventType, TargetType: "content_review", TargetID: request.ID,
+			RecipientEmail: email, Status: NotificationStatusPending, AvailableAt: now,
+			CreatedAt: now, UpdatedAt: now,
+		}
+		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "event_type"}, {Name: "target_type"}, {Name: "target_id"}, {Name: "recipient_email"}}, DoNothing: true}).Create(&item).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *NotificationService) StartWorker(ctx context.Context, interval time.Duration) {
@@ -153,24 +194,59 @@ func (s *NotificationService) deliver(ctx context.Context, item model.Notificati
 	if sender == nil || !sender.Status().Enabled {
 		return s.finish(item, NotificationStatusDisabled, "邮件适配器未启用", nil, time.Time{})
 	}
-	var application model.Application
-	if err := s.db.Where("id = ? AND organization_id = ?", item.TargetID, item.OrganizationID).First(&application).Error; err != nil {
-		return s.finish(item, NotificationStatusFailed, "申请记录不存在", err, time.Now().UTC().Add(24*time.Hour))
-	}
 	var organization model.Organization
 	if err := s.db.Where("id = ?", item.OrganizationID).First(&organization).Error; err != nil {
 		return s.finish(item, NotificationStatusFailed, "组织记录不存在", err, time.Now().UTC().Add(24*time.Hour))
 	}
-	err := sender.SendApplicationDecision(ctx, mailadapter.ApplicationDecisionMessage{
-		RecipientEmail: application.Email, Organization: organization.Name, ApplicantName: application.ApplicantName,
-		ApplicationType: application.Type, Decision: application.Status, Reason: application.DecisionReason,
-	})
+	var err error
+	switch item.TargetType {
+	case "application":
+		var application model.Application
+		if loadErr := s.db.Where("id = ? AND organization_id = ?", item.TargetID, item.OrganizationID).First(&application).Error; loadErr != nil {
+			return s.finish(item, NotificationStatusFailed, "申请记录不存在", loadErr, time.Now().UTC().Add(24*time.Hour))
+		}
+		err = sender.SendApplicationDecision(ctx, mailadapter.ApplicationDecisionMessage{
+			RecipientEmail: application.Email, Organization: organization.Name, ApplicantName: application.ApplicantName,
+			ApplicationType: application.Type, Decision: application.Status, Reason: application.DecisionReason,
+		})
+	case "content_review":
+		message, loadErr := s.contentReviewMessage(item, organization)
+		if loadErr != nil {
+			return s.finish(item, NotificationStatusFailed, "内容审核记录不存在", loadErr, time.Now().UTC().Add(24*time.Hour))
+		}
+		err = sender.SendContentReview(ctx, message)
+	default:
+		return s.finish(item, NotificationStatusFailed, "未知通知类型", errors.New("unsupported notification target"), time.Now().UTC().Add(24*time.Hour))
+	}
 	if err != nil {
 		delay := time.Duration(item.Attempts*item.Attempts) * time.Minute
 		return s.finish(item, NotificationStatusFailed, "邮件发送失败，请稍后重试", err, time.Now().UTC().Add(delay))
 	}
 	now := time.Now().UTC()
 	return s.finish(item, NotificationStatusSent, "", nil, now)
+}
+
+func (s *NotificationService) contentReviewMessage(item model.NotificationOutbox, organization model.Organization) (mailadapter.ContentReviewMessage, error) {
+	var request model.ContentReviewRequest
+	if err := s.db.Where("id = ? AND organization_id = ?", item.TargetID, item.OrganizationID).First(&request).Error; err != nil {
+		return mailadapter.ContentReviewMessage{}, err
+	}
+	var content model.Content
+	if err := s.db.Where("id = ? AND organization_id = ?", request.ContentID, item.OrganizationID).First(&content).Error; err != nil {
+		return mailadapter.ContentReviewMessage{}, err
+	}
+	var requester, reviewer, recipient model.User
+	_ = s.db.First(&requester, "id = ?", request.RequesterUserID).Error
+	if request.ReviewerUserID != "" {
+		_ = s.db.First(&reviewer, "id = ?", request.ReviewerUserID).Error
+	}
+	_ = s.db.Where("LOWER(email) = ?", strings.ToLower(item.RecipientEmail)).First(&recipient).Error
+	return mailadapter.ContentReviewMessage{
+		RecipientEmail: item.RecipientEmail, RecipientName: recipient.DisplayName,
+		Organization: organization.Name, EventType: item.EventType, ContentTitle: content.Title,
+		RequesterName: requester.DisplayName, ReviewerName: reviewer.DisplayName,
+		Note: request.Note, Feedback: request.Feedback,
+	}, nil
 }
 
 func (s *NotificationService) finish(item model.NotificationOutbox, status, safeError string, err error, when time.Time) error {

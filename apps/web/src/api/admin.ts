@@ -28,6 +28,9 @@ export const adminApi = {
   restoreContentRevision: (contentId: string, revisionId: string) => post<AdminContent>(`${adminBase}/content/${contentId}/revisions/${revisionId}/restore`),
   createContent: (payload: Pick<AdminContent, 'title' | 'type' | 'category' | 'knowledge_directory_id' | 'excerpt' | 'body'>) => post<AdminContent>(`${adminBase}/content`, payload),
   updateContent: (id: string, payload: Pick<AdminContent, 'title' | 'type' | 'category' | 'knowledge_directory_id' | 'excerpt' | 'body'>) => patch<AdminContent>(`${adminBase}/content/${id}`, payload),
+	submitContentReview: (id: string, note = '') => post<AdminContent>(`${adminBase}/content/${id}/submit`, { note }),
+	requestContentArchive: (id: string, note = '') => post<AdminContent>(`${adminBase}/content/${id}/request-archive`, { note }),
+	rejectContentReview: (id: string, feedback: string) => post<AdminContent>(`${adminBase}/content/${id}/reject-review`, { feedback }),
   publishContent: (id: string) => post<AdminContent>(`${adminBase}/content/${id}/publish`),
   archiveContent: (id: string) => post<AdminContent>(`${adminBase}/content/${id}/archive`),
   uploadAsset: (file: File, contentId?: string) => {

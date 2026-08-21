@@ -2,7 +2,7 @@
 
 ## 1. 目标与边界
 
-当前邮件能力包含两条失败语义不同的路径：成员邀请邮件，以及申请审批结果通知。
+当前邮件能力包含三条失败语义不同的路径：成员邀请邮件、申请审批结果通知，以及内容审核通知。
 
 邀请邮件是成员邀请流程的可选外部适配器，不是邀请事务的组成部分：
 
@@ -18,6 +18,8 @@
 - 单机 worker 在事务提交后领取事件并发送；发送失败不会回滚已经生效的审批决定。
 - SMTP 禁用、失败、重试次数和脱敏错误均可由具有组织配置权限的管理员查看。
 - 当前没有申请人自助状态页、Webhook、企业微信、退信处理或多实例 worker，这些能力继续延期。
+
+内容审核同样使用持久化 Outbox。提交发布审核、审核退回、发布上线、申请下线、下线申请退回和正式下线均先在业务事务中写入通知事件，SMTP 失败不会回滚内容状态。提交/下线申请按当前组织 RBAC 查询全部具备相应审核权限的活跃成员；020 迁移把唯一约束扩展到收件邮箱，因此同一个审核事件可以安全通知多名管理员且不会重复投递给同一地址。
 
 ## 2. 服务端默认值与网页配置
 
@@ -62,8 +64,8 @@
 
 | 字段 | 语义 |
 | --- | --- |
-| `event_type` | `application.approved` 或 `application.rejected`。 |
-| `target_type` / `target_id` | 当前为 `application` 与申请 ID；与事件类型组成唯一约束，避免重复审批通知。 |
+| `event_type` | `application.approved/rejected`，或 `content.review_submitted/review_rejected/published/archive_requested/archive_rejected/archived`。 |
+| `target_type` / `target_id` | `application` 与申请 ID，或 `content_review` 与审核请求 ID。事件类型、目标和收件邮箱组成唯一约束。 |
 | `recipient_email` | 审批时申请记录中的邮箱，仅 Admin 可见。 |
 | `status` | `pending`、`sending`、`sent`、`failed`、`disabled`。 |
 | `attempts` | 已领取并尝试处理的次数；自动处理上限为 5。 |

@@ -71,6 +71,18 @@ func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
 			fail(c, http.StatusNotFound, "content.not_found", "引用的内容不存在。")
 			return
 		}
+		if err := requireContentEdit(h.db, principal, content); err != nil {
+			if errors.Is(err, errContentEditForbidden) {
+				fail(c, http.StatusForbidden, "content.author_required", "普通编辑只能为自己创建的内容上传附件。")
+				return
+			}
+			fail(c, http.StatusInternalServerError, "content.permission_check_failed", "内容权限校验失败。")
+			return
+		}
+		if content.Status == service.ContentStatusPublished || content.Status == service.ContentStatusReview {
+			fail(c, http.StatusConflict, "content.asset_upload_state_invalid", "已发布或审核中的内容不能追加附件。")
+			return
+		}
 	}
 	mimeType, sniffErr := detectAssetType(file)
 	if sniffErr != nil {
@@ -264,7 +276,7 @@ func (h *WorkspaceHandler) PublishAssetAsResource(c *gin.Context) {
 	}
 
 	h.invalidatePortalCache(principal.OrganizationID)
-	respond(c, http.StatusCreated, contentAdminItem(content, h.db))
+	respond(c, http.StatusCreated, h.contentAdminItem(content, principal))
 }
 
 func normalizeAssetResourceInput(asset model.MediaAsset, body publishAssetResourceRequest) (service.ContentInput, error) {
@@ -465,6 +477,9 @@ func (h *WorkspaceHandler) DeleteAsset(c *gin.Context) {
 				return err
 			}
 			if remainingAssets == 0 {
+				if err := deleteContentReviewRecords(tx, principal.OrganizationID, linkedContent.ID); err != nil {
+					return err
+				}
 				if err := tx.Where("content_id = ? AND organization_id = ?", linkedContent.ID, principal.OrganizationID).Delete(&model.ContentRevision{}).Error; err != nil {
 					return err
 				}

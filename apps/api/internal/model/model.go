@@ -223,6 +223,22 @@ type ContentRevision struct {
 	CreatedAt            time.Time  `gorm:"index"`
 }
 
+type ContentReviewRequest struct {
+	ID              string     `gorm:"primaryKey;type:char(36)"`
+	OrganizationID  string     `gorm:"index;type:char(36);not null"`
+	ContentID       string     `gorm:"index;type:char(36);not null"`
+	RevisionID      string     `gorm:"index;type:char(36);not null"`
+	RequesterUserID string     `gorm:"index;type:char(36);not null"`
+	Type            string     `gorm:"index;size:24;not null"`
+	Status          string     `gorm:"index;size:24;not null;default:pending"`
+	Note            string     `gorm:"size:1000;not null;default:''"`
+	Feedback        string     `gorm:"size:1000;not null;default:''"`
+	ReviewerUserID  string     `gorm:"index;type:char(36);not null;default:''"`
+	ReviewedAt      *time.Time `gorm:"index"`
+	CreatedAt       time.Time  `gorm:"index"`
+	UpdatedAt       time.Time
+}
+
 type NotificationOutbox struct {
 	ID             string     `gorm:"primaryKey;type:char(36)"`
 	OrganizationID string     `gorm:"index;type:char(36);not null"`

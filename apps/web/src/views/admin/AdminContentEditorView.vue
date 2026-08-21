@@ -21,6 +21,7 @@ const saving = ref(false)
 const publishing = ref(false)
 const assetUploading = ref(false)
 const status = ref<AdminContent['status']>('draft')
+const currentContent = ref<AdminContent | null>(null)
 const bodyEditor = ref<HTMLTextAreaElement>()
 const markdownFileInput = ref<HTMLInputElement>()
 const imageFileInput = ref<HTMLInputElement>()
@@ -43,7 +44,14 @@ const form = reactive({
 
 const contentId = computed(() => typeof route.params.id === 'string' ? route.params.id : '')
 const isNew = computed(() => !contentId.value)
-const isPublished = computed(() => status.value === 'published')
+const canEdit = computed(() => isNew.value || currentContent.value?.can_edit === true)
+const canSubmit = computed(() => !isNew.value && currentContent.value?.can_submit === true)
+const canPublish = computed(() => currentContent.value?.can_publish === true)
+const canArchive = computed(() => currentContent.value?.can_archive === true)
+const canRequestArchive = computed(() => currentContent.value?.can_request_archive === true)
+const canReview = computed(() => currentContent.value?.can_review === true)
+const pendingReview = computed(() => currentContent.value?.pending_review ?? null)
+const readOnly = computed(() => !canEdit.value)
 const statusLabel = computed(() => ({ draft: '草稿', review: '待审核', published: '已发布', archived: '已下线' })[status.value])
 const previewMarkdown = computed(() => {
   let markdown = form.body
@@ -54,9 +62,11 @@ const previewMarkdown = computed(() => {
 function resetForm() {
   Object.assign(form, { title: '', type: 'news', category: '', knowledge_directory_id: '', excerpt: '', body: '' })
   status.value = 'draft'
+	currentContent.value = null
 }
 
 function loadItem(item: AdminContent) {
+	currentContent.value = item
   Object.assign(form, {
     title: item.title,
     type: item.type,
@@ -138,8 +148,8 @@ function validateForm() {
     ElMessage.warning('知识库文章必须选择目录。')
     return false
   }
-  if (isPublished.value) {
-    ElMessage.warning('已发布内容不能直接编辑，请先下线。')
+  if (readOnly.value) {
+		ElMessage.warning(status.value === 'review' ? '内容正在审核，退回后才能继续编辑。' : '当前内容不可编辑。')
     return false
   }
   return true
@@ -158,7 +168,7 @@ async function persist(showMessage = true) {
       body: form.body,
     }
     const saved = contentId.value ? await adminApi.updateContent(contentId.value, payload) : await adminApi.createContent(payload)
-    status.value = saved.status
+		loadItem(saved)
     if (isNew.value) await router.replace({ name: 'admin-content-edit', params: { id: saved.id } })
     if (showMessage) ElMessage.success('内容草稿已保存。')
     return saved
@@ -174,13 +184,37 @@ async function saveDraft() {
   await persist()
 }
 
+async function submitReview() {
+	const saved = await persist(false)
+	if (!saved) return
+	let note = ''
+	try {
+		const result = await ElMessageBox.prompt('可填写本次修改重点，帮助管理员完成审核。', '提交发布审核', {
+			confirmButtonText: '提交审核', cancelButtonText: '取消', inputType: 'textarea',
+			inputPlaceholder: '选填，最多 1000 字', inputValidator: (value) => [...value].length <= 1000 || '提交说明不能超过 1000 字。',
+		})
+		note = result.value
+	} catch {
+		return
+	}
+	publishing.value = true
+	try {
+		loadItem(await adminApi.submitContentReview(saved.id, note))
+		await loadRevisions()
+		ElMessage.success('已提交审核，管理员处理后会通过邮件通知。')
+	} catch (error) {
+		ElMessage.error(error instanceof Error ? error.message : '提交审核失败。')
+	} finally {
+		publishing.value = false
+	}
+}
+
 async function publish() {
-  const saved = await persist(false)
-  if (!saved) return
+	if (!contentId.value || !canPublish.value) return
   publishing.value = true
   try {
-    const published = await adminApi.publishContent(saved.id)
-    status.value = published.status
+		loadItem(await adminApi.publishContent(contentId.value))
+		await loadRevisions()
     ElMessage.success('内容已发布到门户。')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '内容发布失败。')
@@ -190,17 +224,79 @@ async function publish() {
 }
 
 async function archive() {
-  if (!contentId.value || status.value !== 'published') return
+	if (!contentId.value || !canArchive.value) return
+	try {
+		await ElMessageBox.confirm(pendingReview.value?.type === 'archive' ? '确认批准作者的下线申请？' : '确认立即将该内容从门户下线？', '下线内容', { confirmButtonText: '确认下线', cancelButtonText: '取消', type: 'warning' })
+	} catch {
+		return
+	}
   publishing.value = true
   try {
-    const archived = await adminApi.archiveContent(contentId.value)
-    status.value = archived.status
+		loadItem(await adminApi.archiveContent(contentId.value))
+		await loadRevisions()
     ElMessage.success('内容已下线。')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '内容下线失败。')
   } finally {
     publishing.value = false
   }
+}
+
+async function requestArchive() {
+	if (!contentId.value || !canRequestArchive.value) return
+	let note = ''
+	try {
+		const result = await ElMessageBox.prompt('请说明需要下线并修改的原因。', '申请下线', {
+			confirmButtonText: '提交申请', cancelButtonText: '取消', inputType: 'textarea',
+			inputPlaceholder: '例如：正文中存在需要更正的信息', inputValidator: (value) => [...value].length <= 1000 || '下线说明不能超过 1000 字。',
+		})
+		note = result.value
+	} catch {
+		return
+	}
+	publishing.value = true
+	try {
+		loadItem(await adminApi.requestContentArchive(contentId.value, note))
+		ElMessage.success('下线申请已提交，内容在管理员处理前仍保持公开。')
+	} catch (error) {
+		ElMessage.error(error instanceof Error ? error.message : '下线申请提交失败。')
+	} finally {
+		publishing.value = false
+	}
+}
+
+async function rejectReview() {
+	if (!contentId.value || !canReview.value) return
+	const reviewType = pendingReview.value?.type
+	let feedback = ''
+	try {
+		const result = await ElMessageBox.prompt('退回后作者会收到邮件，并可继续编辑草稿。', '退回审核', {
+			confirmButtonText: '确认退回', cancelButtonText: '取消', inputType: 'textarea',
+			inputPlaceholder: '必填，说明需要调整的内容',
+			inputValidator: (value) => value.trim().length > 0 && [...value.trim()].length <= 1000 || '请填写 1 至 1000 字的审核反馈。',
+		})
+		feedback = result.value
+	} catch {
+		return
+	}
+	publishing.value = true
+	try {
+		loadItem(await adminApi.rejectContentReview(contentId.value, feedback))
+		await loadRevisions()
+		ElMessage.success(reviewType === 'archive' ? '下线申请已退回。' : '审核已退回给作者。')
+	} catch (error) {
+		ElMessage.error(error instanceof Error ? error.message : '退回审核失败。')
+	} finally {
+		publishing.value = false
+	}
+}
+
+function revisionReasonLabel(reason: ContentRevision['reason']) {
+	return ({ create: '创建草稿', update: '保存修改', submitted: '提交审核', rejected: '审核退回', published: '发布上线', archived: '下线', restore: '恢复版本' } as const)[reason]
+}
+
+function revisionFieldLabel(field: string) {
+	return ({ title: '标题', type: '类型', category: '分类', knowledge_directory_id: '知识目录', excerpt: '摘要', body: '正文', status: '状态' } as Record<string, string>)[field] ?? field
 }
 
 function insertMarkdown(before: string, after = '', placeholder = '文本') {
@@ -244,6 +340,7 @@ function importMarkdown(event: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
+	if (readOnly.value) return
   void file.text().then((content) => {
     form.body = content
     if (!form.title.trim()) {
@@ -335,36 +432,47 @@ onBeforeUnmount(() => {
           <h2>{{ isNew ? '新建内容' : '编辑内容' }}</h2>
           <el-tag :type="status === 'published' ? 'success' : status === 'archived' ? 'info' : 'warning'" effect="plain">{{ statusLabel }}</el-tag>
         </div>
-        <p>使用标准 Markdown 编写正文，右侧预览会随输入即时更新。</p>
+		<p>{{ readOnly ? (status === 'review' ? '当前版本正在等待审核，退回后可继续修改。' : '当前以只读方式查看内容。') : '使用标准 Markdown 编写正文，右侧预览会随输入即时更新。' }}</p>
       </div>
       <div class="content-editor-actions">
-        <el-button class="editor-ai-button" :icon="MagicStick" @click="aiAssistantOpen = true">从知识生成</el-button>
-        <label class="editor-import-button">
+		<el-button v-if="canEdit" class="editor-ai-button" :icon="MagicStick" @click="aiAssistantOpen = true">从知识生成</el-button>
+		<label v-if="canEdit" class="editor-import-button">
           <el-icon><Upload /></el-icon>
           导入 Markdown
           <input ref="markdownFileInput" type="file" accept=".md,.markdown,text/markdown,text/plain" @change="importMarkdown" />
         </label>
-        <el-button :loading="saving" :disabled="isPublished" @click="saveDraft"><el-icon><Check /></el-icon>保存草稿</el-button>
-        <el-button v-if="status !== 'published'" type="primary" :loading="publishing || saving" @click="publish">发布</el-button>
-        <el-button v-else type="danger" :loading="publishing" @click="archive">下线</el-button>
+		<el-button v-if="canEdit" :loading="saving" @click="saveDraft"><el-icon><Check /></el-icon>保存草稿</el-button>
+		<el-button v-if="canSubmit" type="primary" :loading="publishing || saving" @click="submitReview">提交审核</el-button>
+		<el-button v-if="canReview && pendingReview?.type === 'publish'" type="success" :loading="publishing" @click="publish">审核通过并发布</el-button>
+		<el-button v-if="canReview" type="warning" plain :loading="publishing" @click="rejectReview">退回</el-button>
+		<el-button v-if="canRequestArchive" type="warning" :loading="publishing" @click="requestArchive">申请下线</el-button>
+		<el-button v-if="canArchive" type="danger" :loading="publishing" @click="archive">{{ pendingReview?.type === 'archive' ? '批准下线' : '下线' }}</el-button>
       </div>
     </header>
+
+	<section v-if="pendingReview" class="content-review-banner editor-surface">
+		<div>
+			<strong>{{ pendingReview.type === 'publish' ? '发布审核待处理' : '下线申请待处理' }}</strong>
+			<span>{{ pendingReview.requester }} · {{ new Date(pendingReview.created_at).toLocaleString('zh-CN') }}</span>
+		</div>
+		<p>{{ pendingReview.note || '提交人未填写说明。' }}</p>
+	</section>
 
     <section class="content-editor-meta editor-surface">
       <div class="editor-meta-main">
         <label class="editor-field editor-field-title">
           <span>标题</span>
-          <el-input v-model="form.title" :disabled="isPublished" size="large" placeholder="例如：暑期建筑活动报名" maxlength="160" />
+		<el-input v-model="form.title" :disabled="readOnly" size="large" placeholder="例如：暑期建筑活动报名" maxlength="160" />
         </label>
         <label class="editor-field">
           <span>摘要</span>
-          <el-input v-model="form.excerpt" :disabled="isPublished" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="发布后显示在门户卡片中" />
+		<el-input v-model="form.excerpt" :disabled="readOnly" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="发布后显示在门户卡片中" />
         </label>
       </div>
       <div class="editor-meta-options">
         <label class="editor-field">
           <span>内容类型</span>
-          <el-radio-group v-model="form.type" class="content-type-selector" :disabled="isPublished">
+		<el-radio-group v-model="form.type" class="content-type-selector" :disabled="readOnly">
             <el-radio-button value="news">动态</el-radio-button>
             <el-radio-button value="resource">资源</el-radio-button>
             <el-radio-button value="knowledge">知识库</el-radio-button>
@@ -372,13 +480,13 @@ onBeforeUnmount(() => {
         </label>
         <label v-if="form.type === 'knowledge'" class="editor-field">
           <span>知识库目录</span>
-          <el-select v-model="form.knowledge_directory_id" :disabled="isPublished" filterable placeholder="选择目录">
+		<el-select v-model="form.knowledge_directory_id" :disabled="readOnly" filterable placeholder="选择目录">
             <el-option v-for="directory in directoryData?.items ?? []" :key="directory.id" :label="directory.name" :value="directory.id" />
           </el-select>
         </label>
         <label v-else class="editor-field">
           <span>分类</span>
-          <el-input v-model="form.category" :disabled="isPublished" maxlength="64" placeholder="例如：公告、活动" />
+		<el-input v-model="form.category" :disabled="readOnly" maxlength="64" placeholder="例如：公告、活动" />
         </label>
       </div>
     </section>
@@ -393,19 +501,19 @@ onBeforeUnmount(() => {
           <span class="editor-character-count">{{ form.body.length }} 字符</span>
         </div>
         <div class="markdown-toolbar" aria-label="Markdown 工具栏">
-          <button type="button" :disabled="isPublished" title="标题" @click="insertMarkdown('## ', '', '小标题')">H₂</button>
-          <button type="button" :disabled="isPublished" title="粗体" @click="insertMarkdown('**', '**', '重点文本')"><strong>B</strong></button>
-          <button type="button" :disabled="isPublished" title="斜体" @click="insertMarkdown('*', '*', '强调文本')"><em>I</em></button>
-          <button type="button" :disabled="isPublished" title="引用" @click="insertMarkdown('> ', '', '引用内容')">❞</button>
-          <button type="button" :disabled="isPublished" title="代码" @click="insertMarkdown('`', '`', 'code')">&lt;/&gt;</button>
-          <button type="button" :disabled="isPublished" title="链接" @click="insertMarkdown('[', '](https://)', '链接文本')"><el-icon><Link /></el-icon></button>
+		<button type="button" :disabled="readOnly" title="标题" @click="insertMarkdown('## ', '', '小标题')">H₂</button>
+		<button type="button" :disabled="readOnly" title="粗体" @click="insertMarkdown('**', '**', '重点文本')"><strong>B</strong></button>
+		<button type="button" :disabled="readOnly" title="斜体" @click="insertMarkdown('*', '*', '强调文本')"><em>I</em></button>
+		<button type="button" :disabled="readOnly" title="引用" @click="insertMarkdown('> ', '', '引用内容')">❞</button>
+		<button type="button" :disabled="readOnly" title="代码" @click="insertMarkdown('`', '`', 'code')">&lt;/&gt;</button>
+		<button type="button" :disabled="readOnly" title="链接" @click="insertMarkdown('[', '](https://)', '链接文本')"><el-icon><Link /></el-icon></button>
           <span class="toolbar-divider" />
-          <button type="button" :disabled="isPublished || assetUploading" title="插入图片" @click="triggerImageUpload"><el-icon><Picture /></el-icon></button>
-          <button type="button" :disabled="isPublished || assetUploading" title="插入文件" @click="triggerAttachmentUpload"><el-icon><Paperclip /></el-icon></button>
+		<button type="button" :disabled="readOnly || assetUploading" title="插入图片" @click="triggerImageUpload"><el-icon><Picture /></el-icon></button>
+		<button type="button" :disabled="readOnly || assetUploading" title="插入文件" @click="triggerAttachmentUpload"><el-icon><Paperclip /></el-icon></button>
           <input ref="imageFileInput" class="visually-hidden" type="file" accept="image/png,image/jpeg,image/webp" @change="handleImageUpload" />
           <input ref="attachmentFileInput" class="visually-hidden" type="file" accept="application/pdf,application/zip,video/mp4" @change="handleAttachmentUpload" />
         </div>
-        <textarea ref="bodyEditor" v-model="form.body" class="markdown-textarea" :disabled="isPublished" spellcheck="false" placeholder="# 文章标题
+		<textarea ref="bodyEditor" v-model="form.body" class="markdown-textarea" :disabled="readOnly" spellcheck="false" placeholder="# 文章标题
 
 在这里编写标准 Markdown 正文……" />
         <div class="editor-attachment-tip">
@@ -440,11 +548,12 @@ onBeforeUnmount(() => {
         <div v-for="revision in revisions" :key="revision.id" class="revision-row">
           <div>
             <strong>v{{ revision.version }} · {{ revision.title }}</strong>
-            <span>{{ revision.reason }} · {{ new Date(revision.created_at).toLocaleString('zh-CN') }}</span>
+			<span class="revision-meta"><el-tag size="small" effect="plain">{{ revision.created_by_name || revision.created_by }}</el-tag>{{ revisionReasonLabel(revision.reason) }} · {{ new Date(revision.created_at).toLocaleString('zh-CN') }}</span>
+			<span v-if="revision.changed_fields.length" class="revision-diff-summary">修改 {{ revision.changed_fields.map(revisionFieldLabel).join('、') }} · <b>+{{ revision.body_diff.added_lines }}</b> / <i>-{{ revision.body_diff.removed_lines }}</i> 行</span>
           </div>
           <div class="revision-actions">
             <el-button text @click="inspectRevision(revision)">查看</el-button>
-            <el-button v-if="!isPublished" text type="primary" @click="restoreRevision(revision)">恢复</el-button>
+		<el-button v-if="canEdit" text type="primary" @click="restoreRevision(revision)">恢复</el-button>
           </div>
         </div>
       </div>
@@ -452,6 +561,7 @@ onBeforeUnmount(() => {
 
     <el-dialog v-model="revisionDialogOpen" :title="selectedRevision ? `修订 v${selectedRevision.version}` : '修订详情'" width="min(860px, 92vw)">
       <div v-if="selectedRevision" class="revision-dialog-content">
+		<p class="revision-dialog-meta"><el-tag effect="plain">{{ selectedRevision.created_by_name || selectedRevision.created_by }}</el-tag>{{ revisionReasonLabel(selectedRevision.reason) }} · +{{ selectedRevision.body_diff.added_lines }} / -{{ selectedRevision.body_diff.removed_lines }} 行</p>
         <p>{{ selectedRevision.excerpt || '无摘要' }}</p>
         <pre>{{ selectedRevision.body }}</pre>
       </div>
@@ -465,7 +575,7 @@ onBeforeUnmount(() => {
       :content-type="form.type"
       :category="form.category"
       :knowledge-directory-id="form.knowledge_directory_id"
-      :published="isPublished"
+		:published="readOnly"
       @apply="applyAIProposal"
       @created="openCreatedDraft"
     />
@@ -627,6 +737,33 @@ onBeforeUnmount(() => {
   align-items: stretch;
 }
 
+.content-review-banner {
+	display: grid;
+	grid-template-columns: minmax(220px, 0.45fr) minmax(0, 1fr);
+	gap: 20px;
+	align-items: center;
+	margin-bottom: 20px;
+	padding: 18px 22px;
+	border-color: color-mix(in srgb, var(--md-sys-color-tertiary) 45%, var(--md-sys-color-outline-variant));
+	background: color-mix(in srgb, var(--md-sys-color-tertiary-container) 38%, var(--md-sys-color-surface-container));
+}
+
+.content-review-banner div {
+	display: grid;
+	gap: 4px;
+}
+
+.content-review-banner strong {
+	font-size: 16px;
+}
+
+.content-review-banner span,
+.content-review-banner p {
+	margin: 0;
+	color: var(--md-sys-color-on-surface-variant);
+	font-size: 13px;
+}
+
 .revision-history-panel {
   margin-top: 20px;
   padding: 20px;
@@ -653,6 +790,22 @@ onBeforeUnmount(() => {
   display: block;
 }
 
+.revision-row .revision-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+}
+
+.revision-row .revision-diff-summary b {
+	color: var(--md-sys-color-primary);
+}
+
+.revision-row .revision-diff-summary i {
+	color: var(--md-sys-color-error);
+	font-style: normal;
+}
+
 .revision-row span {
   margin-top: 4px;
   color: var(--md-sys-color-on-surface-variant);
@@ -666,6 +819,12 @@ onBeforeUnmount(() => {
 
 .revision-dialog-content p {
   color: var(--md-sys-color-on-surface-variant);
+}
+
+.revision-dialog-meta {
+	display: flex;
+	align-items: center;
+	gap: 8px;
 }
 
 .revision-dialog-content pre {
@@ -929,6 +1088,11 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 850px) {
+	.content-review-banner {
+		grid-template-columns: 1fr;
+		gap: 10px;
+	}
+
   .content-editor-workspace {
     grid-template-columns: 1fr;
   }

@@ -130,13 +130,37 @@ export interface AdminContent {
   category?: string
   knowledge_directory_id?: string | null
   status: 'draft' | 'published' | 'review' | 'archived'
+	author_user_id?: string
   author: string
+	is_author?: boolean
   excerpt?: string
   body?: string
   published_at?: string | null
   updated_at: string
   revision_count?: number
   asset?: MediaAsset | null
+	pending_review?: ContentReviewRequest | null
+	can_edit?: boolean
+	can_submit?: boolean
+	can_publish?: boolean
+	can_archive?: boolean
+	can_request_archive?: boolean
+	can_review?: boolean
+}
+
+export interface ContentReviewRequest {
+	id: string
+	type: 'publish' | 'archive'
+	status: 'pending' | 'approved' | 'rejected'
+	revision_id: string
+	requester_user_id: string
+	requester: string
+	note: string
+	feedback: string
+	reviewer_user_id?: string | null
+	reviewer?: string | null
+	created_at: string
+	reviewed_at?: string | null
 }
 
 export interface AdminKnowledgeDirectory {
@@ -356,7 +380,8 @@ export interface ContentRevision {
   content_id: string
   version: number
   created_by: string
-  reason: 'create' | 'update' | 'published' | 'archived' | 'restore'
+	created_by_name: string
+  reason: 'create' | 'update' | 'submitted' | 'rejected' | 'published' | 'archived' | 'restore'
   title: string
   type: AdminContent['type']
   category: string
@@ -366,6 +391,8 @@ export interface ContentRevision {
   body?: string
   published_at?: string | null
   created_at: string
+	changed_fields: string[]
+	body_diff: { added_lines: number; removed_lines: number }
 }
 
 export interface ActivityPlanSummary {

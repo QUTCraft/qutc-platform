@@ -23,6 +23,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -91,6 +92,12 @@ func TestS1ContentLifecycleAndCacheInvalidation(t *testing.T) {
 			requireCacheKey(t, redisClient, postsCacheKey, true)
 			requireStatus(t, client, http.MethodGet, portalContentURL(cfg, content.ID), "", nil, http.StatusNotFound)
 
+			submitted := submitContentReview(t, client, cfg, accessToken, content.ID)
+			if submitted.Status != "review" {
+				t.Fatalf("submit status = %q, want review", submitted.Status)
+			}
+			requireStatus(t, client, http.MethodGet, portalContentURL(cfg, content.ID), "", nil, http.StatusNotFound)
+
 			published := changeContentStatus(t, client, cfg, accessToken, content.ID, "publish")
 			if published.Status != "published" {
 				t.Fatalf("publish status = %q, want published", published.Status)
@@ -129,6 +136,83 @@ func TestS1ContentLifecycleAndCacheInvalidation(t *testing.T) {
 			requireStatus(t, client, http.MethodGet, portalContentURL(cfg, content.ID), "", nil, http.StatusNotFound)
 			requireStatus(t, client, http.MethodPost, adminContentActionURL(cfg, content.ID, "archive"), accessToken, nil, http.StatusConflict)
 		})
+	}
+}
+
+func TestS1ContentOwnershipAndReviewWorkflow(t *testing.T) {
+	cfg := loadIntegrationConfig(t)
+	client := &http.Client{Timeout: 10 * time.Second}
+	db := openIntegrationDB(t, cfg.mysqlDSN)
+
+	var organization model.Organization
+	if err := db.Where("slug = ?", cfg.organizationSlug).First(&organization).Error; err != nil {
+		t.Fatalf("load organization: %v", err)
+	}
+	var editorRole model.Role
+	if err := db.Where("`key` = ?", "editor").First(&editorRole).Error; err != nil {
+		t.Fatalf("load editor role: %v", err)
+	}
+	password := "S1-Editor-Password-2026!"
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash editor password: %v", err)
+	}
+
+	createEditor := func(label string) model.User {
+		user := model.User{ID: uuid.NewString(), Email: "s1-editor-" + label + "-" + uuid.NewString() + "@example.test", DisplayName: "S1 Editor " + label, PasswordHash: string(hash), State: "active", DefaultOrganizationID: organization.ID}
+		if err := db.Create(&user).Error; err != nil {
+			t.Fatalf("create editor %s: %v", label, err)
+		}
+		membership := model.Membership{ID: uuid.NewString(), OrganizationID: organization.ID, UserID: user.ID, State: "active"}
+		if err := db.Create(&membership).Error; err != nil {
+			t.Fatalf("create editor membership %s: %v", label, err)
+		}
+		if err := db.Create(&model.MembershipRole{MembershipID: membership.ID, RoleID: editorRole.ID}).Error; err != nil {
+			t.Fatalf("assign editor role %s: %v", label, err)
+		}
+		return user
+	}
+
+	author := createEditor("author")
+	other := createEditor("other")
+	t.Cleanup(func() {
+		for _, user := range []model.User{author, other} {
+			_ = db.Where("user_id = ?", user.ID).Delete(&model.RefreshToken{}).Error
+			var memberships []model.Membership
+			_ = db.Where("user_id = ?", user.ID).Find(&memberships).Error
+			for _, membership := range memberships {
+				_ = db.Where("membership_id = ?", membership.ID).Delete(&model.MembershipRole{}).Error
+			}
+			_ = db.Where("user_id = ?", user.ID).Delete(&model.Membership{}).Error
+			_ = db.Where("id = ?", user.ID).Delete(&model.User{}).Error
+		}
+	})
+
+	authorToken := loginWithCredentials(t, client, cfg, author.Email, password)
+	otherToken := loginWithCredentials(t, client, cfg, other.Email, password)
+	ownerToken := loginAsOwner(t, client, cfg)
+	content := createDraft(t, client, cfg, authorToken, 99)
+	t.Cleanup(func() { cleanupContentFixture(t, db, content.ID) })
+
+	updatePayload := map[string]any{"title": content.Title + " updated", "type": "news", "category": "integration", "excerpt": "ownership test", "body": "author update"}
+	requireStatus(t, client, http.MethodPatch, cfg.apiURL+"/api/v1/admin/content/"+content.ID, otherToken, updatePayload, http.StatusForbidden)
+	requireStatus(t, client, http.MethodPost, adminContentActionURL(cfg, content.ID, "submit"), otherToken, map[string]string{"note": "not mine"}, http.StatusForbidden)
+	requireStatus(t, client, http.MethodPatch, cfg.apiURL+"/api/v1/admin/content/"+content.ID, authorToken, updatePayload, http.StatusOK)
+
+	submitted := submitContentReview(t, client, cfg, authorToken, content.ID)
+	if submitted.Status != "review" {
+		t.Fatalf("author submit status = %q, want review", submitted.Status)
+	}
+	requireStatus(t, client, http.MethodPatch, cfg.apiURL+"/api/v1/admin/content/"+content.ID, authorToken, updatePayload, http.StatusConflict)
+	published := changeContentStatus(t, client, cfg, ownerToken, content.ID, "publish")
+	if published.Status != "published" {
+		t.Fatalf("review approval status = %q, want published", published.Status)
+	}
+	requireStatus(t, client, http.MethodPost, adminContentActionURL(cfg, content.ID, "request-archive"), otherToken, map[string]string{"note": "not mine"}, http.StatusForbidden)
+	requireStatus(t, client, http.MethodPost, adminContentActionURL(cfg, content.ID, "request-archive"), authorToken, map[string]string{"note": "needs correction"}, http.StatusOK)
+	archived := changeContentStatus(t, client, cfg, ownerToken, content.ID, "archive")
+	if archived.Status != "archived" {
+		t.Fatalf("archive approval status = %q, want archived", archived.Status)
 	}
 }
 
@@ -285,18 +369,15 @@ func openIntegrationDB(t *testing.T, dsn string) *gorm.DB {
 
 func loginAsOwner(t *testing.T, client *http.Client, cfg integrationConfig) string {
 	t.Helper()
-	responseBody := request(t, client, http.MethodPost, cfg.apiURL+"/api/v1/auth/login", "", map[string]string{
-		"email":    cfg.adminEmail,
-		"password": cfg.adminPassword,
-	}, http.StatusOK)
-	var envelope apiEnvelope[struct {
-		AccessToken string `json:"access_token"`
-	}]
+	return loginWithCredentials(t, client, cfg, cfg.adminEmail, cfg.adminPassword)
+}
+
+func submitContentReview(t *testing.T, client *http.Client, cfg integrationConfig, token, contentID string) contentDTO {
+	t.Helper()
+	responseBody := request(t, client, http.MethodPost, adminContentActionURL(cfg, contentID, "submit"), token, map[string]string{"note": "S1 integration review"}, http.StatusOK)
+	var envelope apiEnvelope[contentDTO]
 	decodeJSON(t, responseBody, &envelope)
-	if envelope.Data.AccessToken == "" {
-		t.Fatal("login response did not include access_token")
-	}
-	return envelope.Data.AccessToken
+	return envelope.Data
 }
 
 func createDraft(t *testing.T, client *http.Client, cfg integrationConfig, token string, iteration int) contentDTO {
@@ -429,6 +510,18 @@ func requireCacheKey(t *testing.T, client *redis.Client, key string, expected bo
 
 func cleanupContentFixture(t *testing.T, db *gorm.DB, contentID string) {
 	t.Helper()
+	var reviews []model.ContentReviewRequest
+	if err := db.Where("content_id = ?", contentID).Find(&reviews).Error; err != nil {
+		t.Errorf("find content reviews for %s: %v", contentID, err)
+	}
+	for _, review := range reviews {
+		if err := db.Where("target_type = ? AND target_id = ?", "content_review", review.ID).Delete(&model.NotificationOutbox{}).Error; err != nil {
+			t.Errorf("cleanup content notifications for %s: %v", contentID, err)
+		}
+	}
+	if err := db.Where("content_id = ?", contentID).Delete(&model.ContentReviewRequest{}).Error; err != nil {
+		t.Errorf("cleanup content reviews for %s: %v", contentID, err)
+	}
 	if err := db.Where("target_type = ? AND target_id = ?", "content", contentID).Delete(&model.AuditEvent{}).Error; err != nil {
 		t.Errorf("cleanup audit events for %s: %v", contentID, err)
 	}

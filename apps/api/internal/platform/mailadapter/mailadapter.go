@@ -57,10 +57,23 @@ type ApplicationDecisionMessage struct {
 	Reason          string
 }
 
+type ContentReviewMessage struct {
+	RecipientEmail string
+	RecipientName  string
+	Organization   string
+	EventType      string
+	ContentTitle   string
+	RequesterName  string
+	ReviewerName   string
+	Note           string
+	Feedback       string
+}
+
 type Sender interface {
 	Status() Status
 	SendInvitation(context.Context, InvitationMessage) error
 	SendApplicationDecision(context.Context, ApplicationDecisionMessage) error
+	SendContentReview(context.Context, ContentReviewMessage) error
 }
 
 func New(cfg Config) (Sender, error) {
@@ -133,6 +146,10 @@ func (disabledSender) SendApplicationDecision(context.Context, ApplicationDecisi
 	return ErrDisabled
 }
 
+func (disabledSender) SendContentReview(context.Context, ContentReviewMessage) error {
+	return ErrDisabled
+}
+
 type smtpSender struct {
 	cfg Config
 }
@@ -175,6 +192,55 @@ func (s *smtpSender) SendApplicationDecision(ctx context.Context, message Applic
 	}
 	body := fmt.Sprintf("你好 %s：\r\n\r\n你提交给 %s 的%s已更新为：%s。\r\n\r\n处理说明：%s\r\n", cleanText(message.ApplicantName), cleanText(message.Organization), applicationTypeLabel(message.ApplicationType), decision, cleanText(message.Reason))
 	return s.sendText(ctx, recipient.Address, cleanText(message.Organization)+" 的申请处理结果", body)
+}
+
+func (s *smtpSender) SendContentReview(ctx context.Context, message ContentReviewMessage) error {
+	recipient, err := mail.ParseAddress(strings.TrimSpace(message.RecipientEmail))
+	if err != nil || recipient.Address == "" {
+		return errors.New("recipient address is invalid")
+	}
+	organization := cleanText(message.Organization)
+	title := cleanText(message.ContentTitle)
+	requester := cleanText(message.RequesterName)
+	reviewer := cleanText(message.ReviewerName)
+	note := cleanText(message.Note)
+	feedback := cleanText(message.Feedback)
+	greeting := "你好"
+	if name := cleanText(message.RecipientName); name != "" {
+		greeting += " " + name
+	}
+
+	var subject, body string
+	switch message.EventType {
+	case "content.review_submitted":
+		subject = fmt.Sprintf("【%s】内容待审核：%s", organization, title)
+		body = fmt.Sprintf("%s：\r\n\r\n%s 提交了内容《%s》的发布审核。\r\n\r\n提交说明：%s\r\n\r\n请登录管理工作台完成审核。\r\n", greeting, requester, title, fallbackText(note, "无"))
+	case "content.review_rejected":
+		subject = fmt.Sprintf("【%s】内容审核已退回：%s", organization, title)
+		body = fmt.Sprintf("%s：\r\n\r\n%s 已退回你提交的内容《%s》。\r\n\r\n审核反馈：%s\r\n\r\n请修改草稿后重新提交审核。\r\n", greeting, reviewer, title, fallbackText(feedback, "未填写"))
+	case "content.published":
+		subject = fmt.Sprintf("【%s】内容已上线：%s", organization, title)
+		body = fmt.Sprintf("%s：\r\n\r\n%s 已审核并发布内容《%s》。\r\n", greeting, reviewer, title)
+	case "content.archive_requested":
+		subject = fmt.Sprintf("【%s】内容申请下线：%s", organization, title)
+		body = fmt.Sprintf("%s：\r\n\r\n%s 申请下线内容《%s》。\r\n\r\n申请说明：%s\r\n\r\n请登录管理工作台处理。\r\n", greeting, requester, title, fallbackText(note, "无"))
+	case "content.archive_rejected":
+		subject = fmt.Sprintf("【%s】下线申请未通过：%s", organization, title)
+		body = fmt.Sprintf("%s：\r\n\r\n%s 未通过内容《%s》的下线申请。\r\n\r\n审核反馈：%s\r\n", greeting, reviewer, title, fallbackText(feedback, "未填写"))
+	case "content.archived":
+		subject = fmt.Sprintf("【%s】内容已下线：%s", organization, title)
+		body = fmt.Sprintf("%s：\r\n\r\n%s 已将内容《%s》下线。原作者现在可以重新编辑并提交审核。\r\n", greeting, reviewer, title)
+	default:
+		return errors.New("unsupported content review event")
+	}
+	return s.sendText(ctx, recipient.Address, subject, body)
+}
+
+func fallbackText(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func (s *smtpSender) sendText(ctx context.Context, recipient, subject, body string) error {
