@@ -59,8 +59,13 @@ const previewMarkdown = computed(() => {
   return markdown
 })
 
+function requestedContentType(): ContentType {
+  const requested = Array.isArray(route.query.type) ? route.query.type[0] : route.query.type
+  return requested === 'resource' || requested === 'knowledge' || requested === 'news' ? requested : 'news'
+}
+
 function resetForm() {
-  Object.assign(form, { title: '', type: 'news', category: '', knowledge_directory_id: '', excerpt: '', body: '' })
+  Object.assign(form, { title: '', type: requestedContentType(), category: '', knowledge_directory_id: '', excerpt: '', body: '' })
   status.value = 'draft'
 	currentContent.value = null
 }
@@ -137,7 +142,7 @@ async function restoreRevision(revision: ContentRevision) {
 }
 
 onMounted(loadContent)
-watch(contentId, loadContent)
+watch([contentId, () => route.query.type], loadContent)
 
 function validateForm() {
   if (!form.title.trim()) {

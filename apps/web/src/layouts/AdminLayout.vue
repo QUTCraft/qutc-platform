@@ -19,7 +19,7 @@ const navigation = [
   { label: '概览', to: '/admin', icon: DataAnalysis },
   { label: '内容管理', to: '/admin/content', icon: Document },
   { label: '资源文件', to: '/admin/assets', icon: Files },
-  { label: '知识目录', to: '/admin/knowledge', icon: Collection },
+  { label: '知识库', to: '/admin/knowledge', icon: Collection },
   { label: '项目管理', to: '/admin/projects', icon: Folder },
   { label: '成员管理', to: '/admin/users', icon: UserFilled },
   { label: '申请审核', to: '/admin/reviews', icon: DocumentChecked },

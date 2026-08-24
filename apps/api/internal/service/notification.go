@@ -82,6 +82,35 @@ func (s *NotificationService) EnqueueApplicationDecision(tx *gorm.DB, applicatio
 	return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "event_type"}, {Name: "target_type"}, {Name: "target_id"}, {Name: "recipient_email"}}, DoNothing: true}).Create(&item).Error
 }
 
+func (s *NotificationService) EnqueueApplicationSubmitted(tx *gorm.DB, application model.Application, recipientEmails []string) error {
+	if s == nil || tx == nil || application.Status != "pending" {
+		return nil
+	}
+	now := time.Now().UTC()
+	seen := make(map[string]bool, len(recipientEmails))
+	for _, rawEmail := range recipientEmails {
+		parsed, err := mail.ParseAddress(strings.TrimSpace(rawEmail))
+		if err != nil || parsed.Address == "" {
+			continue
+		}
+		email := strings.ToLower(parsed.Address)
+		if seen[email] {
+			continue
+		}
+		seen[email] = true
+		item := model.NotificationOutbox{
+			ID: uuid.NewString(), OrganizationID: application.OrganizationID,
+			EventType: "application.submitted", TargetType: "application", TargetID: application.ID,
+			RecipientEmail: email, Status: NotificationStatusPending, AvailableAt: now,
+			CreatedAt: now, UpdatedAt: now,
+		}
+		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "event_type"}, {Name: "target_type"}, {Name: "target_id"}, {Name: "recipient_email"}}, DoNothing: true}).Create(&item).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *NotificationService) EnqueueContentReview(tx *gorm.DB, request model.ContentReviewRequest, eventType string, recipientEmails []string) error {
 	if s == nil || tx == nil {
 		return nil
@@ -205,10 +234,22 @@ func (s *NotificationService) deliver(ctx context.Context, item model.Notificati
 		if loadErr := s.db.Where("id = ? AND organization_id = ?", item.TargetID, item.OrganizationID).First(&application).Error; loadErr != nil {
 			return s.finish(item, NotificationStatusFailed, "申请记录不存在", loadErr, time.Now().UTC().Add(24*time.Hour))
 		}
-		err = sender.SendApplicationDecision(ctx, mailadapter.ApplicationDecisionMessage{
-			RecipientEmail: application.Email, Organization: organization.Name, ApplicantName: application.ApplicantName,
-			ApplicationType: application.Type, Decision: application.Status, Reason: application.DecisionReason,
-		})
+		if item.EventType == "application.submitted" {
+			var recipient model.User
+			_ = s.db.Where("LOWER(email) = ?", strings.ToLower(item.RecipientEmail)).First(&recipient).Error
+			err = sender.SendApplicationSubmitted(ctx, mailadapter.ApplicationSubmittedMessage{
+				RecipientEmail: item.RecipientEmail, RecipientName: recipient.DisplayName,
+				Organization: organization.Name, ApplicantName: application.ApplicantName,
+				ApplicantEmail: application.Email, ApplicationType: application.Type, SubmittedAt: application.CreatedAt,
+			})
+		} else if item.EventType == "application.approved" || item.EventType == "application.rejected" {
+			err = sender.SendApplicationDecision(ctx, mailadapter.ApplicationDecisionMessage{
+				RecipientEmail: application.Email, Organization: organization.Name, ApplicantName: application.ApplicantName,
+				ApplicationType: application.Type, Decision: application.Status, Reason: application.DecisionReason,
+			})
+		} else {
+			return s.finish(item, NotificationStatusFailed, "未知申请通知类型", errors.New("unsupported application notification event"), time.Now().UTC().Add(24*time.Hour))
+		}
 	case "content_review":
 		message, loadErr := s.contentReviewMessage(item, organization)
 		if loadErr != nil {

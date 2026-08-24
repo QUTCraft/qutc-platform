@@ -32,6 +32,13 @@ func TestS3ApplicationApprovalWorkflow(t *testing.T) {
 	gameID := "S3" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
 	applicationID := submitApplicationFixture(t, client, cfg, gameID, strings.ToLower(gameID)+"@integration.invalid")
 	t.Cleanup(func() { cleanupApplicationFixture(t, db, applicationID) })
+	var submittedNotifications []model.NotificationOutbox
+	if err := db.Where("event_type = ? AND target_type = ? AND target_id = ?", "application.submitted", "application", applicationID).Find(&submittedNotifications).Error; err != nil {
+		t.Fatalf("load application submitted notifications: %v", err)
+	}
+	if !notificationRecipientsInclude(submittedNotifications, cfg.adminEmail) {
+		t.Fatalf("application submitted notifications = %+v, want reviewer %s", submittedNotifications, cfg.adminEmail)
+	}
 
 	approveURL := cfg.apiURL + "/api/v1/admin/applications/" + applicationID + "/approve"
 	body := request(t, client, http.MethodPost, approveURL, ownerToken, map[string]string{"reason": "集成测试审批通过。"}, http.StatusOK)
@@ -80,6 +87,15 @@ func TestS3ApplicationApprovalWorkflow(t *testing.T) {
 	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/server/commands", ownerToken, map[string]string{"command": "list"}, http.StatusNotFound)
 	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/applications/"+applicationID+"/server-sync/retry", ownerToken, nil, http.StatusNotFound)
 	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/portal/organizations/"+cfg.organizationSlug+"/server-status", "", nil, http.StatusNotFound)
+}
+
+func notificationRecipientsInclude(items []model.NotificationOutbox, email string) bool {
+	for _, item := range items {
+		if strings.EqualFold(item.RecipientEmail, email) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestS3DemoSeedIsIdempotentAndNonDestructive(t *testing.T) {

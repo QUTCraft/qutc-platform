@@ -138,6 +138,7 @@ func TestS6AgentKnowledgeGenerationBoundary(t *testing.T) {
 
 	uniqueTerm := "S6知识资料" + uuid.NewString()
 	sourceID := uuid.NewString()
+	archivedSourceID := uuid.NewString()
 	otherOrganizationID := uuid.NewString()
 	otherSourceID := uuid.NewString()
 	if err := db.Create(&model.Content{
@@ -146,6 +147,13 @@ func TestS6AgentKnowledgeGenerationBoundary(t *testing.T) {
 		Excerpt: "八月社团技术分享会记录。", Body: "分享会包含 API 规范、内容协作和人工发布流程。",
 	}).Error; err != nil {
 		t.Fatalf("create knowledge fixture: %v", err)
+	}
+	if err := db.Create(&model.Content{
+		ID: archivedSourceID, OrganizationID: organization.ID, AuthorUserID: owner.ID,
+		Title: uniqueTerm + " 已下线", Type: "knowledge", Category: "integration", Status: "archived",
+		Excerpt: "已下线资料不应继续进入智能体检索。", Body: "archived",
+	}).Error; err != nil {
+		t.Fatalf("create archived knowledge fixture: %v", err)
 	}
 	if err := db.Create(&model.Organization{
 		ID: otherOrganizationID, Slug: "s6-" + uuid.NewString(), Name: "S6 isolated organization",
@@ -174,7 +182,7 @@ func TestS6AgentKnowledgeGenerationBoundary(t *testing.T) {
 			"organization_id = ? AND action = ? AND target_type = ? AND created_at >= ?",
 			organization.ID, "ai.config_update", "agent_configuration", startedAt,
 		).Delete(&model.AuditEvent{}).Error
-		_ = db.Where("id IN ?", []string{sourceID, otherSourceID}).Delete(&model.Content{}).Error
+		_ = db.Where("id IN ?", []string{sourceID, archivedSourceID, otherSourceID}).Delete(&model.Content{}).Error
 		_ = db.Where("id = ?", otherOrganizationID).Delete(&model.Organization{}).Error
 	})
 
@@ -235,6 +243,26 @@ func TestS6AgentKnowledgeGenerationBoundary(t *testing.T) {
 	if len(searchEnvelope.Data) != 1 || searchEnvelope.Data[0].ID != sourceID || searchEnvelope.Data[0].SourceType != "content" {
 		t.Fatalf("knowledge search = %+v, want current organization source", searchEnvelope.Data)
 	}
+	multiTermBody := request(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/ai/knowledge/search", ownerToken, map[string]any{
+		"query": uniqueTerm + " 不存在的补充词",
+		"limit": 20,
+	}, http.StatusOK)
+	decodeJSON(t, multiTermBody, &searchEnvelope)
+	if !containsKnowledgeResult(searchEnvelope.Data, sourceID) || containsKnowledgeResult(searchEnvelope.Data, archivedSourceID) {
+		t.Fatalf("multi-term knowledge search = %+v, want active source and no archived source", searchEnvelope.Data)
+	}
+	recentBody := request(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/ai/knowledge/search", ownerToken, map[string]any{
+		"query": "",
+		"limit": 20,
+	}, http.StatusOK)
+	decodeJSON(t, recentBody, &searchEnvelope)
+	if !containsKnowledgeResult(searchEnvelope.Data, sourceID) || containsKnowledgeResult(searchEnvelope.Data, archivedSourceID) {
+		t.Fatalf("recent knowledge search = %+v, want active source and no archived source", searchEnvelope.Data)
+	}
+	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/ai/runs", ownerToken, map[string]any{
+		"agent_key": "content-copilot", "task": "已下线资料不能作为来源",
+		"context_refs": []map[string]string{{"type": "content", "id": archivedSourceID}}, "output_mode": "proposal",
+	}, http.StatusNotFound)
 
 	beforeContentCount := countOrganizationContent(t, db, organization.ID)
 	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/ai/runs", ownerToken, map[string]any{
@@ -332,6 +360,15 @@ func TestS6AgentKnowledgeGenerationBoundary(t *testing.T) {
 	if configurationAuditCount < 2 {
 		t.Fatalf("agent configuration audit count = %d, want disable and enable events", configurationAuditCount)
 	}
+}
+
+func containsKnowledgeResult(items []aiKnowledgeResultDTO, id string) bool {
+	for _, item := range items {
+		if item.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func TestS6ActivityPlannerApprovalBoundary(t *testing.T) {

@@ -122,6 +122,7 @@ async function loadFoundation() {
     ])
     configuration.value = nextConfiguration
     catalog.value = nextCatalog
+    await searchKnowledge(false)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '智能体状态加载失败。')
   } finally {
@@ -129,17 +130,13 @@ async function loadFoundation() {
   }
 }
 
-async function searchKnowledge() {
+async function searchKnowledge(announce = true) {
   const keyword = query.value.trim()
-  if (!keyword) {
-    ElMessage.warning('请输入知识资料关键词。')
-    return
-  }
   searching.value = true
   try {
     knowledgeResults.value = await adminApi.searchAIKnowledge({ query: keyword, limit: 20 })
     for (const item of knowledgeResults.value) sourceRegistry.value[item.id] = item
-    if (knowledgeResults.value.length === 0) ElMessage.info('当前组织中没有匹配的知识资料。')
+    if (announce && knowledgeResults.value.length === 0) ElMessage.info(keyword ? '当前组织中没有匹配的知识文章。' : '当前组织还没有可用的知识文章。')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '知识资料检索失败。')
   } finally {
@@ -338,12 +335,13 @@ onBeforeUnmount(() => {
             v-model="query"
             clearable
             maxlength="80"
-            placeholder="搜索知识标题、分类、摘要或正文"
-            @keyup.enter="searchKnowledge"
+            placeholder="搜索知识标题、分类、摘要或正文；留空查看最近资料"
+            @clear="() => searchKnowledge(false)"
+            @keyup.enter="searchKnowledge()"
           >
             <template #prefix><el-icon><Search /></el-icon></template>
           </el-input>
-          <el-button type="primary" :loading="searching" @click="searchKnowledge">检索</el-button>
+          <el-button type="primary" :loading="searching" @click="searchKnowledge()">检索</el-button>
         </div>
         <div v-if="selectedSources.length" class="selected-source-list" aria-label="已选知识资料">
           <span>已选：</span>
@@ -374,7 +372,9 @@ onBeforeUnmount(() => {
             </span>
           </button>
         </div>
-        <el-empty v-else-if="!searching" description="输入关键词检索当前组织内有权读取的知识资料" :image-size="80" />
+        <el-empty v-else-if="!searching" :description="query.trim() ? '没有匹配的知识文章' : '当前组织还没有知识文章'" :image-size="80">
+          <RouterLink to="/admin/content/new?type=knowledge"><el-button type="primary" plain round>新建知识文章</el-button></RouterLink>
+        </el-empty>
       </section>
 
       <section class="ai-flow-panel">

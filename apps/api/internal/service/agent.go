@@ -554,7 +554,7 @@ func (s *AgentService) ListAgents(organizationID string) ([]AgentDefinitionView,
 
 func (s *AgentService) SearchKnowledge(organizationID, query string, limit int) ([]AgentKnowledgeResult, error) {
 	query = strings.TrimSpace(query)
-	if query == "" || len([]rune(query)) > 80 {
+	if len([]rune(query)) > 80 {
 		return nil, ErrAgentValidation
 	}
 	if limit == 0 {
@@ -563,12 +563,23 @@ func (s *AgentService) SearchKnowledge(organizationID, query string, limit int) 
 	if limit < 1 || limit > 20 {
 		return nil, ErrAgentValidation
 	}
-	pattern := "%" + query + "%"
 	var contents []model.Content
-	if err := s.db.Where(
-		"organization_id = ? AND type = ? AND (title LIKE ? OR category LIKE ? OR excerpt LIKE ? OR body LIKE ?)",
-		organizationID, "knowledge", pattern, pattern, pattern, pattern,
-	).Order("updated_at DESC, id DESC").Limit(limit).Find(&contents).Error; err != nil {
+	dbQuery := s.db.Where(
+		"organization_id = ? AND type = ? AND status IN ?",
+		organizationID, "knowledge", []string{"draft", "review", "published"},
+	)
+	if query != "" {
+		terms := strings.Fields(query)
+		fragments := make([]string, 0, len(terms))
+		arguments := make([]any, 0, len(terms)*4)
+		for _, term := range terms {
+			pattern := "%" + term + "%"
+			fragments = append(fragments, "(title LIKE ? OR category LIKE ? OR excerpt LIKE ? OR body LIKE ?)")
+			arguments = append(arguments, pattern, pattern, pattern, pattern)
+		}
+		dbQuery = dbQuery.Where("("+strings.Join(fragments, " OR ")+")", arguments...)
+	}
+	if err := dbQuery.Order("updated_at DESC, id DESC").Limit(limit).Find(&contents).Error; err != nil {
 		return nil, err
 	}
 	results := make([]AgentKnowledgeResult, 0, len(contents))
@@ -652,8 +663,8 @@ func (s *AgentService) CreateRun(principal Principal, input AgentRunCreateInput,
 		seen[key] = struct{}{}
 		var content model.Content
 		if err := s.db.Where(
-			"id = ? AND organization_id = ? AND type = ?",
-			reference.ID, principal.OrganizationID, "knowledge",
+			"id = ? AND organization_id = ? AND type = ? AND status IN ?",
+			reference.ID, principal.OrganizationID, "knowledge", []string{"draft", "review", "published"},
 		).First(&content).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return AgentRunView{}, ErrAgentSourceNotFound

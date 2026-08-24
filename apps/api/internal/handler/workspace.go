@@ -1890,7 +1890,19 @@ func (h *WorkspaceHandler) SubmitApplication(c *gin.Context) {
 		Note:           note,
 		Status:         "pending",
 	}
-	if err := h.db.Create(&application).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&application).Error; err != nil {
+			return err
+		}
+		if h.notifications == nil {
+			return nil
+		}
+		recipients, err := permissionRecipientEmails(tx, organization.ID, "application:approve", "")
+		if err != nil {
+			return err
+		}
+		return h.notifications.EnqueueApplicationSubmitted(tx, application, recipients)
+	}); err != nil {
 		fail(c, http.StatusInternalServerError, "application.create_failed", "申请暂时无法提交，请稍后重试。")
 		return
 	}

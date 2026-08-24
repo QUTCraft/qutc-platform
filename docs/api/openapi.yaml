@@ -232,7 +232,7 @@ paths:
       tags: [Portal]
       operationId: submitPortalApplication
       summary: 提交公开加入申请
-      description: 申请写入当前组织的后台审批队列；此接口不需要登录，不返回审批人、内部状态或服务器凭据。
+      description: 申请与面向当前组织 `application:approve` 审核员的邮件提醒 Outbox 在同一事务中写入；SMTP 由后台异步投递。此接口不需要登录，不返回审批人、内部状态、通知收件人或服务器凭据。
       parameters:
         - $ref: '#/components/parameters/OrganizationSlug'
       requestBody:
@@ -1262,7 +1262,7 @@ paths:
       tags: [AI]
       operationId: searchAdminAIKnowledge
       summary: 在当前组织的授权知识范围内检索引用资料
-      description: 需要 `ai:use` 与 `knowledge:read`。服务端先按当前 organization_id 和 knowledge 类型过滤，再返回最少必要的标题、摘要、状态与版本时间。
+      description: 需要 `ai:use` 与 `knowledge:read`。服务端先按当前 organization_id、knowledge 类型和未下线状态过滤；query 为空时返回最近更新资料，多个空白分隔词按任一词匹配，再返回最少必要的标题、摘要、状态与版本时间。
       security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       requestBody:
         required: true
@@ -2713,10 +2713,9 @@ components:
         provider: { $ref: '#/components/schemas/AIProviderStatus' }
     AIKnowledgeSearchRequest:
       type: object
-      required: [query]
       additionalProperties: false
       properties:
-        query: { type: string, minLength: 1, maxLength: 80 }
+        query: { type: string, maxLength: 80, default: '', description: '可选。为空时列出最近更新的未下线知识；多个空白分隔词按任一词匹配。' }
         limit: { type: integer, minimum: 1, maximum: 20, default: 10 }
     AIKnowledgeResult:
       type: object

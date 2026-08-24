@@ -547,7 +547,7 @@
       ]
     },
     {
-      "name": "17 - Search authorized AI knowledge",
+      "name": "17 - Load recent authorized AI knowledge",
       "request": {
         "method": "POST",
         "header": [
@@ -562,7 +562,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"query\": \"社团\",\n  \"limit\": 5\n}"
+          "raw": "{\n  \"limit\": 5\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/api/v1/admin/ai/knowledge/search",

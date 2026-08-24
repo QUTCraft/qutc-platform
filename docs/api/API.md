@@ -433,7 +433,7 @@ Operation ID：`getPortalContentDetail`
 
 Operation ID：`submitPortalApplication`
 
-该接口不要求登录，用于门户提交白名单或成员申请。默认 `type` 为 `whitelist`，也可以显式提交 `membership`。申请会进入当前组织的待审批队列，响应只返回申请凭证和 `pending` 状态，不返回后台审批信息或服务器内部数据。
+该接口不要求登录，用于门户提交白名单或成员申请。默认 `type` 为 `whitelist`，也可以显式提交 `membership`。申请会进入当前组织的待审批队列；同一事务还会按 `application:approve` 权限为当前组织的活跃审核员写入 `application.submitted` 邮件 Outbox，SMTP 由后台异步投递。响应只返回申请凭证和 `pending` 状态，不返回后台审批信息、通知收件人或服务器内部数据。
 
 请求体：
 
@@ -447,7 +447,7 @@ Operation ID：`submitPortalApplication`
 | `email` | email | 用于后续联系的邮箱。 |
 | `note` | string，可选，最多 500 字符 | 申请补充说明。 |
 
-`membership` 申请只要求姓名和邮箱，可用 `note` 描述申请方向；`whitelist` 申请仍要求班级/专业、Minecraft 游戏 ID 和 QQ。成功返回 `201`，数据为 `id`、`status=pending`、`submitted_at`。同一组织中 membership 按邮箱、whitelist 按邮箱或游戏 ID检测待审批重复时返回 `409 application.duplicate_pending`；请求字段不合法返回 `400`。申请列表、姓名详情、QQ 和邮箱只在受保护 Admin API 中提供。
+`membership` 申请只要求姓名和邮箱，可用 `note` 描述申请方向；`whitelist` 申请仍要求班级/专业、Minecraft 游戏 ID 和 QQ。成功返回 `201`，数据为 `id`、`status=pending`、`submitted_at`。同一组织中 membership 按邮箱、whitelist 按邮箱或游戏 ID 检测待审批重复时返回 `409 application.duplicate_pending`；请求字段不合法返回 `400`。若组织没有活跃审核员则不创建提醒，但不影响申请提交；邮件禁用或投递失败时 Outbox 保留可见状态与重试入口。申请列表、姓名详情、QQ 和邮箱只在受保护 Admin API 中提供。
 
 ## 7. Admin API（受认证后台）
 
@@ -689,7 +689,7 @@ Operation ID：`rejectAdminApplication`
 - **失败恢复**：Admin 可轮换邀请链接并重试；服务端不保存明文 token，旧链接在重试时立即失效。
 - **配置状态**：`GET /api/v1/admin/notifications/email/status` 只返回当前组织的有效驱动、发件人和安全模式，不返回连接与认证凭据。
 - **邀请模板**：`GET/PATCH /api/v1/admin/notifications/invitation-template` 读取或更新当前组织模板；允许变量只有 `{{organization}}`、`{{role}}`、`{{invite_url}}`、`{{expires_at}}`，主题最长 255、正文最长 4000 字符，留空恢复默认模板。
-- **审批通知**：审批成功/拒绝在审批事务内写入唯一 `notification_outboxes` 事件；`GET /api/v1/admin/notifications/outbox` 查看队列，`POST /api/v1/admin/notifications/outbox/{notification_id}/retry` 重新排队失败或禁用通知。通知 worker 失败不会回滚审批决定，最多 5 次自动尝试并使用退避。
+- **申请与审批通知**：公开申请提交时按 `application:approve` 权限向活跃审核员写入 `application.submitted` Outbox；审批成功/拒绝则在审批事务内向申请人写入 `application.approved/rejected`。`GET /api/v1/admin/notifications/outbox` 查看队列，`POST /api/v1/admin/notifications/outbox/{notification_id}/retry` 重新排队失败或禁用通知。通知 worker 失败不会回滚已持久化的申请或审批事实，最多 5 次自动尝试并使用退避。
 - **网页配置**：`GET/PATCH /api/v1/admin/integrations` 允许组织所有者在系统设置中维护 SMTP；授权码由 API 使用 AES-GCM 加密持久化，响应只返回“已配置”与尾号提示。首次配置前仍可沿用部署默认值。
 - **连接验证**：`POST /api/v1/admin/integrations/test` 传入 `section=email`，只验证网络、TLS 和身份认证，不发送测试邮件。
 - **安全约束**：SMTP 授权码绝不可进入前端静态代码、日志或 API 响应。网页输入只在保存请求中传输，保存后立即从表单清空。完整配置、模板、审批通知 Outbox 和错误语义见 [邮件与通知适配器规范](email-adapter.md)。
@@ -762,7 +762,7 @@ Operation ID：`listAdminAuditEvents`
 | `GET` | `/api/v1/admin/ai/config` | `ai:use` | 读取当前组织策略与脱敏供应商状态。 |
 | `PATCH` | `/api/v1/admin/ai/config` | `organization:configure` | 保存组织启停、配额、超时、引用与上下文限制，也可保存 OpenAI 兼容接口地址、模型名和加密 API Key。 |
 | `GET` | `/api/v1/admin/ai/agents` | `ai:use` | 获取当前组织的智能体与供应商模式。 |
-| `POST` | `/api/v1/admin/ai/knowledge/search` | `ai:use` ∩ `knowledge:read` | 在当前组织的知识内容中检索引用资料。 |
+| `POST` | `/api/v1/admin/ai/knowledge/search` | `ai:use` ∩ `knowledge:read` | 在当前组织未下线知识中检索引用资料；空查询返回最近更新，多词按任一词匹配。 |
 | `POST` | `/api/v1/admin/ai/runs` | `ai:use` ∩ `knowledge:read` | 创建异步 Markdown 提案运行。 |
 | `GET` | `/api/v1/admin/ai/runs/{run_id}` | `ai:use` | 查询状态、输出、引用、模型版本与用量。 |
 | `POST` | `/api/v1/admin/ai/runs/{run_id}/cancel` | `ai:use` | 取消 queued/running 运行。 |

@@ -65,7 +65,7 @@ export const adminApi = {
   getAIConfiguration: () => get<AIConfiguration>(`${adminBase}/ai/config`),
   updateAIConfiguration: (payload: AIConfigurationUpdate) => patch<AIConfiguration>(`${adminBase}/ai/config`, payload),
   getAIAgents: () => get<AIAgentCatalog>(`${adminBase}/ai/agents`),
-  searchAIKnowledge: (payload: { query: string; limit?: number }) => post<AIKnowledgeResult[]>(`${adminBase}/ai/knowledge/search`, payload),
+  searchAIKnowledge: (payload: { query?: string; limit?: number } = {}) => post<AIKnowledgeResult[]>(`${adminBase}/ai/knowledge/search`, payload),
   createAIRun: (payload: { agent_key: 'content-copilot' | 'activity-planner'; task: string; context_refs: AISourceReference[]; output_mode: 'proposal' }) => post<AIAgentRun>(`${adminBase}/ai/runs`, payload),
   getAIRun: (id: string) => get<AIAgentRun>(`${adminBase}/ai/runs/${id}`),
   cancelAIRun: (id: string) => post<AIAgentRun>(`${adminBase}/ai/runs/${id}/cancel`),
