@@ -760,12 +760,13 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
 		return structuredClone(content) as T
 	}
 	if (path.endsWith('/admin/ai/knowledge/search')) {
-    const payload = body as { query: string; limit?: number }
-    const query = payload.query.trim().toLowerCase()
+    const payload = body as { query?: string; limit?: number }
+    const terms = (payload.query ?? '').trim().toLowerCase().split(/\s+/).filter(Boolean)
     const limit = Math.min(20, Math.max(1, payload.limit ?? 10))
     const results: AIKnowledgeResult[] = adminContent
-      .filter((item) => item.type === 'knowledge')
-      .filter((item) => [item.title, item.category, item.excerpt, item.body].some((value) => value?.toLowerCase().includes(query)))
+      .filter((item) => item.type === 'knowledge' && item.status !== 'archived')
+      .filter((item) => !terms.length || terms.some((term) => [item.title, item.category, item.excerpt, item.body].some((value) => value?.toLowerCase().includes(term))))
+      .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
       .slice(0, limit)
       .map((item) => ({
         source_type: 'content',

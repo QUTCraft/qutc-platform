@@ -64,6 +64,7 @@ const qualityDimensions = computed(() => [
 ])
 const pendingReviewPlans = computed(() => historyPlans.value.filter((item) => (item.status === 'ready' || item.status === 'applied') && !item.has_my_evaluation))
 const visibleHistoryPlans = computed(() => historyFilter.value === 'pending' ? pendingReviewPlans.value : historyPlans.value)
+const knowledgeResultLabel = computed(() => query.value.trim() ? '匹配的知识文章' : '最近更新的知识文章')
 
 onMounted(() => void loadFoundation())
 onBeforeUnmount(() => {
@@ -84,7 +85,7 @@ async function loadFoundation() {
     if (!catalog.agents.some((agent) => agent.key === 'activity-planner')) {
       ElMessage.warning('当前组织尚未初始化活动策划智能体，请重启 API 完成定义初始化。')
     }
-    await Promise.all([loadHistory(), loadQualitySummary()])
+    await Promise.all([loadHistory(), loadQualitySummary(), searchKnowledge(false)])
     const selectedPlanID = window.sessionStorage.getItem(selectedPlanStorageKey)
     if (selectedPlanID && historyPlans.value.some((item) => item.id === selectedPlanID)) await openHistoricalPlan(selectedPlanID)
   } catch (error) {
@@ -182,17 +183,13 @@ function continueToSources() {
   step.value = 1
 }
 
-async function searchKnowledge() {
+async function searchKnowledge(announce = true) {
   const keyword = query.value.trim()
-  if (!keyword) {
-    ElMessage.warning('请输入活动规范、历史活动或相关知识关键词。')
-    return
-  }
   searching.value = true
   try {
     knowledgeResults.value = await adminApi.searchAIKnowledge({ query: keyword, limit: 20 })
     for (const item of knowledgeResults.value) sourceRegistry.value[item.id] = item
-    if (!knowledgeResults.value.length) ElMessage.info('没有匹配资料，请先在知识库录入活动规范或历史材料。')
+    if (announce && !knowledgeResults.value.length) ElMessage.info(keyword ? '没有匹配的知识文章，可新建活动规范或复盘记录后再试。' : '当前组织还没有可用的知识文章。')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '知识资料检索失败。')
   } finally {
@@ -211,6 +208,16 @@ function toggleSource(id: string) {
     return
   }
   selectedSourceIds.value.push(id)
+}
+
+function knowledgeStatusLabel(status: AIKnowledgeResult['status']) {
+  return ({ draft: '草稿', review: '待审核', published: '已发布', archived: '已下线' })[status]
+}
+
+function knowledgeStatusType(status: AIKnowledgeResult['status']) {
+  if (status === 'published') return 'success'
+  if (status === 'review') return 'warning'
+  return 'info'
 }
 
 async function generatePlan() {
@@ -385,7 +392,7 @@ function statusType(status: ActivityPlanSummary['status']) {
     <section class="planner-shell">
       <el-steps :active="step" finish-status="success" align-center class="planner-steps">
         <el-step title="活动需求" description="目标、受众与约束" />
-        <el-step title="选择依据" description="组织知识与历史资料" />
+        <el-step title="选择依据" description="组织知识与活动复盘" />
         <el-step title="审查执行" description="带引用方案与人工批准" />
       </el-steps>
 
@@ -413,18 +420,30 @@ function statusType(status: ActivityPlanSummary['status']) {
           <p>至少选择一条知识。引用会固定快照，后续可以核对方案依据。</p>
         </div>
         <div class="knowledge-search">
-          <el-input v-model="query" clearable placeholder="搜索活动规范、场地要求或历史活动" @keyup.enter="searchKnowledge"><template #prefix><el-icon><Search /></el-icon></template></el-input>
-          <el-button type="primary" :icon="Search" :loading="searching" @click="searchKnowledge">检索</el-button>
+          <el-input v-model="query" clearable placeholder="搜索活动规范、场地要求或复盘关键词；留空查看最近资料" @clear="() => searchKnowledge(false)" @keyup.enter="searchKnowledge()"><template #prefix><el-icon><Search /></el-icon></template></el-input>
+          <el-button type="primary" :icon="Search" :loading="searching" @click="searchKnowledge()">检索</el-button>
+        </div>
+        <div class="knowledge-toolbar">
+          <span>{{ knowledgeResultLabel }}</span>
+          <div>
+            <RouterLink to="/admin/content/new?type=knowledge"><el-button text type="primary">新建知识文章</el-button></RouterLink>
+            <RouterLink to="/admin/knowledge"><el-button text type="primary">管理知识库</el-button></RouterLink>
+          </div>
         </div>
         <div v-if="knowledgeResults.length" class="knowledge-grid">
           <button v-for="item in knowledgeResults" :key="item.id" type="button" class="knowledge-card" :class="{ selected: selectedSourceIds.includes(item.id) }" @click="toggleSource(item.id)">
             <span class="knowledge-check"><el-icon v-if="selectedSourceIds.includes(item.id)"><Check /></el-icon></span>
             <strong>{{ item.title }}</strong>
             <p>{{ item.excerpt }}</p>
-            <small>{{ new Date(item.updated_at).toLocaleDateString('zh-CN') }}</small>
+            <span class="knowledge-card-meta"><el-tag size="small" effect="plain" :type="knowledgeStatusType(item.status)">{{ knowledgeStatusLabel(item.status) }}</el-tag><small>更新于 {{ new Date(item.updated_at).toLocaleDateString('zh-CN') }}</small></span>
           </button>
         </div>
-        <el-empty v-else description="检索并选择当前组织的知识资料" />
+        <el-empty v-else :description="query.trim() ? '没有匹配的知识文章' : '当前组织还没有知识文章'">
+          <div class="knowledge-empty-actions">
+            <RouterLink to="/admin/content/new?type=knowledge"><el-button type="primary" round>新建第一篇知识文章</el-button></RouterLink>
+            <RouterLink to="/admin/knowledge"><el-button round>查看知识库</el-button></RouterLink>
+          </div>
+        </el-empty>
         <div class="selection-summary">已选择 <strong>{{ selectedSources.length }}</strong> / {{ maxSources }} 条资料</div>
         <div class="stage-actions spread">
           <el-button round @click="step = 0">返回修改需求</el-button>
@@ -555,12 +574,16 @@ function statusType(status: ActivityPlanSummary['status']) {
 .stage-actions { display: flex; justify-content: flex-end; margin-top: 20px; }
 .stage-actions.spread { justify-content: space-between; }
 .knowledge-search { display: grid; grid-template-columns: 1fr auto; gap: 12px; }
+.knowledge-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; color: var(--md-sys-color-on-surface-variant); font-size: .84rem; }
+.knowledge-toolbar > div, .knowledge-empty-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.knowledge-toolbar .el-button { margin: 0; }
 .knowledge-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
 .knowledge-card { position: relative; min-height: 150px; padding: 20px; text-align: left; color: inherit; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 20px; background: var(--md-sys-color-surface-container); cursor: pointer; }
 .knowledge-card.selected { border-color: var(--md-sys-color-primary); background: var(--md-sys-color-primary-container); }
 .knowledge-card strong { display: block; padding-right: 32px; font-size: 1rem; }
 .knowledge-card p { margin: 10px 0; color: var(--md-sys-color-on-surface-variant); display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .knowledge-card small { color: var(--md-sys-color-on-surface-variant); }
+.knowledge-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .knowledge-check { position: absolute; top: 16px; right: 16px; display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid var(--md-sys-color-outline); border-radius: 50%; }
 .selected .knowledge-check { color: var(--md-sys-color-on-primary); border-color: var(--md-sys-color-primary); background: var(--md-sys-color-primary); }
 .selection-summary { margin-top: 18px; color: var(--md-sys-color-on-surface-variant); }
@@ -616,6 +639,7 @@ function statusType(status: ActivityPlanSummary['status']) {
   .activity-heading { align-items: flex-start; }
   .heading-actions { flex-wrap: wrap; }
   .knowledge-search { grid-template-columns: 1fr; }
+  .knowledge-toolbar { align-items: flex-start; flex-direction: column; }
   .stage-actions.spread { align-items: stretch; flex-direction: column-reverse; gap: 10px; }
   .stage-actions.spread .el-button { width: 100%; margin: 0; }
   .plan-preview { padding: 20px; }

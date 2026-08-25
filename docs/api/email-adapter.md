@@ -2,7 +2,7 @@
 
 ## 1. 目标与边界
 
-当前邮件能力包含三条失败语义不同的路径：成员邀请邮件、申请审批结果通知，以及内容审核通知。
+当前邮件能力包含四条失败语义明确的路径：成员邀请邮件、新申请管理员提醒、申请审批结果通知，以及内容审核通知。
 
 邀请邮件是成员邀请流程的可选外部适配器，不是邀请事务的组成部分：
 
@@ -12,10 +12,10 @@
 - 浏览器只读取适配器状态和单次投递结果，不读取 SMTP 主机、用户名、密码或授权码。
 - 服务端始终只持久化邀请 token 的 SHA-256 哈希，不为邮件重试保存明文 token。
 
-申请审批通知使用持久化 Outbox：
+申请提醒与审批结果通知使用持久化 Outbox：
 
-- 审批事务只写入唯一通知事件，不在事务中连接 SMTP。
-- 单机 worker 在事务提交后领取事件并发送；发送失败不会回滚已经生效的审批决定。
+- 公开申请事务按 `application:approve` 权限查询当前组织活跃审核员，并为每个去重邮箱写入 `application.submitted`；审批事务向申请人写入唯一结果通知，二者都不在事务中连接 SMTP。
+- 单机 worker 在事务提交后领取事件并发送；发送失败不会回滚已经生效的申请或审批决定。
 - SMTP 禁用、失败、重试次数和脱敏错误均可由具有组织配置权限的管理员查看。
 - 当前没有申请人自助状态页、Webhook、企业微信、退信处理或多实例 worker，这些能力继续延期。
 
@@ -58,15 +58,15 @@
 
 邀请接受不依赖投递状态。即使状态是 `failed` 或 `disabled`，有效链接仍可完成注册或已有账户接受。
 
-### 3.2 审批通知 Outbox
+### 3.2 通知 Outbox
 
-`notification_outboxes` 为审批结果保存可重试事件：
+`notification_outboxes` 为申请提醒、审批结果和内容审核保存可重试事件：
 
 | 字段 | 语义 |
 | --- | --- |
-| `event_type` | `application.approved/rejected`，或 `content.review_submitted/review_rejected/published/archive_requested/archive_rejected/archived`。 |
+| `event_type` | `application.submitted/approved/rejected`，或 `content.review_submitted/review_rejected/published/archive_requested/archive_rejected/archived`。 |
 | `target_type` / `target_id` | `application` 与申请 ID，或 `content_review` 与审核请求 ID。事件类型、目标和收件邮箱组成唯一约束。 |
-| `recipient_email` | 审批时申请记录中的邮箱，仅 Admin 可见。 |
+| `recipient_email` | 新申请提醒的审核员邮箱、审批结果的申请人邮箱，或内容审核相关收件邮箱；仅 Admin 可见。 |
 | `status` | `pending`、`sending`、`sent`、`failed`、`disabled`。 |
 | `attempts` | 已领取并尝试处理的次数；自动处理上限为 5。 |
 | `available_at` | 允许下一次领取的时间；失败时按尝试次数退避。 |
@@ -157,7 +157,7 @@ API 进程重启不会丢失 `pending`/`failed` 事件。当前 worker 与 API �
 
 主题最长 255 字符，正文最长 4000 字符。未知变量、残缺花括号和超长内容返回 `400 notification.template_invalid`；主题或正文留空表示使用服务端默认模板。保存动作写入 `notification.invitation_template_update` 审计。模板不允许读取申请材料、成员隐私或 SMTP 配置。
 
-### 4.5 审批通知队列
+### 4.5 通知队列
 
 - `GET /api/v1/admin/notifications/outbox`：要求 `organization:configure`，按当前组织分页，可用 `status` 精确筛选。
 - `POST /api/v1/admin/notifications/outbox/{notification_id}/retry`：只允许 `failed` 或 `disabled` 事件；清空安全错误、重置尝试次数并重新置为 `pending`，写入 `notification.retry` 审计。
@@ -169,7 +169,7 @@ SMTP 未启用时，worker 将事件标记为 `disabled`，而不是伪报发送
 - `membership.invite`：邀请核心记录创建成功。
 - `membership.invite_email`：记录每次邮件阶段结果，`result` 为 `sent`、`failed` 或未启用时的 `skipped`。
 - `notification.invitation_template_update`：组织邀请模板更新成功。
-- `notification.retry`：审批通知被人工重新排队。
+- `notification.retry`：通知被人工重新排队。
 - 适配器使用连接级总超时；SMTP 错误会截断到 500 字符，不包含请求中的邀请 token。
 - 重试端点受敏感操作限流保护，避免对同一地址反复发送。
 - SMTP 成功仅代表上游服务器接受邮件，不代表最终进入收件箱；退信与送达回执属于后续异步通知能力。

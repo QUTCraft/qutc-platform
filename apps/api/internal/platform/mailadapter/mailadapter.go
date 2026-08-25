@@ -57,6 +57,16 @@ type ApplicationDecisionMessage struct {
 	Reason          string
 }
 
+type ApplicationSubmittedMessage struct {
+	RecipientEmail  string
+	RecipientName   string
+	Organization    string
+	ApplicantName   string
+	ApplicantEmail  string
+	ApplicationType string
+	SubmittedAt     time.Time
+}
+
 type ContentReviewMessage struct {
 	RecipientEmail string
 	RecipientName  string
@@ -72,6 +82,7 @@ type ContentReviewMessage struct {
 type Sender interface {
 	Status() Status
 	SendInvitation(context.Context, InvitationMessage) error
+	SendApplicationSubmitted(context.Context, ApplicationSubmittedMessage) error
 	SendApplicationDecision(context.Context, ApplicationDecisionMessage) error
 	SendContentReview(context.Context, ContentReviewMessage) error
 }
@@ -142,6 +153,10 @@ func (disabledSender) SendInvitation(context.Context, InvitationMessage) error {
 	return ErrDisabled
 }
 
+func (disabledSender) SendApplicationSubmitted(context.Context, ApplicationSubmittedMessage) error {
+	return ErrDisabled
+}
+
 func (disabledSender) SendApplicationDecision(context.Context, ApplicationDecisionMessage) error {
 	return ErrDisabled
 }
@@ -177,6 +192,23 @@ func (s *smtpSender) SendInvitation(ctx context.Context, message InvitationMessa
 	body := invitationBody(message)
 	subject := invitationSubject(message)
 	return s.sendText(ctx, recipient.Address, subject, body)
+}
+
+func (s *smtpSender) SendApplicationSubmitted(ctx context.Context, message ApplicationSubmittedMessage) error {
+	recipient, err := mail.ParseAddress(strings.TrimSpace(message.RecipientEmail))
+	if err != nil || recipient.Address == "" {
+		return errors.New("recipient address is invalid")
+	}
+	organization := cleanText(message.Organization)
+	applicantName := cleanText(message.ApplicantName)
+	applicantEmail := cleanText(message.ApplicantEmail)
+	greeting := "你好"
+	if name := cleanText(message.RecipientName); name != "" {
+		greeting += " " + name
+	}
+	submittedAt := message.SubmittedAt.UTC().Format(time.RFC3339)
+	body := fmt.Sprintf("%s：\r\n\r\n%s 收到一条新的%s。\r\n\r\n申请人：%s\r\n联系邮箱：%s\r\n提交时间：%s\r\n\r\n请登录管理工作台，在“申请审核”中查看完整资料并处理。\r\n", greeting, organization, applicationTypeLabel(message.ApplicationType), applicantName, applicantEmail, submittedAt)
+	return s.sendText(ctx, recipient.Address, fmt.Sprintf("【%s】收到新的%s", organization, applicationTypeLabel(message.ApplicationType)), body)
 }
 
 func (s *smtpSender) SendApplicationDecision(ctx context.Context, message ApplicationDecisionMessage) error {

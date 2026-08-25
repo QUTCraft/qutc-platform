@@ -60,7 +60,7 @@
 
 `editor`、`administrator`、`owner` 默认具有 `ai:use`；`member` 默认没有。服务端从 Bearer JWT 对应的活动成员关系取得 `organization_id`，请求体和查询参数不能覆盖组织范围。
 
-知识检索和运行引用只接受当前组织中 `type=knowledge` 的 `contents`。其他组织 ID、非知识内容 ID 和不存在的 ID 统一返回 `404 ai.source_not_found`，避免通过错误差异探测资源。
+知识检索和运行引用只接受当前组织中 `type=knowledge` 且状态为 `draft`、`review` 或 `published` 的 `contents`。`archived`、其他组织 ID、非知识内容 ID 和不存在的 ID 统一返回 `404 ai.source_not_found`，避免下线资料继续影响结果或通过错误差异探测资源。
 
 ## 3. API
 
@@ -189,7 +189,7 @@ Authorization: Bearer <access-token>
 }
 ```
 
-`query` 为 1—80 字符，`limit` 为 1—20，默认 10。响应只包含引用选择需要的最少字段：
+`query` 可省略或留空，最长 80 字符；为空时按 `updated_at DESC, id DESC` 返回最近更新的未下线知识。非空查询按空白拆词，标题、分类、摘要或正文命中任意一个词即可返回；`limit` 为 1—20，默认 10。响应只包含引用选择需要的最少字段：
 
 ```json
 {
@@ -207,7 +207,7 @@ Authorization: Bearer <access-token>
 }
 ```
 
-内部知识助手允许有权限的用户读取同组织草稿、审核中和已发布知识；这不改变 Portal 只能读取已发布内容的边界。
+内部知识助手允许有权限的用户读取同组织草稿、审核中和已发布知识；已下线文章不会被列出，也不能通过旧 ID 创建新运行。这不改变 Portal 只能读取已发布内容的边界。活动策划和内容助手进入来源选择时会自动调用空查询加载最近资料，用户不必先猜关键词。
 
 ### 3.4 创建异步运行
 

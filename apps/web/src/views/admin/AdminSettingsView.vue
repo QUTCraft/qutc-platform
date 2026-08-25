@@ -366,6 +366,24 @@ async function retryNotification(item: NotificationOutbox) {
   }
 }
 
+function notificationEventLabel(eventType: string) {
+  return ({
+    'application.submitted': '新申请提醒',
+    'application.approved': '申请通过通知',
+    'application.rejected': '申请拒绝通知',
+    'content.review_submitted': '内容待审核提醒',
+    'content.review_rejected': '内容审核退回通知',
+    'content.published': '内容上线通知',
+    'content.archive_requested': '内容下线申请提醒',
+    'content.archive_rejected': '下线申请退回通知',
+    'content.archived': '内容下线通知',
+  } as Record<string, string>)[eventType] ?? eventType
+}
+
+function notificationStatusLabel(status: NotificationOutbox['status']) {
+  return ({ pending: '待发送', sending: '发送中', sent: '已发送', failed: '发送失败', disabled: '邮件未启用' })[status]
+}
+
 async function loadInitialSettings() {
   initialLoading.value = true
   try {
@@ -661,7 +679,7 @@ onBeforeUnmount(releaseLocalLogoPreview)
         <div class="panel-heading">
           <div>
             <h2>通知队列</h2>
-            <p>申请审批结果通过 outbox 异步发送；失败项可手动重新排队。</p>
+            <p>新申请提醒、审批结果和内容审核通知均异步发送；失败项可手动重新排队。</p>
           </div>
           <el-button text @click="loadNotifications">刷新</el-button>
         </div>
@@ -670,9 +688,9 @@ onBeforeUnmount(releaseLocalLogoPreview)
           <div v-for="item in notificationItems" :key="item.id" class="notification-row">
             <div>
               <strong>{{ item.recipient_email }}</strong>
-              <span>{{ item.event_type }} · {{ item.attempts }} 次尝试</span>
+              <span>{{ notificationEventLabel(item.event_type) }} · {{ item.attempts }} 次尝试</span>
             </div>
-            <el-tag size="small" :type="item.status === 'sent' ? 'success' : item.status === 'failed' ? 'danger' : 'info'">{{ item.status }}</el-tag>
+            <el-tag size="small" :type="item.status === 'sent' ? 'success' : item.status === 'failed' ? 'danger' : 'info'">{{ notificationStatusLabel(item.status) }}</el-tag>
             <el-button v-if="item.status === 'failed' || item.status === 'disabled'" text type="primary" @click="retryNotification(item)">重试</el-button>
           </div>
         </div>

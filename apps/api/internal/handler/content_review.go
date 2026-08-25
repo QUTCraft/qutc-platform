@@ -93,7 +93,7 @@ func pendingContentReview(tx *gorm.DB, organizationID, contentID string) (model.
 	return request, err
 }
 
-func contentReviewerEmails(tx *gorm.DB, organizationID, permission, excludeEmail string) ([]string, error) {
+func permissionRecipientEmails(tx *gorm.DB, organizationID, permission, excludeEmail string) ([]string, error) {
 	var emails []string
 	err := tx.Table("users").Distinct("users.email").
 		Joins("JOIN memberships ON memberships.user_id = users.id").
@@ -173,7 +173,7 @@ func (h *WorkspaceHandler) SubmitContentReview(c *gin.Context) {
 		if err := tx.Create(&request).Error; err != nil {
 			return err
 		}
-		recipients, err := contentReviewerEmails(tx, principal.OrganizationID, "content:publish", principal.Email)
+		recipients, err := permissionRecipientEmails(tx, principal.OrganizationID, "content:publish", principal.Email)
 		if err != nil {
 			return err
 		}
@@ -232,7 +232,7 @@ func (h *WorkspaceHandler) RequestContentArchive(c *gin.Context) {
 		if err := tx.Create(&request).Error; err != nil {
 			return err
 		}
-		recipients, err := contentReviewerEmails(tx, principal.OrganizationID, "content:archive", principal.Email)
+		recipients, err := permissionRecipientEmails(tx, principal.OrganizationID, "content:archive", principal.Email)
 		if err != nil {
 			return err
 		}
