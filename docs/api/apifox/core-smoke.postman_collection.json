@@ -409,7 +409,7 @@
       ]
     },
     {
-      "name": "13 - Reject application",
+      "name": "13 - Approve application with skin invite code",
       "request": {
         "method": "POST",
         "header": [
@@ -424,12 +424,12 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"reason\": \"Apifox smoke cleanup\"\n}"
+          "raw": "{\n  \"reason\": \"Apifox approval smoke\",\n  \"skin_invite_code\": \"apifox-skin-{{runId}}\"\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/api/v1/admin/applications/{{applicationId}}/reject",
+          "raw": "{{baseUrl}}/api/v1/admin/applications/{{applicationId}}/approve",
           "host": ["{{baseUrl}}"],
-          "path": ["api", "v1", "admin", "applications", "{{applicationId}}", "reject"]
+          "path": ["api", "v1", "admin", "applications", "{{applicationId}}", "approve"]
         }
       },
       "event": [
@@ -438,8 +438,10 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('application is rejected', () => pm.response.to.have.status(200));",
-              "pm.expect(pm.response.json().data.status).to.eql('rejected');"
+              "pm.test('application is approved', () => pm.response.to.have.status(200));",
+              "const application = pm.response.json().data;",
+              "pm.expect(application.status).to.eql('approved');",
+              "pm.expect(application.skin_invite_code).to.eql('apifox-skin-' + pm.environment.get('runId'));"
             ]
           }
         }

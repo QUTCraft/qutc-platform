@@ -3310,6 +3310,10 @@ components:
           type: string
           maxLength: 500
           description: 可选的通过备注，仅在 Admin API 中展示。
+        skin_invite_code:
+          type: string
+          maxLength: 500
+          description: 可选的皮肤站邀请码，会随通过通知邮件发送给申请人。
     ApplicationRejectRequest:
       type: object
       required: [reason]
@@ -3321,7 +3325,7 @@ components:
           description: 必填的拒绝原因，仅在 Admin API 中展示。
     AdminApplication:
       type: object
-      required: [id, applicant, type, submitted_at, note, status, class_name, game_id, qq_number, email, decision_reason]
+      required: [id, applicant, type, submitted_at, note, status, class_name, game_id, qq_number, email, decision_reason, skin_invite_code]
       properties:
         id: { type: string }
         applicant: { type: string, maxLength: 80 }
@@ -3339,6 +3343,10 @@ components:
           type: string
           maxLength: 500
           description: 审核备注或拒绝原因，仅限 Admin API。
+        skin_invite_code:
+          type: string
+          maxLength: 500
+          description: 通过时填写的皮肤站邀请码，仅限 Admin API，并随通过通知邮件发送。
     PortalThemeReference:
       type: object
       required: [mode]

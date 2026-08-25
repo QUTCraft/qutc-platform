@@ -245,7 +245,7 @@ func (s *NotificationService) deliver(ctx context.Context, item model.Notificati
 		} else if item.EventType == "application.approved" || item.EventType == "application.rejected" {
 			err = sender.SendApplicationDecision(ctx, mailadapter.ApplicationDecisionMessage{
 				RecipientEmail: application.Email, Organization: organization.Name, ApplicantName: application.ApplicantName,
-				ApplicationType: application.Type, Decision: application.Status, Reason: application.DecisionReason,
+				ApplicationType: application.Type, Decision: application.Status, Reason: application.DecisionReason, SkinInviteCode: application.SkinInviteCode,
 			})
 		} else {
 			return s.finish(item, NotificationStatusFailed, "未知申请通知类型", errors.New("unsupported application notification event"), time.Now().UTC().Add(24*time.Hour))

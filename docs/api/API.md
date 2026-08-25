@@ -649,13 +649,14 @@ Operation ID：`listAdminApplications`
 | `decided_at` | date-time / null | 审批完成时间。 |
 | `decided_by` | string | 审批操作者 ID；不向 Portal 返回。 |
 | `decision_reason` | string，最多 500 字符 | 通过备注或拒绝原因，仅限 Admin API。 |
+| `skin_invite_code` | string，最多 500 字符 | 通过时填写的皮肤站邀请码，仅限 Admin API，并随通过通知邮件发送。 |
 
 #### 通过申请
 
 `POST /api/v1/admin/applications/{application_id}/approve`  
 Operation ID：`approveAdminApplication`
 
-请求体可选传入 `{ "reason": "资料完整，符合要求。" }` 作为通过备注，最多 500 字符。成功 `200` 返回已更新的 `AdminApplication`；发生重复审批或并发状态变化时返回 `409`。服务端在同一事务中记录审批人、状态、原因、时间、`request_id` 和通知 Outbox；任一步失败都会整体回滚。
+请求体可选传入 `{ "reason": "资料完整，符合要求。", "skin_invite_code": "邀请码" }`；`reason` 为通过备注，`skin_invite_code` 为随审批邮件发送给申请人的皮肤站邀请码，二者均最多 500 字符且可留空。成功 `200` 返回已更新的 `AdminApplication`；发生重复审批或并发状态变化时返回 `409`。服务端在同一事务中记录审批人、状态、原因、邀请码、时间、`request_id` 和通知 Outbox；任一步失败都会整体回滚。
 
 #### 拒绝申请
 

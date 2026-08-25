@@ -55,6 +55,7 @@ type ApplicationDecisionMessage struct {
 	ApplicationType string
 	Decision        string
 	Reason          string
+	SkinInviteCode  string
 }
 
 type ApplicationSubmittedMessage struct {
@@ -216,6 +217,11 @@ func (s *smtpSender) SendApplicationDecision(ctx context.Context, message Applic
 	if err != nil || recipient.Address == "" {
 		return errors.New("recipient address is invalid")
 	}
+	subject, body := applicationDecisionContent(message)
+	return s.sendText(ctx, recipient.Address, subject, body)
+}
+
+func applicationDecisionContent(message ApplicationDecisionMessage) (string, string) {
 	decision := "申请状态已更新"
 	if message.Decision == "approved" {
 		decision = "申请已通过"
@@ -223,7 +229,10 @@ func (s *smtpSender) SendApplicationDecision(ctx context.Context, message Applic
 		decision = "申请未通过"
 	}
 	body := fmt.Sprintf("你好 %s：\r\n\r\n你提交给 %s 的%s已更新为：%s。\r\n\r\n处理说明：%s\r\n", cleanText(message.ApplicantName), cleanText(message.Organization), applicationTypeLabel(message.ApplicationType), decision, cleanText(message.Reason))
-	return s.sendText(ctx, recipient.Address, cleanText(message.Organization)+" 的申请处理结果", body)
+	if code := cleanText(message.SkinInviteCode); code != "" && message.Decision == "approved" {
+		body += fmt.Sprintf("\r\n皮肤站邀请码：%s\r\n", code)
+	}
+	return cleanText(message.Organization) + " 的申请处理结果", body
 }
 
 func (s *smtpSender) SendContentReview(ctx context.Context, message ContentReviewMessage) error {

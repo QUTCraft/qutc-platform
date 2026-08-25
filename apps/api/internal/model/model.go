@@ -270,6 +270,7 @@ type Application struct {
 	DecidedAt      *time.Time `gorm:"index"`
 	DecidedBy      string     `gorm:"type:char(36);not null;default:''"`
 	DecisionReason string     `gorm:"size:500;not null;default:''"`
+	SkinInviteCode string     `gorm:"size:500;not null;default:''"`
 	CreatedAt      time.Time  `gorm:"index"`
 	UpdatedAt      time.Time
 }

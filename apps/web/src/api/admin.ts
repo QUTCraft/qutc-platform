@@ -106,7 +106,7 @@ export const adminApi = {
     const suffix = query.toString()
     return getPage<AdminApplication>(`${adminBase}/applications${suffix ? `?${suffix}` : ''}`)
   },
-  approveApplication: (id: string, reason = '') => post<AdminApplication>(`${adminBase}/applications/${id}/approve`, { reason }),
+  approveApplication: (id: string, reason = '', skinInviteCode = '') => post<AdminApplication>(`${adminBase}/applications/${id}/approve`, { reason, skin_invite_code: skinInviteCode }),
   rejectApplication: (id: string, reason: string) => post<AdminApplication>(`${adminBase}/applications/${id}/reject`, { reason }),
   getPortalConfiguration: () => get<PortalConfiguration>(`${adminBase}/portal/config`),
   savePortalDraft: (manifest: PortalManifest) => patch<PortalConfiguration>(`${adminBase}/portal/config`, { manifest }),

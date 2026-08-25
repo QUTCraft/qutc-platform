@@ -1806,7 +1806,8 @@ type applicationRequest struct {
 }
 
 type applicationDecisionRequest struct {
-	Reason string `json:"reason"`
+	Reason         string `json:"reason"`
+	SkinInviteCode string `json:"skin_invite_code"`
 }
 
 var qqNumberPattern = regexp.MustCompile(`^[0-9]{5,15}$`)
@@ -1987,7 +1988,7 @@ func (h *WorkspaceHandler) AdminApplicationDecision(c *gin.Context) {
 			return
 		}
 	}
-	application, err := h.applications.Decide(principal.OrganizationID, principal.UserID, decision, next, body.Reason, ensureRequestID(c))
+	application, err := h.applications.Decide(principal.OrganizationID, principal.UserID, decision, next, body.Reason, body.SkinInviteCode, ensureRequestID(c))
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrApplicationNotFound):
@@ -1998,6 +1999,8 @@ func (h *WorkspaceHandler) AdminApplicationDecision(c *gin.Context) {
 			fail(c, http.StatusBadRequest, "application.decision_reason_required", "拒绝申请时必须填写审核原因。")
 		case errors.Is(err, service.ErrApplicationReasonTooLong):
 			fail(c, http.StatusBadRequest, "application.decision_reason_too_long", "审核原因不能超过 500 个字符。")
+		case errors.Is(err, service.ErrApplicationSkinInviteCodeTooLong):
+			fail(c, http.StatusBadRequest, "application.skin_invite_code_too_long", "皮肤站邀请码不能超过 500 个字符。")
 		default:
 			fail(c, http.StatusInternalServerError, "application.decision_failed", "申请状态暂时无法更新。")
 		}
@@ -2007,5 +2010,5 @@ func (h *WorkspaceHandler) AdminApplicationDecision(c *gin.Context) {
 }
 
 func (h *WorkspaceHandler) applicationAdminItem(application model.Application) gin.H {
-	return gin.H{"id": application.ID, "applicant": application.ApplicantName, "type": application.Type, "submitted_at": application.CreatedAt, "note": application.Note, "status": application.Status, "class_name": application.ClassName, "game_id": application.GameID, "qq_number": application.QQNumber, "email": application.Email, "decided_at": application.DecidedAt, "decided_by": application.DecidedBy, "decision_reason": application.DecisionReason}
+	return gin.H{"id": application.ID, "applicant": application.ApplicantName, "type": application.Type, "submitted_at": application.CreatedAt, "note": application.Note, "status": application.Status, "class_name": application.ClassName, "game_id": application.GameID, "qq_number": application.QQNumber, "email": application.Email, "decided_at": application.DecidedAt, "decided_by": application.DecidedBy, "decision_reason": application.DecisionReason, "skin_invite_code": application.SkinInviteCode}
 }

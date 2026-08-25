@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, reactive, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import AsyncState from '@/components/AsyncState.vue'
 import { adminApi } from '@/api/admin'
 import type { AdminApplication, AdminApplicationFilters } from '@/api/types'
@@ -26,6 +26,10 @@ const { data, error, loading, refresh } = useAsyncData(async () => {
 const applications = computed(() => data.value?.applications.items ?? [])
 const pendingCount = computed(() => applications.value.filter((item) => item.status === 'pending').length)
 const decidedCount = computed(() => applications.value.length - pendingCount.value)
+const decisionDialogOpen = ref(false)
+const decisionSubmitting = ref(false)
+const pendingDecision = ref<{ id: string; decision: 'approve' | 'reject' } | null>(null)
+const decisionForm = reactive({ reason: '', skinInviteCode: '' })
 
 function applyFilters() {
   filters.page = 1
@@ -47,35 +51,34 @@ function applicationStatusLabel(status: AdminApplication['status']) {
 }
 
 async function requestDecision(id: string, decision: 'approve' | 'reject') {
-  let reason = ''
-  try {
-    const result = await ElMessageBox.prompt(
-      decision === 'approve' ? '可以填写通过备注，留空也可继续。' : '请填写拒绝原因，该原因仅在管理后台显示。',
-      decision === 'approve' ? '通过申请' : '拒绝申请',
-      {
-        confirmButtonText: decision === 'approve' ? '确认通过' : '确认拒绝',
-        cancelButtonText: '取消',
-        inputType: 'textarea',
-        inputPlaceholder: decision === 'approve' ? '例如：资料完整，符合加入要求' : '请输入拒绝原因',
-        inputValidator: (value) => {
-          const normalized = value.trim()
-          if (decision === 'reject' && !normalized) return '拒绝申请时必须填写原因。'
-          if ([...normalized].length > 500) return '审核原因不能超过 500 个字符。'
-          return true
-        },
-      },
-    )
-    reason = result.value.trim()
-  } catch {
+  pendingDecision.value = { id, decision }
+  Object.assign(decisionForm, { reason: '', skinInviteCode: '' })
+  decisionDialogOpen.value = true
+}
+
+async function submitDecision() {
+  const current = pendingDecision.value
+  if (!current) return
+  const reason = decisionForm.reason.trim()
+  const skinInviteCode = decisionForm.skinInviteCode.trim()
+  if (current.decision === 'reject' && !reason) {
+    ElMessage.warning('拒绝申请时必须填写审核原因。')
     return
   }
-
+  if ([...reason].length > 500 || [...skinInviteCode].length > 500) {
+    ElMessage.warning('审核备注和皮肤站邀请码均不能超过 500 个字符。')
+    return
+  }
+  decisionSubmitting.value = true
   try {
-    await (decision === 'approve' ? adminApi.approveApplication(id, reason) : adminApi.rejectApplication(id, reason))
-    ElMessage.success(decision === 'approve' ? '申请已通过并写入审计记录。' : '申请已拒绝并写入审计记录。')
+    await (current.decision === 'approve' ? adminApi.approveApplication(current.id, reason, skinInviteCode) : adminApi.rejectApplication(current.id, reason))
+    ElMessage.success(current.decision === 'approve' ? '申请已通过，审核备注和邀请码将随邮件发送。' : '申请已拒绝并写入审计记录。')
+    decisionDialogOpen.value = false
     refresh()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '申请暂时无法处理。')
+  } finally {
+    decisionSubmitting.value = false
   }
 }
 </script>
@@ -172,6 +175,25 @@ async function requestDecision(id: string, decision: 'approve' | 'reject') {
           <p>通过或拒绝只改变 CMS 内的申请状态并写入通知队列；通知投递失败不会回滚审核决定。</p>
         </article>
       </section>
+      <el-dialog
+        v-model="decisionDialogOpen"
+        :title="pendingDecision?.decision === 'approve' ? '通过申请' : '拒绝申请'"
+        width="min(92vw, 520px)"
+        :close-on-click-modal="false"
+      >
+        <el-form label-position="top">
+          <el-form-item :label="pendingDecision?.decision === 'approve' ? '审核备注（可选）' : '拒绝原因'">
+            <el-input v-model="decisionForm.reason" type="textarea" :rows="4" maxlength="500" show-word-limit :placeholder="pendingDecision?.decision === 'approve' ? '例如：资料完整，符合加入要求' : '请输入拒绝原因'" />
+          </el-form-item>
+          <el-form-item v-if="pendingDecision?.decision === 'approve'" label="皮肤站邀请码（可选）">
+            <el-input v-model="decisionForm.skinInviteCode" maxlength="500" show-word-limit placeholder="填写后会与审核备注一同发送到申请人的邮箱" />
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button :disabled="decisionSubmitting" @click="decisionDialogOpen = false">取消</el-button>
+          <el-button type="primary" :loading="decisionSubmitting" @click="submitDecision">确认{{ pendingDecision?.decision === 'approve' ? '通过' : '拒绝' }}</el-button>
+        </template>
+      </el-dialog>
     </template>
   </AsyncState>
 </template>
