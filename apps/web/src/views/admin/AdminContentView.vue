@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import AsyncState from '@/components/AsyncState.vue'
 import { adminApi } from '@/api/admin'
 import type { AdminContent } from '@/api/types'
@@ -8,10 +9,24 @@ import { formatDate } from '@/utils/format'
 
 const page = ref(1)
 const { data, error, loading, refresh } = useAsyncData(() => adminApi.getContent({ page: page.value }))
+const deletingId = ref('')
 
 async function changePage(value: number) {
   page.value = value
   await refresh()
+}
+
+async function removeContent(item: AdminContent) {
+  deletingId.value = item.id
+  try {
+    await adminApi.deleteContent(item.id)
+    ElMessage.success('内容已删除。')
+    await refresh()
+  } catch (cause) {
+    ElMessage.error(cause instanceof Error ? cause.message : '内容删除失败。')
+  } finally {
+    deletingId.value = ''
+  }
 }
 
 function typeLabel(type: AdminContent['type']) {
@@ -63,11 +78,27 @@ function statusLabel(status: AdminContent['status']) {
           <el-table-column label="最后修改" width="150">
             <template #default="scope">{{ formatDate(scope.row.updated_at) }}</template>
           </el-table-column>
-		  <el-table-column label="操作" width="150" fixed="right">
+		  <el-table-column label="操作" width="230" fixed="right">
             <template #default="scope">
               <RouterLink :to="`/admin/content/${scope.row.id}/edit`">
 				<el-button text type="primary">{{ scope.row.can_review ? '处理审核' : scope.row.can_edit ? '编辑' : '查看' }}</el-button>
               </RouterLink>
+              <el-tooltip :content="scope.row.status === 'published' ? '已发布内容请先下线后再删除' : '永久删除内容及其修订与审核记录'" :disabled="scope.row.can_delete" placement="top">
+                <span>
+                  <el-popconfirm
+                    title="确定永久删除该内容？删除后修订与审核记录一并清除，无法恢复。"
+                    confirm-button-text="永久删除"
+                    cancel-button-text="取消"
+                    width="280"
+                    :disabled="!scope.row.can_delete"
+                    @confirm="removeContent(scope.row)"
+                  >
+                    <template #reference>
+                      <el-button text type="danger" :disabled="!scope.row.can_delete || deletingId === scope.row.id" :loading="deletingId === scope.row.id">删除</el-button>
+                    </template>
+                  </el-popconfirm>
+                </span>
+              </el-tooltip>
             </template>
           </el-table-column>
         </el-table>

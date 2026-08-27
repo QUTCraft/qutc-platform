@@ -532,6 +532,7 @@ Operation ID：`createAdminContent`
 #### 所有权、审核、发布与下线
 
 - `PATCH /api/v1/admin/content/{content_id}`：更新标题、类型、分类、摘要和正文，需要 `content:update`。普通 `editor` 还必须是原作者；`review` 与 `published` 均不可修改。越权返回 `403 content.author_required`，审核中修改返回 `409 content.review_immutable`。
+- `DELETE /api/v1/admin/content/{content_id}`：永久删除非已发布内容，需要 `content:update`，普通 `editor` 仍必须是原作者。`published` 内容返回 `409 content.published_delete_blocked`，必须先下线再删除。删除会在同一事务中清除修订历史、审核请求与对应邮件 Outbox，正文引用的媒体文件保留在资源库中并解除关联，Portal 缓存同时失效。
 - `POST /api/v1/admin/content/{content_id}/submit`：原作者把 `draft` 或 `archived` 内容提交发布审核，需要 `content:submit`，请求体为可选的 `{ "note": "修改重点" }`。内容进入 `review`，生成 `submitted` 修订快照，并向具备发布权限的成员创建邮件 Outbox 事件。
 - `POST /api/v1/admin/content/{content_id}/publish`：审核者批准并发布，需要 `content:publish`。只有 `published` 内容会出现在 Portal；对应审核请求标记为 `approved`，原作者收到上线通知。管理员仍可直接发布自己负责的草稿，但标准网页流程会先提交审核。
 - `POST /api/v1/admin/content/{content_id}/reject-review`：审核者退回发布审核或下线申请，需要审核权限，请求体 `{ "feedback": "必须修改的内容" }`。发布审核退回后状态回到 `draft`；下线申请退回时线上内容保持不变。反馈写入审核记录并通知提交人。

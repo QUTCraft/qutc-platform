@@ -29,6 +29,7 @@ var (
 	errContentReviewNotFound     = errors.New("pending content review not found")
 	errContentReviewStateInvalid = errors.New("content state cannot enter this review workflow")
 	errContentReviewPermission   = errors.New("content review permission denied")
+	errContentPublishedBlocked   = errors.New("published content cannot be deleted")
 )
 
 type contentReviewRequestBody struct {
