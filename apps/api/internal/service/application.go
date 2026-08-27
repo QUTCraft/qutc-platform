@@ -16,6 +16,7 @@ var (
 	ErrApplicationInvalidDecision = errors.New("application decision is invalid")
 	ErrApplicationReasonRequired  = errors.New("application rejection reason is required")
 	ErrApplicationReasonTooLong   = errors.New("application decision reason is too long")
+	ErrApplicationSkinInviteCodeTooLong = errors.New("application skin invite code is too long")
 )
 
 // ApplicationDecisionService owns the platform approval transaction. It does
@@ -33,13 +34,20 @@ func NewApplicationDecisionServiceWithNotifications(db *gorm.DB, notifications *
 	return &ApplicationDecisionService{db: db, notifications: notifications}
 }
 
-func (s *ApplicationDecisionService) Decide(organizationID, actorUserID, applicationID, decision, reason, requestID string) (model.Application, error) {
+func (s *ApplicationDecisionService) Decide(organizationID, actorUserID, applicationID, decision, reason, skinInviteCode, requestID string) (model.Application, error) {
 	if decision != "approved" && decision != "rejected" {
 		return model.Application{}, ErrApplicationInvalidDecision
 	}
 	reason = strings.TrimSpace(reason)
+	skinInviteCode = strings.TrimSpace(skinInviteCode)
 	if len([]rune(reason)) > 500 {
 		return model.Application{}, ErrApplicationReasonTooLong
+	}
+	if len([]rune(skinInviteCode)) > 500 {
+		return model.Application{}, ErrApplicationSkinInviteCodeTooLong
+	}
+	if decision != "approved" {
+		skinInviteCode = ""
 	}
 	if decision == "rejected" && reason == "" {
 		return model.Application{}, ErrApplicationReasonRequired
@@ -50,7 +58,7 @@ func (s *ApplicationDecisionService) Decide(organizationID, actorUserID, applica
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&model.Application{}).
 			Where("id = ? AND organization_id = ? AND status = ?", applicationID, organizationID, "pending").
-			Updates(map[string]any{"status": decision, "decided_at": now, "decided_by": actorUserID, "decision_reason": reason})
+			Updates(map[string]any{"status": decision, "decided_at": now, "decided_by": actorUserID, "decision_reason": reason, "skin_invite_code": skinInviteCode})
 		if result.Error != nil {
 			return result.Error
 		}

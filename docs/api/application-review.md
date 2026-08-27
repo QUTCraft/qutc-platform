@@ -44,7 +44,7 @@
 - `POST /api/v1/admin/applications/{application_id}/approve`
 - `POST /api/v1/admin/applications/{application_id}/reject`
 
-两个接口都需要 `application:approve`。拒绝必须提供 1—500 字符的原因；通过备注可为空，最长 500 字符。
+两个接口都需要 `application:approve`。拒绝必须提供 1—500 字符的原因；通过备注可为空，最长 500 字符。通过时还可传入可选的 `skin_invite_code`（最长 500 字符），它会随审批结果邮件发给申请人；该值会随申请记录持久化，以保证邮件重试时仍能投递相同的邀请码。
 
 一次成功审批在同一数据库事务中完成：
 

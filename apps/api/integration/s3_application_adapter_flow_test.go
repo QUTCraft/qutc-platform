@@ -21,6 +21,7 @@ type adminApplicationDTO struct {
 	Type           string `json:"type"`
 	GameID         string `json:"game_id"`
 	DecisionReason string `json:"decision_reason"`
+	SkinInviteCode string `json:"skin_invite_code"`
 }
 
 func TestS3ApplicationApprovalWorkflow(t *testing.T) {
@@ -41,13 +42,13 @@ func TestS3ApplicationApprovalWorkflow(t *testing.T) {
 	}
 
 	approveURL := cfg.apiURL + "/api/v1/admin/applications/" + applicationID + "/approve"
-	body := request(t, client, http.MethodPost, approveURL, ownerToken, map[string]string{"reason": "集成测试审批通过。"}, http.StatusOK)
+	body := request(t, client, http.MethodPost, approveURL, ownerToken, map[string]string{"reason": "集成测试审批通过。", "skin_invite_code": "skin-s3-integration"}, http.StatusOK)
 	if strings.Contains(string(body), "server_sync") {
 		t.Fatal("approval response still exposed retired server synchronization state")
 	}
 	var approvedEnvelope apiEnvelope[adminApplicationDTO]
 	decodeJSON(t, body, &approvedEnvelope)
-	if approvedEnvelope.Data.Status != "approved" || approvedEnvelope.Data.DecisionReason != "集成测试审批通过。" {
+	if approvedEnvelope.Data.Status != "approved" || approvedEnvelope.Data.DecisionReason != "集成测试审批通过。" || approvedEnvelope.Data.SkinInviteCode != "skin-s3-integration" {
 		t.Fatalf("approved application = %+v", approvedEnvelope.Data)
 	}
 	requireStatus(t, client, http.MethodPost, approveURL, ownerToken, nil, http.StatusConflict)

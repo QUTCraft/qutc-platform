@@ -183,3 +183,21 @@ func TestBuildInvitationMessageSanitizesHeaders(t *testing.T) {
 		t.Fatalf("invitation message omitted required details: %s", raw)
 	}
 }
+
+func TestApplicationDecisionContentIncludesSkinInviteCodeOnlyForApprovals(t *testing.T) {
+	_, approvedBody := applicationDecisionContent(ApplicationDecisionMessage{
+		Organization: "QUTCraft", ApplicantName: "Alex", ApplicationType: "whitelist",
+		Decision: "approved", Reason: "资料完整", SkinInviteCode: " skin-code-2026 ",
+	})
+	if !strings.Contains(approvedBody, "处理说明：资料完整") || !strings.Contains(approvedBody, "皮肤站邀请码：skin-code-2026") {
+		t.Fatalf("approved decision email omitted expected details: %s", approvedBody)
+	}
+
+	_, rejectedBody := applicationDecisionContent(ApplicationDecisionMessage{
+		Organization: "QUTCraft", ApplicantName: "Alex", ApplicationType: "whitelist",
+		Decision: "rejected", Reason: "资料不足", SkinInviteCode: "skin-code-2026",
+	})
+	if strings.Contains(rejectedBody, "皮肤站邀请码") {
+		t.Fatalf("rejected decision email must not include skin invite code: %s", rejectedBody)
+	}
+}

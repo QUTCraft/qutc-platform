@@ -633,6 +633,7 @@ export interface AdminApplication {
   decided_at?: string | null
   decided_by?: string
   decision_reason: string
+  skin_invite_code: string
 }
 
 export interface AdminApplicationFilters {

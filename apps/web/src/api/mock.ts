@@ -368,9 +368,9 @@ const adminProjectMilestones: Record<string, AdminProjectMilestone[]> = {
 }
 
 let applications: AdminApplication[] = [
-  { id: 'application_001', applicant: 'Yukino', type: 'whitelist', submitted_at: '2026-07-17T02:30:00Z', note: '希望参与周末建筑测试。', status: 'pending', decision_reason: '' },
-  { id: 'application_002', applicant: 'Dawn', type: 'membership', submitted_at: '2026-07-16T10:00:00Z', note: '想加入资源整理与 Wiki 维护。', status: 'pending', decision_reason: '' },
-  { id: 'application_003', applicant: 'Kite', type: 'whitelist', submitted_at: '2026-07-15T08:00:00Z', note: '已参加过新生联机活动。', status: 'approved', decision_reason: '资料符合要求。' },
+  { id: 'application_001', applicant: 'Yukino', type: 'whitelist', submitted_at: '2026-07-17T02:30:00Z', note: '希望参与周末建筑测试。', status: 'pending', decision_reason: '', skin_invite_code: '' },
+  { id: 'application_002', applicant: 'Dawn', type: 'membership', submitted_at: '2026-07-16T10:00:00Z', note: '想加入资源整理与 Wiki 维护。', status: 'pending', decision_reason: '', skin_invite_code: '' },
+  { id: 'application_003', applicant: 'Kite', type: 'whitelist', submitted_at: '2026-07-15T08:00:00Z', note: '已参加过新生联机活动。', status: 'approved', decision_reason: '资料符合要求。', skin_invite_code: '' },
 ]
 
 const defaultPortalManifest: PortalManifest = {
@@ -1171,10 +1171,12 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
   if (decision) {
     const application = applications.find((item) => item.id === decision[1])
     if (!application) throw new Error('Application not found')
-    const reason = String((body as { reason?: string } | undefined)?.reason ?? '').trim()
+    const payload = body as { reason?: string; skin_invite_code?: string } | undefined
+    const reason = String(payload?.reason ?? '').trim()
     if (decision[2] === 'reject' && !reason) throw new Error('拒绝申请时必须填写审核原因。')
     application.status = decision[2] === 'approve' ? 'approved' : 'rejected'
     application.decision_reason = reason
+    application.skin_invite_code = decision[2] === 'approve' ? String(payload?.skin_invite_code ?? '').trim() : ''
     application.decided_at = new Date().toISOString()
     return application as T
   }
