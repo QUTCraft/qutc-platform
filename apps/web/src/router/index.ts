@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { restoreSession, session } from '@/stores/session'
 
+// 视图采用按路由懒加载，减少公共门户首次打开时下载管理端代码的开销。
 const router = createRouter({
   history: createWebHistory(),
   scrollBehavior: () => ({ top: 0 }),
@@ -34,6 +35,8 @@ const router = createRouter({
   ],
 })
 
+// 路由前置守卫：每次导航先恢复一次服务端会话，再依据声明式路由元信息决定跳转；
+// 权限细粒度校验仍由后端执行，前端守卫仅负责用户体验与入口保护。
 router.beforeEach(async (to) => {
   await restoreSession()
   if (to.meta.requiresAuth && !session.user) return { name: 'login', query: { redirect: to.fullPath } }

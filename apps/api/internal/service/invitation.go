@@ -53,6 +53,8 @@ type InvitationAcceptance struct {
 	MembershipID string `json:"membership_id"`
 }
 
+// CreateInvitation 为 organizationID 创建指定角色的邀请码；返回值包含仅此一次可见的令牌原文，
+// 调用方负责立即用于链接或邮件投递，持久层只保存令牌哈希。
 func (s *AuthService) CreateInvitation(organizationID, invitedBy, email, role string, expiresIn time.Duration) (InvitationCreateResult, error) {
 	email = normalizeInvitationEmail(email)
 	if _, err := mail.ParseAddress(email); err != nil || email == "" {
@@ -156,6 +158,7 @@ func (s *AuthService) CreateInvitation(organizationID, invitedBy, email, role st
 	return result, err
 }
 
+// LookupInvitation 根据公开令牌返回可展示的邀请摘要，不泄露内部哈希或敏感成员信息。
 func (s *AuthService) LookupInvitation(rawToken string) (InvitationView, error) {
 	invit, err := s.findInvitation(s.db, rawToken, false)
 	if err != nil {
@@ -164,6 +167,7 @@ func (s *AuthService) LookupInvitation(rawToken string) (InvitationView, error) 
 	return s.invitationView(invit)
 }
 
+// ListInvitations 按状态分页查询组织邀请；总数用于构造 API 分页元数据。
 func (s *AuthService) ListInvitations(organizationID, status string, page, pageSize int) ([]InvitationView, int64, error) {
 	status = strings.TrimSpace(status)
 	if status != "" && status != "pending" && status != "accepted" && status != "expired" && status != "revoked" {
@@ -202,6 +206,7 @@ func (s *AuthService) ListInvitations(organizationID, status string, page, pageS
 	return items, total, nil
 }
 
+// RevokeInvitation 使未使用的邀请立即不可接受，并返回撤销后的展示状态。
 func (s *AuthService) RevokeInvitation(organizationID, invitationID string) (InvitationView, error) {
 	var result InvitationView
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -247,6 +252,7 @@ func (s *AuthService) RevokeInvitation(organizationID, invitationID string) (Inv
 
 // RotateInvitationToken invalidates the previously issued link before an
 // administrator retries email delivery. The raw token is never persisted.
+// RotateInvitationToken 废弃旧链接并签发新令牌，适用于邮件丢失或疑似泄露后的重发。
 func (s *AuthService) RotateInvitationToken(organizationID, invitationID string) (InvitationCreateResult, error) {
 	var result InvitationCreateResult
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -287,6 +293,7 @@ func (s *AuthService) RotateInvitationToken(organizationID, invitationID string)
 	return result, err
 }
 
+// AcceptInvitation 原子校验邀请、创建/激活成员关系并记录接受结果，防止并发重复使用同一令牌。
 func (s *AuthService) AcceptInvitation(principal Principal, rawToken string) (InvitationAcceptance, error) {
 	var result InvitationAcceptance
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -341,10 +348,12 @@ func (s *AuthService) AcceptInvitation(principal Principal, rawToken string) (In
 	return result, err
 }
 
+// invitationView 使用服务默认数据库将邀请模型转换为 API 展示对象。
 func (s *AuthService) invitationView(invit model.Invitation) (InvitationView, error) {
 	return s.invitationViewWithDB(s.db, invit)
 }
 
+// invitationViewWithDB 允许在事务或自定义连接上构造邀请展示对象。
 func (s *AuthService) invitationViewWithDB(db *gorm.DB, invit model.Invitation) (InvitationView, error) {
 	var organization model.Organization
 	if err := db.First(&organization, "id = ?", invit.OrganizationID).Error; err != nil {
@@ -353,10 +362,12 @@ func (s *AuthService) invitationViewWithDB(db *gorm.DB, invit model.Invitation) 
 	return invitationViewForOrganization(invit, organization.Name, time.Now().UTC()), nil
 }
 
+// invitationViewForOrganization 结合组织名称与当前时间计算给前端使用的邀请状态。
 func invitationViewForOrganization(invit model.Invitation, organizationName string, now time.Time) InvitationView {
 	return InvitationView{ID: invit.ID, OrganizationID: invit.OrganizationID, Organization: organizationName, Email: invit.Email, Role: invit.Role, Status: invitationStatus(invit, now), ExpiresAt: invit.ExpiresAt, CreatedAt: invit.CreatedAt}
 }
 
+// findInvitation 以令牌哈希查找邀请；lock 为 true 时加行锁，供会修改邀请状态的事务使用。
 func (s *AuthService) findInvitation(db *gorm.DB, rawToken string, lock bool) (model.Invitation, error) {
 	rawToken = strings.TrimSpace(rawToken)
 	if rawToken == "" {
@@ -384,6 +395,7 @@ func (s *AuthService) findInvitation(db *gorm.DB, rawToken string, lock bool) (m
 	return invit, nil
 }
 
+// invitationStatus 按撤销、接受和过期的优先级计算邀请的派生状态。
 func invitationStatus(invit model.Invitation, now time.Time) string {
 	switch {
 	case invit.AcceptedAt != nil:
@@ -397,6 +409,7 @@ func invitationStatus(invit model.Invitation, now time.Time) string {
 	}
 }
 
+// roleByKey 查询用于成员授权的系统角色；key 是稳定的业务角色标识。
 func roleByKey(db *gorm.DB, key string) (model.Role, error) {
 	var role model.Role
 	if err := db.Where("`key` = ?", key).First(&role).Error; err != nil {
@@ -405,14 +418,17 @@ func roleByKey(db *gorm.DB, key string) (model.Role, error) {
 	return role, nil
 }
 
+// validInvitationRole 限制邀请可授予的角色，避免通过接口创建未定义或越权角色。
 func validInvitationRole(role string) bool {
 	return role == "member" || role == "editor" || role == "administrator"
 }
 
+// normalizeInvitationEmail 统一邀请邮箱的空白与大小写，确保唯一性比较一致。
 func normalizeInvitationEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
+// invitedDisplayName 从邮箱本地部分生成预创建用户的临时展示名。
 func invitedDisplayName(email string) string {
 	local := strings.TrimSpace(strings.SplitN(email, "@", 2)[0])
 	if local == "" {
@@ -425,6 +441,7 @@ func invitedDisplayName(email string) string {
 	return string(value)
 }
 
+// removePrecreatedMembership 移除仅为邀请预占的成员关系，为正式接受流程让出一致状态。
 func (s *AuthService) removePrecreatedMembership(tx *gorm.DB, invitation model.Invitation) error {
 	var user model.User
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("email = ?", invitation.Email).First(&user).Error; err != nil {

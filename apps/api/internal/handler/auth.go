@@ -20,6 +20,8 @@ type AuthHandler struct {
 	secureCookie bool
 }
 
+// NewAuthHandler 创建认证 HTTP 处理器；refreshTTL 控制刷新 Cookie 生命周期，
+// secureCookie 表示在生产 HTTPS 部署中强制 Cookie 仅经安全连接发送。
 func NewAuthHandler(db *gorm.DB, auth *service.AuthService, refreshTTL time.Duration, secureCookie bool) *AuthHandler {
 	return &AuthHandler{db: db, auth: auth, refreshTTL: refreshTTL, secureCookie: secureCookie}
 }
@@ -45,6 +47,7 @@ const (
 	sessionExpiryCookieName = "qutc_session_expires"
 )
 
+// cookieSecure 根据全局部署策略及代理转发协议判断当前响应 Cookie 是否应带 Secure 属性。
 func (h *AuthHandler) cookieSecure(c *gin.Context) bool {
 	if !h.secureCookie {
 		return false
@@ -56,6 +59,7 @@ func (h *AuthHandler) cookieSecure(c *gin.Context) bool {
 	return strings.EqualFold(forwardedProto, "https")
 }
 
+// setSessionCookies 写入访问与刷新 Cookie，并返回刷新会话的绝对到期时间供前端安排本地退出。
 func (h *AuthHandler) setSessionCookies(c *gin.Context, pair service.TokenPair) time.Time {
 	now := time.Now().UTC()
 	sessionExpiresAt := pair.SessionExpiresAt.UTC()
@@ -77,6 +81,7 @@ func (h *AuthHandler) setSessionCookies(c *gin.Context, pair service.TokenPair) 
 	return sessionExpiresAt
 }
 
+// clearSessionCookies 以过期 Cookie 覆盖浏览器中的认证凭据，配合服务端会话撤销完成注销。
 func (h *AuthHandler) clearSessionCookies(c *gin.Context) {
 	secure := h.cookieSecure(c)
 	expired := time.Unix(1, 0).UTC()
@@ -85,11 +90,13 @@ func (h *AuthHandler) clearSessionCookies(c *gin.Context) {
 	http.SetCookie(c.Writer, &http.Cookie{Name: sessionExpiryCookieName, Value: "", Path: "/", MaxAge: -1, Expires: expired, Secure: secure, SameSite: http.SameSiteStrictMode})
 }
 
+// tokenPairResponse 设置浏览器 Cookie，并返回前端可安全读取的用户资料与会话截止时间。
 func (h *AuthHandler) tokenPairResponse(c *gin.Context, pair service.TokenPair) gin.H {
 	sessionExpiresAt := h.setSessionCookies(c, pair)
 	return gin.H{"access_token": pair.AccessToken, "token_type": pair.TokenType, "expires_in": pair.ExpiresIn, "session_expires_at": sessionExpiresAt.Format(time.RFC3339), "user": pair.User}
 }
 
+// Register 接收账户信息；带邀请令牌时调用受邀注册流程，否则创建普通平台账户。
 func (h *AuthHandler) Register(c *gin.Context) {
 	var request registerRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -127,6 +134,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	respond(c, http.StatusCreated, h.tokenPairResponse(c, pair))
 }
 
+// Login 校验凭据并建立浏览器 Cookie 会话。
 func (h *AuthHandler) Login(c *gin.Context) {
 	var request loginRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -145,6 +153,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	respond(c, http.StatusOK, h.tokenPairResponse(c, pair))
 }
 
+// Refresh 使用刷新 Cookie 轮换会话凭据；客户端不直接传递刷新令牌原文。
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	refreshToken, cookieErr := c.Cookie(refreshCookieName)
 	if cookieErr != nil || strings.TrimSpace(refreshToken) == "" {
@@ -164,6 +173,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	respond(c, http.StatusOK, h.tokenPairResponse(c, pair))
 }
 
+// Logout 尝试撤销刷新会话并始终清除浏览器 Cookie，使重复注销保持安全且幂等。
 func (h *AuthHandler) Logout(c *gin.Context) {
 	refreshToken, _ := c.Cookie(refreshCookieName)
 	if err := h.auth.Logout(refreshToken); err != nil {
@@ -174,6 +184,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	respond(c, http.StatusOK, gin.H{"revoked": strings.TrimSpace(refreshToken) != ""})
 }
 
+// Me 返回中间件已验证的当前用户资料。
 func (h *AuthHandler) Me(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -188,6 +199,7 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	respond(c, http.StatusOK, profile)
 }
 
+// Organizations 返回当前用户可切换的有效组织成员关系。
 func (h *AuthHandler) Organizations(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -202,6 +214,7 @@ func (h *AuthHandler) Organizations(c *gin.Context) {
 	respond(c, http.StatusOK, organizations)
 }
 
+// SwitchOrganization 验证目标组织成员关系并签发绑定该组织的新令牌对。
 func (h *AuthHandler) SwitchOrganization(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -235,6 +248,7 @@ func (h *AuthHandler) SwitchOrganization(c *gin.Context) {
 	respond(c, http.StatusOK, h.tokenPairResponse(c, pair))
 }
 
+// UpdateMe 更新当前用户的公开资料；认证主体始终来自请求上下文而非客户端请求体。
 func (h *AuthHandler) UpdateMe(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
