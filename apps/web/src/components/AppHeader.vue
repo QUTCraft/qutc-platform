@@ -23,6 +23,7 @@ watch(organizationLogo, () => {
 
 const goToLogin = () => router.push({ name: 'login' })
 const goToRegister = () => router.push({ name: 'register' })
+const skinSiteUrl = 'https://skin.qutcraft.cn/'
 const runPrimaryAction = (event: MouseEvent) => {
   if (isQutcraftPortal) {
     navigateToApply(event)
@@ -62,6 +63,17 @@ onMounted(() => {
     </nav>
 
     <div class="header-actions">
+      <a
+        v-if="isQutcraftPortal"
+        class="header-skin-link"
+        :href="skinSiteUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="打开 QUTC Skin 皮肤站"
+      >
+        <span>QUTC Skin</span>
+        <span class="header-external-mark" aria-hidden="true">↗</span>
+      </a>
       <el-button class="header-login-btn" text :icon="UserFilled" aria-label="成员登录" @click="goToLogin">成员登录</el-button>
       <el-button class="header-register-btn" text aria-label="注册成员账户" @click="goToRegister">注册</el-button>
       <el-button class="header-join-btn" type="primary" round @click="(event: MouseEvent) => runPrimaryAction(event)">{{ isQutcraftPortal ? '加入我们' : '公开项目' }}</el-button>
@@ -72,6 +84,17 @@ onMounted(() => {
   <el-drawer v-model="mobileOpen" append-to-body direction="rtl" size="min(86vw, 360px)" title="导航">
     <nav class="mobile-nav" aria-label="移动端公开门户导航">
       <RouterLink v-for="link in links" :key="link.to" :to="link.to" @click="mobileOpen = false">{{ link.label }}</RouterLink>
+      <a
+        v-if="isQutcraftPortal"
+        class="mobile-external-link"
+        :href="skinSiteUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="打开 QUTC Skin 皮肤站"
+      >
+        <span>QUTC Skin 皮肤站</span>
+        <span aria-hidden="true">↗</span>
+      </a>
       <RouterLink to="/login" @click="mobileOpen = false">成员登录</RouterLink>
       <RouterLink to="/register" @click="mobileOpen = false">注册成员账户</RouterLink>
     </nav>

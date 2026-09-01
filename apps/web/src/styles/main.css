@@ -948,6 +948,34 @@ h1, h2, h3, h4, h5, h6, p {
   gap: 10px;
 }
 
+.header-skin-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 13px;
+  color: var(--md-sys-color-on-primary-container);
+  background: color-mix(in srgb, var(--md-sys-color-primary-container) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 38%, transparent);
+  border-radius: var(--md-shape-full);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  transition: background-color 200ms ease, border-color 200ms ease, transform 200ms ease;
+}
+
+.header-skin-link:hover {
+  color: var(--md-sys-color-on-primary-container);
+  background: var(--md-sys-color-primary-container);
+  border-color: var(--md-sys-color-primary);
+  transform: translateY(-1px);
+}
+
+.header-external-mark {
+  font-size: 15px;
+  line-height: 1;
+}
+
 /* MD3 Monet Season & Time Atmosphere Chip */
 .monet-atmosphere-chip {
   display: flex;
@@ -1066,6 +1094,15 @@ h1, h2, h3, h4, h5, h6, p {
 .mobile-nav a.router-link-active {
   color: var(--md-sys-color-on-primary-container);
   background: var(--md-sys-color-primary-container);
+}
+
+.mobile-nav .mobile-external-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--md-sys-color-on-primary-container);
+  background: color-mix(in srgb, var(--md-sys-color-primary-container) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 38%, transparent);
 }
 
 /* Page Shell */

@@ -61,6 +61,11 @@ test('public portal routes remain navigable', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '正在发生的项目', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '共享资源', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '公共知识库', exact: true })).toBeVisible()
+  const skinLink = page.locator('.header-skin-link')
+  await expect(skinLink).toHaveCount(1)
+  await expect(skinLink).toHaveAttribute('href', 'https://skin.qutcraft.cn/')
+  await expect(skinLink).toHaveAttribute('target', '_blank')
+  await expect(skinLink).toHaveAttribute('rel', 'noopener noreferrer')
   await expect.poll(() => page.evaluate(() => sessionStorage.getItem('qutc.portal.runtime_fallback'))).toBeNull()
   for (const [label, path, heading] of [
     ['动态', '/posts', '社团动态'],
