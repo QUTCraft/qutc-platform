@@ -1,3 +1,5 @@
+// ai.go 提供组织级 AI 智能体配置、知识检索、运行任务和活动方案审核相关的 HTTP 处理器。
+// Handler 只负责请求绑定、身份上下文提取、状态码映射和统一响应；实际业务由 AgentService 完成。
 package handler
 
 import (
@@ -11,15 +13,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// AIHandler 持有 AI 领域服务，并将其能力暴露为 Gin 路由处理函数。
 type AIHandler struct {
 	agents *service.AgentService
 }
 
+// knowledgeSearchRequest 描述知识库检索请求；Limit 用于限制返回条数。
 type knowledgeSearchRequest struct {
 	Query string `json:"query"`
 	Limit int    `json:"limit"`
 }
 
+// createAgentRunRequest 描述一次智能体运行任务及其上下文来源。
 type createAgentRunRequest struct {
 	AgentKey    string                   `json:"agent_key"`
 	Task        string                   `json:"task"`
@@ -27,6 +32,7 @@ type createAgentRunRequest struct {
 	OutputMode  string                   `json:"output_mode"`
 }
 
+// agentConfigurationRequest 是管理员更新组织 AI 配置时接收的 JSON 结构。
 type agentConfigurationRequest struct {
 	Enabled               bool   `json:"enabled"`
 	RunLimitPerHour       int    `json:"run_limit_per_hour"`
@@ -39,6 +45,7 @@ type agentConfigurationRequest struct {
 	Model                 string `json:"model"`
 }
 
+// createActivityPlanRequest 描述活动方案生成所需的目标、时间、参与人数和约束条件。
 type createActivityPlanRequest struct {
 	Title                string                   `json:"title"`
 	Objective            string                   `json:"objective"`
@@ -52,10 +59,12 @@ type createActivityPlanRequest struct {
 	ContextRefs          []service.AgentSourceRef `json:"context_refs"`
 }
 
+// approveActivityPlanRequest 包含管理员批准活动方案时选择的行动项。
 type approveActivityPlanRequest struct {
 	Actions []string `json:"actions"`
 }
 
+// activityPlanEvaluationRequest 是对活动方案进行多维评分和文字备注的请求体。
 type activityPlanEvaluationRequest struct {
 	Accuracy     int    `json:"accuracy"`
 	Feasibility  int    `json:"feasibility"`
@@ -65,10 +74,12 @@ type activityPlanEvaluationRequest struct {
 	Notes        string `json:"notes"`
 }
 
+// NewAIHandler 创建 AI 处理器，并注入组织级 AgentService 依赖。
 func NewAIHandler(agents *service.AgentService) *AIHandler {
 	return &AIHandler{agents: agents}
 }
 
+// GetConfiguration 返回当前用户所在组织的 AI 智能体配置。
 func (h *AIHandler) GetConfiguration(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -83,6 +94,7 @@ func (h *AIHandler) GetConfiguration(c *gin.Context) {
 	respond(c, http.StatusOK, configuration)
 }
 
+// UpdateConfiguration 绑定并保存组织 AI 配置，同时将校验错误转换为 API 错误响应。
 func (h *AIHandler) UpdateConfiguration(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -111,6 +123,7 @@ func (h *AIHandler) UpdateConfiguration(c *gin.Context) {
 	respond(c, http.StatusOK, configuration)
 }
 
+// ListAgents 返回当前组织可用的智能体目录。
 func (h *AIHandler) ListAgents(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -125,6 +138,7 @@ func (h *AIHandler) ListAgents(c *gin.Context) {
 	respond(c, http.StatusOK, gin.H{"agents": agents, "provider": h.agents.ProviderStatusForOrganization(principal.OrganizationID)})
 }
 
+// SearchKnowledge 根据查询词检索当前组织的知识内容，结果受请求 Limit 约束。
 func (h *AIHandler) SearchKnowledge(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -148,6 +162,7 @@ func (h *AIHandler) SearchKnowledge(c *gin.Context) {
 	respond(c, http.StatusOK, results)
 }
 
+// CreateRun 创建一次异步或同步的智能体运行任务。
 func (h *AIHandler) CreateRun(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -170,6 +185,7 @@ func (h *AIHandler) CreateRun(c *gin.Context) {
 	respond(c, http.StatusAccepted, run)
 }
 
+// GetRun 查询指定智能体运行任务的当前状态和输出。
 func (h *AIHandler) GetRun(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -184,6 +200,7 @@ func (h *AIHandler) GetRun(c *gin.Context) {
 	respond(c, http.StatusOK, run)
 }
 
+// CancelRun 请求停止尚未完成的智能体运行任务。
 func (h *AIHandler) CancelRun(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -198,6 +215,7 @@ func (h *AIHandler) CancelRun(c *gin.Context) {
 	respond(c, http.StatusOK, run)
 }
 
+// CreateActivityPlan 根据活动输入生成一份活动方案。
 func (h *AIHandler) CreateActivityPlan(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -232,6 +250,7 @@ func (h *AIHandler) CreateActivityPlan(c *gin.Context) {
 	respond(c, http.StatusAccepted, plan)
 }
 
+// GetActivityPlan 返回指定活动方案的详情。
 func (h *AIHandler) GetActivityPlan(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -246,6 +265,7 @@ func (h *AIHandler) GetActivityPlan(c *gin.Context) {
 	respond(c, http.StatusOK, plan)
 }
 
+// ListActivityPlans 分页列出当前组织的活动方案。
 func (h *AIHandler) ListActivityPlans(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -264,6 +284,7 @@ func (h *AIHandler) ListActivityPlans(c *gin.Context) {
 	respondWithMeta(c, http.StatusOK, plans, gin.H{"page": page, "page_size": pageSize, "total": total})
 }
 
+// GetActivityPlanEvaluation 返回指定方案的单条评价详情。
 func (h *AIHandler) GetActivityPlanEvaluation(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -278,6 +299,7 @@ func (h *AIHandler) GetActivityPlanEvaluation(c *gin.Context) {
 	respond(c, http.StatusOK, evaluation)
 }
 
+// GetActivityPlanEvaluationSummary 汇总指定活动方案的评价统计。
 func (h *AIHandler) GetActivityPlanEvaluationSummary(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -292,6 +314,7 @@ func (h *AIHandler) GetActivityPlanEvaluationSummary(c *gin.Context) {
 	respond(c, http.StatusOK, summary)
 }
 
+// SaveActivityPlanEvaluation 创建或更新当前用户对活动方案的评价。
 func (h *AIHandler) SaveActivityPlanEvaluation(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -314,6 +337,7 @@ func (h *AIHandler) SaveActivityPlanEvaluation(c *gin.Context) {
 	respond(c, http.StatusOK, evaluation)
 }
 
+// ApproveActivityPlan 记录管理员对活动方案的批准及选定行动项。
 func (h *AIHandler) ApproveActivityPlan(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -333,6 +357,7 @@ func (h *AIHandler) ApproveActivityPlan(c *gin.Context) {
 	respond(c, http.StatusOK, result)
 }
 
+// optionalRFC3339 将可选的 RFC3339 字符串转换为 UTC 时间；空字符串表示未设置。
 func optionalRFC3339(value string) (*time.Time, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -346,6 +371,7 @@ func optionalRFC3339(value string) (*time.Time, error) {
 	return &parsed, nil
 }
 
+// failActivityPlan 将活动方案服务层错误映射为稳定的 HTTP API 错误码。
 func (h *AIHandler) failActivityPlan(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrActivityPlanValidation):
@@ -361,6 +387,7 @@ func (h *AIHandler) failActivityPlan(c *gin.Context, err error) {
 	}
 }
 
+// failRun 将智能体运行服务层错误映射为客户端可理解的状态码和错误码。
 func (h *AIHandler) failRun(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrAgentValidation):

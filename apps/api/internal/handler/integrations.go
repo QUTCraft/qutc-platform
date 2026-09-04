@@ -1,3 +1,4 @@
+// integrations.go 暴露组织级邮件、对象存储和公开站点地址等外部服务接入配置。
 package handler
 
 import (
@@ -12,10 +13,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// IntegrationHandler 将 HTTP 请求转交给 IntegrationService，并保持敏感配置不直接落入响应。
 type IntegrationHandler struct {
 	integrations *service.IntegrationService
 }
 
+// integrationSettingsRequest 是管理端提交的全部外部服务配置及清理秘密字段标志。
 type integrationSettingsRequest struct {
 	PublicWebBaseURL string `json:"public_web_base_url"`
 	Email            struct {
@@ -43,14 +46,17 @@ type integrationSettingsRequest struct {
 	} `json:"storage"`
 }
 
+// integrationTestRequest 指定要测试的接入配置分区，例如 email 或 storage。
 type integrationTestRequest struct {
 	Section string `json:"section"`
 }
 
+// NewIntegrationHandler 创建外部服务接入处理器。
 func NewIntegrationHandler(integrations *service.IntegrationService) *IntegrationHandler {
 	return &IntegrationHandler{integrations: integrations}
 }
 
+// Get 返回当前组织的非敏感接入配置视图。
 func (h *IntegrationHandler) Get(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -65,6 +71,7 @@ func (h *IntegrationHandler) Get(c *gin.Context) {
 	respond(c, http.StatusOK, settings)
 }
 
+// Update 绑定管理端配置，转换为服务层输入并保存。
 func (h *IntegrationHandler) Update(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -102,6 +109,7 @@ func (h *IntegrationHandler) Update(c *gin.Context) {
 	respond(c, http.StatusOK, settings)
 }
 
+// Test 按请求指定的分区执行接入连通性测试，并返回可操作的错误信息。
 func (h *IntegrationHandler) Test(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {

@@ -1,3 +1,4 @@
+// notifications.go 提供邀请邮件模板、通知发件箱查询和重试接口。
 package handler
 
 import (
@@ -14,22 +15,27 @@ import (
 	"gorm.io/gorm"
 )
 
+// NotificationHandler 组合数据库和通知服务，处理组织级邮件通知管理。
 type NotificationHandler struct {
 	db            *gorm.DB
 	notifications *service.NotificationService
 }
 
+// invitationTemplateRequest 保存邀请邮件主题和正文模板。
 type invitationTemplateRequest struct {
 	SubjectTemplate string `json:"subject_template"`
 	BodyTemplate    string `json:"body_template"`
 }
 
+// invitationTemplateVariablePattern 用于识别模板中的双大括号变量。
 var invitationTemplateVariablePattern = regexp.MustCompile(`\{\{([a-z_]+)\}\}`)
 
+// NewNotificationHandler 创建通知管理处理器。
 func NewNotificationHandler(db *gorm.DB, notifications *service.NotificationService) *NotificationHandler {
 	return &NotificationHandler{db: db, notifications: notifications}
 }
 
+// GetInvitationTemplate 返回当前组织保存的邀请邮件模板及可用变量信息。
 func (h *NotificationHandler) GetInvitationTemplate(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -44,6 +50,7 @@ func (h *NotificationHandler) GetInvitationTemplate(c *gin.Context) {
 	respond(c, http.StatusOK, invitationTemplateResponse(organization))
 }
 
+// UpdateInvitationTemplate 校验模板长度和变量白名单后，在事务中保存并写入审计事件。
 func (h *NotificationHandler) UpdateInvitationTemplate(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -87,6 +94,7 @@ func (h *NotificationHandler) UpdateInvitationTemplate(c *gin.Context) {
 	respond(c, http.StatusOK, invitationTemplateResponse(organization))
 }
 
+// ListOutbox 分页列出当前组织的通知发件箱记录。
 func (h *NotificationHandler) ListOutbox(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -109,6 +117,7 @@ func (h *NotificationHandler) ListOutbox(c *gin.Context) {
 	respondWithMeta(c, http.StatusOK, items, gin.H{"page": page, "page_size": pageSize, "total": total})
 }
 
+// RetryOutbox 触发指定失败通知的再次投递。
 func (h *NotificationHandler) RetryOutbox(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -131,6 +140,7 @@ func (h *NotificationHandler) RetryOutbox(c *gin.Context) {
 	respond(c, http.StatusOK, item)
 }
 
+// invitationTemplateResponse 生成模板 API 的稳定响应结构。
 func invitationTemplateResponse(organization model.Organization) gin.H {
 	return gin.H{
 		"subject_template": organization.InvitationSubjectTemplate,
@@ -139,6 +149,7 @@ func invitationTemplateResponse(organization model.Organization) gin.H {
 	}
 }
 
+// validInvitationTemplate 确保模板变量只使用系统支持的四类邀请上下文变量。
 func validInvitationTemplate(value string) bool {
 	for _, match := range invitationTemplateVariablePattern.FindAllStringSubmatch(value, -1) {
 		if len(match) != 2 {

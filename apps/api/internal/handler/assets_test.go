@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// TestUploadAssetRejectsOversizedRequestBeforePersistence 确认超大请求在进入存储层前即被拒绝。
 func TestUploadAssetRejectsOversizedRequestBeforePersistence(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	var body bytes.Buffer
@@ -52,6 +53,7 @@ func TestUploadAssetRejectsOversizedRequestBeforePersistence(t *testing.T) {
 	}
 }
 
+// TestNormalizeAssetResourceInput 验证资产资源元数据清洗及默认资源类型推断。
 func TestNormalizeAssetResourceInput(t *testing.T) {
 	asset := model.MediaAsset{OriginalName: "社团资料包.zip", MimeType: "application/zip"}
 	input, err := normalizeAssetResourceInput(asset, publishAssetResourceRequest{Title: "社团资料包"})
@@ -66,6 +68,7 @@ func TestNormalizeAssetResourceInput(t *testing.T) {
 	}
 }
 
+// TestNormalizeAssetResourceInputRejectsInvalidMetadata 覆盖空标题、非法 kind 和超长文本等输入错误。
 func TestNormalizeAssetResourceInputRejectsInvalidMetadata(t *testing.T) {
 	asset := model.MediaAsset{OriginalName: "guide.pdf", MimeType: "application/pdf"}
 	for name, request := range map[string]publishAssetResourceRequest{
@@ -81,6 +84,7 @@ func TestNormalizeAssetResourceInputRejectsInvalidMetadata(t *testing.T) {
 	}
 }
 
+// TestInferResourceKind 验证图片、文档、视频和未知 MIME 到资源类别的映射。
 func TestInferResourceKind(t *testing.T) {
 	tests := map[string]string{
 		"application/pdf":              "document",

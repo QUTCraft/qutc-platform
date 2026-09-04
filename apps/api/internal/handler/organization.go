@@ -1,3 +1,4 @@
+// organization.go 处理组织资料的规范化、公开展示和管理员更新。
 package handler
 
 import (
@@ -15,11 +16,13 @@ import (
 	"gorm.io/gorm"
 )
 
+// organizationSocialLink 表示组织官网、社交媒体等公开链接。
 type organizationSocialLink struct {
 	Label string `json:"label"`
 	Href  string `json:"href"`
 }
 
+// organizationProfileRequest 是管理员提交的组织品牌与公开资料。
 type organizationProfileRequest struct {
 	Name         string                   `json:"name"`
 	ShortName    string                   `json:"short_name"`
@@ -33,10 +36,12 @@ type organizationProfileRequest struct {
 }
 
 var (
+	// 组织 Logo 必须来自当前组织且必须是图片资产，以下错误用于区分两类失败。
 	errOrganizationLogoNotFound = errors.New("organization logo asset not found")
 	errOrganizationLogoInvalid  = errors.New("organization logo asset is not an image")
 )
 
+// normalizeOrganizationProfile 清洗文本、验证长度/邮箱/URL，并校验 Logo ID 的 UUID 格式。
 func normalizeOrganizationProfile(body organizationProfileRequest) (organizationProfileRequest, bool) {
 	body.Name = strings.TrimSpace(body.Name)
 	body.ShortName = strings.TrimSpace(body.ShortName)
@@ -76,6 +81,7 @@ func normalizeOrganizationProfile(body organizationProfileRequest) (organization
 	return body, true
 }
 
+// organizationProfileItem 将组织模型转换为公开 API 对象，并生成 Logo 下载地址。
 func organizationProfileItem(organization model.Organization) gin.H {
 	links := make([]organizationSocialLink, 0)
 	if strings.TrimSpace(organization.SocialLinksJSON) != "" {
@@ -95,6 +101,7 @@ func organizationProfileItem(organization model.Organization) gin.H {
 	}
 }
 
+// AdminOrganization 返回当前组织的管理端资料。
 func (h *WorkspaceHandler) AdminOrganization(c *gin.Context) {
 	principal, _ := middleware.PrincipalFromContext(c)
 	var organization model.Organization
@@ -105,6 +112,7 @@ func (h *WorkspaceHandler) AdminOrganization(c *gin.Context) {
 	respond(c, http.StatusOK, organizationProfileItem(organization))
 }
 
+// AdminUpdateOrganization 校验并保存组织资料，必要时验证 Logo 资产归属和类型。
 func (h *WorkspaceHandler) AdminUpdateOrganization(c *gin.Context) {
 	principal, _ := middleware.PrincipalFromContext(c)
 	var body organizationProfileRequest

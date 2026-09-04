@@ -1,3 +1,5 @@
+// assets.go 实现媒体资产上传、列表、下载、统计、删除，以及将图片发布为公开资源的接口。
+// 文件大小、类型、组织归属和内容编辑权限均在处理器入口处进行防御性校验。
 package handler
 
 import (
@@ -23,25 +25,30 @@ import (
 )
 
 const (
-	maxAssetSize        = 10 << 20
+	// maxAssetSize 是单个资产允许保存的最大字节数（10 MiB）。
+	maxAssetSize = 10 << 20
+	// maxAssetRequestSize 允许请求额外携带约 1 MiB 的 multipart 元数据和边界开销。
 	maxAssetRequestSize = maxAssetSize + (1 << 20)
 )
 
+// errAssetAlreadyLinked 表示资产已经绑定到内容，不能再次发布或重复关联。
 var errAssetAlreadyLinked = errors.New("asset is already linked")
 
+// publishAssetResourceRequest 是将已上传资产转换为资源内容时的可选元数据。
 type publishAssetResourceRequest struct {
 	Title       string `json:"title"`
 	Kind        string `json:"kind"`
 	Description string `json:"description"`
 }
 
-// WithSuperbed installs an optional image hosting uploader. When nil or
-// disabled, image uploads keep using the existing local storage path.
+// WithSuperbed 注入可选的 Superbed 图片上传器。
+// 当 uploader 为空或服务配置未启用时，图片仍沿用既有的本地/对象存储路径。
 func (h *WorkspaceHandler) WithSuperbed(uploader *superbed.Uploader) *WorkspaceHandler {
 	h.superbed = uploader
 	return h
 }
 
+// UploadAsset 接收 multipart 文件，校验大小、文件名、类型及组织/内容权限后持久化资产。
 func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
 	principal, _ := middleware.PrincipalFromContext(c)
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAssetRequestSize)
@@ -148,6 +155,7 @@ func (h *WorkspaceHandler) UploadAsset(c *gin.Context) {
 // AdminAssets lists the current organization's media assets without exposing
 // storage keys or S3/MinIO credentials. The browser can use the returned
 // admin download URL, but it never talks to object storage directly.
+// AdminAssets 分页列出当前组织的资产，并返回管理端所需的元数据。
 func (h *WorkspaceHandler) AdminAssets(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -191,6 +199,7 @@ func (h *WorkspaceHandler) AdminAssets(c *gin.Context) {
 // a public CMS resource. Uploads stay private by default; this explicit action
 // atomically creates the published content record and binds the file so a
 // failed request can never leave a half-published portal entry behind.
+// PublishAssetAsResource 将未关联的资产创建为知识/资源内容，并建立资产到内容的绑定。
 func (h *WorkspaceHandler) PublishAssetAsResource(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -279,6 +288,7 @@ func (h *WorkspaceHandler) PublishAssetAsResource(c *gin.Context) {
 	respond(c, http.StatusCreated, h.contentAdminItem(content, principal))
 }
 
+// normalizeAssetResourceInput 清洗资源标题、类型和描述，并根据资产 MIME 类型推断默认资源类别。
 func normalizeAssetResourceInput(asset model.MediaAsset, body publishAssetResourceRequest) (service.ContentInput, error) {
 	kind := strings.TrimSpace(body.Kind)
 	if kind == "" {
@@ -300,6 +310,7 @@ func normalizeAssetResourceInput(asset model.MediaAsset, body publishAssetResour
 	})
 }
 
+// inferResourceKind 将 MIME 类型映射为前端资源类别；未知类型统一归入 file。
 func inferResourceKind(mimeType string) string {
 	switch {
 	case strings.HasPrefix(mimeType, "video/"):
@@ -311,6 +322,7 @@ func inferResourceKind(mimeType string) string {
 	}
 }
 
+// DownloadAsset 校验组织和资产状态后，以附件形式输出资产内容或重定向到外部图片地址。
 func (h *WorkspaceHandler) DownloadAsset(c *gin.Context) {
 	var asset model.MediaAsset
 	if err := h.db.Where("id = ?", c.Param("id")).First(&asset).Error; err != nil {
@@ -369,6 +381,7 @@ func (h *WorkspaceHandler) DownloadAsset(c *gin.Context) {
 	})
 }
 
+// assetResponse 将数据库资产模型转换为不暴露内部字段的 API 响应对象。
 func assetResponse(asset model.MediaAsset) gin.H {
 	var contentID interface{}
 	if asset.ContentID != "" {
@@ -389,6 +402,7 @@ func assetResponse(asset model.MediaAsset) gin.H {
 	return gin.H{"id": asset.ID, "content_id": contentID, "original_name": asset.OriginalName, "mime_type": asset.MimeType, "size_bytes": asset.SizeBytes, "download_count": asset.DownloadCount, "last_downloaded_at": asset.LastDownloadedAt, "created_at": asset.CreatedAt, "provider": provider, "external_url": externalURL, "download_url": downloadURL}
 }
 
+// AssetDownloadStats 返回资产的下载次数及最近访问信息。
 func (h *WorkspaceHandler) AssetDownloadStats(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -411,6 +425,7 @@ func (h *WorkspaceHandler) AssetDownloadStats(c *gin.Context) {
 // be taken off the public portal first. Resource content exists to represent
 // its files, so its record is also removed when the last linked file is
 // deleted; news and knowledge content keep their editorial record.
+// DeleteAsset 删除资产记录及其存储对象；已被内容引用的资产会被拒绝删除。
 func (h *WorkspaceHandler) DeleteAsset(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -520,6 +535,7 @@ func (h *WorkspaceHandler) DeleteAsset(c *gin.Context) {
 	})
 }
 
+// detectAssetType 读取文件头并依据真实内容签名识别 MIME，避免仅信任客户端声明。
 func detectAssetType(reader io.Reader) (string, error) {
 	buffer := make([]byte, 512)
 	read, err := reader.Read(buffer)
@@ -532,6 +548,7 @@ func detectAssetType(reader io.Reader) (string, error) {
 	return http.DetectContentType(buffer[:read]), nil
 }
 
+// allowedAssetType 判断 MIME 是否属于系统允许保存的资产类型集合。
 func allowedAssetType(mime string) bool {
 	for _, allowed := range []string{"image/png", "image/jpeg", "image/webp", "application/pdf", "application/zip", "video/mp4"} {
 		if mime == allowed {
@@ -541,6 +558,7 @@ func allowedAssetType(mime string) bool {
 	return false
 }
 
+// isImageAsset 判断 MIME 是否为可交给图片托管服务处理的图片类型。
 func isImageAsset(mime string) bool {
 	return mime == "image/png" || mime == "image/jpeg" || mime == "image/webp"
 }

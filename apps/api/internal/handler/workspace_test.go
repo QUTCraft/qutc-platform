@@ -8,6 +8,7 @@ import (
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/model"
 )
 
+// TestDetectAssetTypeUsesFileSignature 确认资产类型来自文件签名而非文件名或客户端扩展名。
 func TestDetectAssetTypeUsesFileSignature(t *testing.T) {
 	png, err := detectAssetType(bytes.NewReader([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}))
 	if err != nil || png != "image/png" {
@@ -20,6 +21,7 @@ func TestDetectAssetTypeUsesFileSignature(t *testing.T) {
 	}
 }
 
+// TestAssetResponseUsesNullForUnlinkedAsset 确认未关联内容的资产响应显式返回 null。
 func TestAssetResponseUsesNullForUnlinkedAsset(t *testing.T) {
 	response := assetResponse(model.MediaAsset{ID: "asset-1", OriginalName: "guide.pdf", MimeType: "application/pdf", SizeBytes: 12})
 	if response["content_id"] != nil {
@@ -27,6 +29,7 @@ func TestAssetResponseUsesNullForUnlinkedAsset(t *testing.T) {
 	}
 }
 
+// TestAssetResponseUsesExternalURLForSuperbedImage 确认外部图床图片优先返回外链地址。
 func TestAssetResponseUsesExternalURLForSuperbedImage(t *testing.T) {
 	response := assetResponse(model.MediaAsset{ID: "asset-2", OriginalName: "cover.png", MimeType: "image/png", SizeBytes: 8, Provider: "superbed", ExternalURL: "https://img.superbed.example/abc123"})
 	if response["download_url"] != "https://img.superbed.example/abc123" {
@@ -37,6 +40,7 @@ func TestAssetResponseUsesExternalURLForSuperbedImage(t *testing.T) {
 	}
 }
 
+// validApplicationFixture 返回所有必填字段均有效的申请测试基线。
 func validApplicationFixture() applicationRequest {
 	return applicationRequest{
 		Type:      "whitelist",
@@ -49,6 +53,7 @@ func validApplicationFixture() applicationRequest {
 	}
 }
 
+// TestValidApplicationRequest 验证完整申请数据可以通过校验。
 func TestValidApplicationRequest(t *testing.T) {
 	if !validApplicationRequest(validApplicationFixture()) {
 		t.Fatal("expected fixture to be valid")
@@ -76,6 +81,7 @@ func TestValidApplicationRequest(t *testing.T) {
 	}
 }
 
+// TestValidApplicationRequestDefaultsToWhitelist 验证空审核模式会采用安全的白名单默认值。
 func TestValidApplicationRequestDefaultsToWhitelist(t *testing.T) {
 	value := validApplicationFixture()
 	value.Type = ""
@@ -84,6 +90,7 @@ func TestValidApplicationRequestDefaultsToWhitelist(t *testing.T) {
 	}
 }
 
+// TestValidMembershipApplicationDoesNotRequireMinecraftFields 确认成员申请不必填写项目专属 Minecraft 字段。
 func TestValidMembershipApplicationDoesNotRequireMinecraftFields(t *testing.T) {
 	value := applicationRequest{Type: "membership", Name: "Campus Maker", Email: "maker@example.com", Note: "希望参与内容运营。"}
 	if !validApplicationRequest(value) {
@@ -95,6 +102,7 @@ func TestValidMembershipApplicationDoesNotRequireMinecraftFields(t *testing.T) {
 	}
 }
 
+// TestNormalizeOrganizationProfile 验证组织资料文本和社交链接会被清洗为规范值。
 func TestNormalizeOrganizationProfile(t *testing.T) {
 	value, valid := normalizeOrganizationProfile(organizationProfileRequest{
 		Name: "  Campus Makers  ", ShortName: " Makers ", ContactEmail: "TEAM@EXAMPLE.ORG",
@@ -118,6 +126,7 @@ func TestNormalizeOrganizationProfile(t *testing.T) {
 	}
 }
 
+// TestContentStatusTransitions 覆盖内容草稿、审核、发布和归档之间允许与禁止的状态迁移。
 func TestContentStatusTransitions(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -144,6 +153,7 @@ func TestContentStatusTransitions(t *testing.T) {
 	}
 }
 
+// TestKnowledgeDirectoryRequestRequiresSafeSlug 确认知识目录 slug 必须符合安全格式。
 func TestKnowledgeDirectoryRequestRequiresSafeSlug(t *testing.T) {
 	valid := knowledgeDirectoryRequest{Name: "技术规范", Slug: "technology", Description: "接口规范", ParentID: "", SortOrder: 10, IsPublic: true}
 	if !validKnowledgeDirectoryRequest(valid) {
@@ -158,6 +168,7 @@ func TestKnowledgeDirectoryRequestRequiresSafeSlug(t *testing.T) {
 	}
 }
 
+// TestContentPublicItemsExcludeInternalFields 确认公开内容响应不会泄露内部审核和组织字段。
 func TestContentPublicItemsExcludeInternalFields(t *testing.T) {
 	publishedAt := time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC)
 	content := model.Content{
@@ -190,6 +201,7 @@ func TestContentPublicItemsExcludeInternalFields(t *testing.T) {
 	}
 }
 
+// TestContentPublicDetailRewritesAdminAssetURLs 确认正文中的管理端资产地址会改写为公开下载地址。
 func TestContentPublicDetailRewritesAdminAssetURLs(t *testing.T) {
 	content := model.Content{ID: "content-public-markdown", Type: "news", Body: "![封面](/api/v1/admin/assets/asset-1/download)"}
 	item := (&WorkspaceHandler{}).contentPublicDetailItem("qutcraft", content)
@@ -199,6 +211,7 @@ func TestContentPublicDetailRewritesAdminAssetURLs(t *testing.T) {
 	}
 }
 
+// TestMembershipRoleProtection 验证成员角色变更保护规则，尤其是自我降权和最高权限角色。
 func TestMembershipRoleProtection(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -223,6 +236,7 @@ func TestMembershipRoleProtection(t *testing.T) {
 	}
 }
 
+// TestMembershipWriteStateAndEventReason 验证成员状态写入是否合法，以及审计原因文本是否准确。
 func TestMembershipWriteStateAndEventReason(t *testing.T) {
 	if !validMemberWriteState("active") || !validMemberWriteState("disabled") {
 		t.Fatal("active and disabled must be writable membership states")

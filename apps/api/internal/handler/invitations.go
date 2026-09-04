@@ -1,3 +1,5 @@
+// invitations.go 实现组织邀请的创建、批量创建、列表、撤销、邮件投递重试和接受注册流程。
+// 邮件适配器通过接口注入，便于按组织动态解析接入配置并在测试中替换为静态实现。
 package handler
 
 import (
@@ -17,48 +19,58 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// InvitationHandler 组合邀请所需的数据库、认证服务和组织级外部接入解析器。
 type InvitationHandler struct {
 	db           *gorm.DB
 	auth         *service.AuthService
 	integrations InvitationIntegrationResolver
 }
 
+// InvitationIntegrationResolver 按组织解析邮件发送器和公开 Web 基址。
 type InvitationIntegrationResolver interface {
 	MailSender(context.Context, string) (mailadapter.Sender, error)
 	PublicWebBaseURL(context.Context, string) string
 }
 
+// staticInvitationIntegrations 是兼容旧构造函数的固定接入实现。
 type staticInvitationIntegrations struct {
 	mail             mailadapter.Sender
 	publicWebBaseURL string
 }
 
+// MailSender 返回预先注入的固定邮件发送器。
 func (s staticInvitationIntegrations) MailSender(context.Context, string) (mailadapter.Sender, error) {
 	return s.mail, nil
 }
 
+// PublicWebBaseURL 返回预先注入的公开站点基址。
 func (s staticInvitationIntegrations) PublicWebBaseURL(context.Context, string) string {
 	return s.publicWebBaseURL
 }
 
+// NewInvitationHandler 使用固定邮件发送器创建邀请处理器，保留向后兼容的调用方式。
 func NewInvitationHandler(db *gorm.DB, auth *service.AuthService, mail mailadapter.Sender, publicWebBaseURL string) *InvitationHandler {
 	return NewInvitationHandlerWithIntegrations(db, auth, staticInvitationIntegrations{mail: mail, publicWebBaseURL: strings.TrimRight(publicWebBaseURL, "/")})
 }
 
+// NewInvitationHandlerWithIntegrations 创建支持按组织动态解析接入配置的邀请处理器。
 func NewInvitationHandlerWithIntegrations(db *gorm.DB, auth *service.AuthService, integrations InvitationIntegrationResolver) *InvitationHandler {
 	return &InvitationHandler{db: db, auth: auth, integrations: integrations}
 }
 
+// createInvitationRequest 描述单个邀请的邮箱、角色和可选有效期。
 type createInvitationRequest struct {
 	Email          string `json:"email" binding:"required,email,max=254"`
 	Role           string `json:"role" binding:"required"`
 	ExpiresInHours int    `json:"expires_in_hours"`
 }
 
+// batchInvitationRequest 包含批量创建时提交的邀请列表。
 type batchInvitationRequest struct {
 	Invitations []createInvitationRequest `json:"invitations" binding:"required"`
 }
 
+// batchInvitationResult 保留批量输入索引，并允许同一批次部分成功。
 type batchInvitationResult struct {
 	Index      int                 `json:"index"`
 	Email      string              `json:"email"`
@@ -67,23 +79,27 @@ type batchInvitationResult struct {
 	Error      *batchItemError     `json:"error,omitempty"`
 }
 
+// batchItemError 是批量项目失败时返回的错误码和人类可读消息。
 type batchItemError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
 
+// invitationFailure 是内部创建流程到 HTTP 响应之间的错误映射载体。
 type invitationFailure struct {
 	HTTPStatus int
 	Code       string
 	Message    string
 }
 
+// invitationResponse 将邀请视图与可选邀请链接、邮件投递状态组合返回。
 type invitationResponse struct {
 	service.InvitationView
 	InviteURL string                `json:"invite_url,omitempty"`
 	Delivery  emailDeliveryResponse `json:"delivery"`
 }
 
+// emailDeliveryResponse 描述邮件适配器、投递状态、尝试次数和错误信息。
 type emailDeliveryResponse struct {
 	Status        string     `json:"status"`
 	Adapter       string     `json:"adapter"`
@@ -93,6 +109,7 @@ type emailDeliveryResponse struct {
 	SentAt        *time.Time `json:"sent_at,omitempty"`
 }
 
+// Create 校验并创建单个组织邀请，随后尝试发送邀请邮件。
 func (h *InvitationHandler) Create(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -112,6 +129,7 @@ func (h *InvitationHandler) Create(c *gin.Context) {
 	respond(c, http.StatusCreated, response)
 }
 
+// CreateBatch 逐项处理邀请列表，返回成功项和失败项而不因单项错误中止整批请求。
 func (h *InvitationHandler) CreateBatch(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -145,6 +163,7 @@ func (h *InvitationHandler) CreateBatch(c *gin.Context) {
 	})
 }
 
+// createInvitation 执行单项邀请的服务调用、邀请链接生成和邮件投递记录组装。
 func (h *InvitationHandler) createInvitation(c *gin.Context, principal service.Principal, request createInvitationRequest) (invitationResponse, *invitationFailure) {
 	if request.ExpiresInHours < 0 || request.ExpiresInHours > int(service.MaxInvitationExpiry/time.Hour) {
 		return invitationResponse{}, invitationCreateFailure(service.ErrInvitationInvalidExpiry)
@@ -167,6 +186,7 @@ func (h *InvitationHandler) createInvitation(c *gin.Context, principal service.P
 	}, nil
 }
 
+// invitationCreateFailure 将认证服务的领域错误转换为邀请 API 的错误信息。
 func invitationCreateFailure(err error) *invitationFailure {
 	switch {
 	case errors.Is(err, service.ErrInvitationInvalidEmail), errors.Is(err, service.ErrInvitationInvalidRole), errors.Is(err, service.ErrInvitationInvalidExpiry):
@@ -182,6 +202,7 @@ func invitationCreateFailure(err error) *invitationFailure {
 	}
 }
 
+// List 分页列出当前组织的邀请，并附加每封邀请的最新投递状态。
 func (h *InvitationHandler) List(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -216,6 +237,7 @@ func (h *InvitationHandler) List(c *gin.Context) {
 	respondWithMeta(c, http.StatusOK, responses, gin.H{"page": page, "page_size": pageSize, "total": total})
 }
 
+// Revoke 撤销尚未使用的邀请令牌，并写入对应审计事件。
 func (h *InvitationHandler) Revoke(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -240,6 +262,7 @@ func (h *InvitationHandler) Revoke(c *gin.Context) {
 	respond(c, http.StatusOK, result)
 }
 
+// RetryEmail 对指定邀请重新执行邮件投递，并更新投递尝试记录。
 func (h *InvitationHandler) RetryEmail(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -269,6 +292,7 @@ func (h *InvitationHandler) RetryEmail(c *gin.Context) {
 	})
 }
 
+// EmailStatus 返回指定邀请的邮件投递历史摘要。
 func (h *InvitationHandler) EmailStatus(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -283,6 +307,7 @@ func (h *InvitationHandler) EmailStatus(c *gin.Context) {
 	respond(c, http.StatusOK, sender.Status())
 }
 
+// Preview 生成邀请邮件预览，不创建邀请也不触发实际投递。
 func (h *InvitationHandler) Preview(c *gin.Context) {
 	view, err := h.auth.LookupInvitation(c.Param("token"))
 	if err != nil {
@@ -292,6 +317,7 @@ func (h *InvitationHandler) Preview(c *gin.Context) {
 	respond(c, http.StatusOK, view)
 }
 
+// Accept 消费邀请令牌并完成注册或加入组织流程。
 func (h *InvitationHandler) Accept(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -314,6 +340,7 @@ func (h *InvitationHandler) Accept(c *gin.Context) {
 	respond(c, http.StatusOK, result)
 }
 
+// handleInvitationLookupError 统一处理邀请查询阶段的未找到和数据库错误。
 func handleInvitationLookupError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrInvitationExpired):
@@ -329,6 +356,7 @@ func handleInvitationLookupError(c *gin.Context, err error) {
 	}
 }
 
+// handleInvitationMutationError 统一处理撤销、重试等邀请变更操作的领域错误。
 func handleInvitationMutationError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrInvitationExpired):
@@ -344,6 +372,7 @@ func handleInvitationMutationError(c *gin.Context, err error) {
 	}
 }
 
+// deliverInvitation 渲染邀请邮件并调用按组织解析出的发送器，返回可持久化的投递结果。
 func (h *InvitationHandler) deliverInvitation(ctx context.Context, invitation service.InvitationCreateResult) emailDeliveryResponse {
 	sender, resolveErr := h.integrations.MailSender(ctx, invitation.OrganizationID)
 	if resolveErr != nil || sender == nil {
@@ -408,6 +437,7 @@ func (h *InvitationHandler) deliverInvitation(ctx context.Context, invitation se
 	return deliveryResponse(delivery)
 }
 
+// persistDelivery 保存投递状态；incrementAttempt 为真时先递增尝试次数。
 func (h *InvitationHandler) persistDelivery(delivery model.InvitationDelivery, incrementAttempt bool) model.InvitationDelivery {
 	updates := map[string]interface{}{
 		"adapter":    delivery.Adapter,
@@ -431,6 +461,7 @@ func (h *InvitationHandler) persistDelivery(delivery model.InvitationDelivery, i
 	return delivery
 }
 
+// auditDelivery 为邮件投递结果写入成功或失败审计事件，但不让审计失败覆盖主流程结果。
 func (h *InvitationHandler) auditDelivery(c *gin.Context, principal service.Principal, invitationID string, delivery emailDeliveryResponse) {
 	result := delivery.Status
 	if result == "disabled" {
@@ -448,6 +479,7 @@ func (h *InvitationHandler) auditDelivery(c *gin.Context, principal service.Prin
 	}).Error
 }
 
+// deliveryResponse 将数据库投递记录映射为隐藏内部实现细节的 API 响应。
 func deliveryResponse(delivery model.InvitationDelivery) emailDeliveryResponse {
 	return emailDeliveryResponse{
 		Status:        delivery.Status,
@@ -459,6 +491,7 @@ func deliveryResponse(delivery model.InvitationDelivery) emailDeliveryResponse {
 	}
 }
 
+// deliveriesForInvitations 批量读取邀请投递记录，按邀请 ID 建立快速查找表。
 func (h *InvitationHandler) deliveriesForInvitations(invitations []service.InvitationView) (map[string]emailDeliveryResponse, error) {
 	responses := make(map[string]emailDeliveryResponse, len(invitations))
 	ids := make([]string, 0, len(invitations))
@@ -479,6 +512,7 @@ func (h *InvitationHandler) deliveriesForInvitations(invitations []service.Invit
 	return responses, nil
 }
 
+// safeDeliveryError 将底层邮件错误压缩为可向客户端展示且不泄露凭据的文本。
 func safeDeliveryError(err error) string {
 	message := strings.Join(strings.Fields(err.Error()), " ")
 	if len(message) > 500 {

@@ -1,3 +1,4 @@
+// portal_config.go 管理门户 Manifest 草稿、激活版本、公开运行时读取和默认回退。
 package handler
 
 import (
@@ -16,14 +17,17 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// PortalConfigHandler 使用数据库保存每个组织的门户配置版本。
 type PortalConfigHandler struct {
 	db *gorm.DB
 }
 
+// portalConfigRequest 是保存草稿时提交的门户 Manifest。
 type portalConfigRequest struct {
 	Manifest portalmanifest.Manifest `json:"manifest" binding:"required"`
 }
 
+// portalConfigResponse 同时返回草稿、当前激活版本及其审计时间线。
 type portalConfigResponse struct {
 	ID             string                   `json:"id,omitempty"`
 	DraftManifest  *portalmanifest.Manifest `json:"draft_manifest"`
@@ -35,16 +39,19 @@ type portalConfigResponse struct {
 	ActivatedAt    *time.Time               `json:"activated_at,omitempty"`
 }
 
+// portalRuntimeResponse 是公开门户运行时使用的 Manifest 及来源标记。
 type portalRuntimeResponse struct {
 	Manifest    portalmanifest.Manifest `json:"manifest"`
 	Source      string                  `json:"source"`
 	ActivatedAt *time.Time              `json:"activated_at,omitempty"`
 }
 
+// NewPortalConfigHandler 创建门户配置处理器。
 func NewPortalConfigHandler(db *gorm.DB) *PortalConfigHandler {
 	return &PortalConfigHandler{db: db}
 }
 
+// Get 返回当前组织的门户草稿和激活配置；尚未创建配置时返回空对象。
 func (h *PortalConfigHandler) Get(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -69,6 +76,7 @@ func (h *PortalConfigHandler) Get(c *gin.Context) {
 	respond(c, http.StatusOK, response)
 }
 
+// Public 读取公开组织的激活 Manifest；缺失或损坏时安全回退到默认门户。
 func (h *PortalConfigHandler) Public(c *gin.Context) {
 	var organization model.Organization
 	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&organization).Error; err != nil {
@@ -100,6 +108,7 @@ func (h *PortalConfigHandler) Public(c *gin.Context) {
 	respond(c, http.StatusOK, response)
 }
 
+// SaveDraft 解析并校验 Manifest 后保存为组织草稿，不会改变当前激活版本。
 func (h *PortalConfigHandler) SaveDraft(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -167,6 +176,7 @@ func (h *PortalConfigHandler) SaveDraft(c *gin.Context) {
 	respond(c, http.StatusOK, response)
 }
 
+// Enable 将已保存且通过校验的草稿原子化激活，并记录操作者与激活时间。
 func (h *PortalConfigHandler) Enable(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -219,6 +229,7 @@ func (h *PortalConfigHandler) Enable(c *gin.Context) {
 	respond(c, http.StatusOK, response)
 }
 
+// RestoreDefault 清除组织的激活 Manifest，使公开门户回退到内置默认配置。
 func (h *PortalConfigHandler) RestoreDefault(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -282,6 +293,7 @@ func (h *PortalConfigHandler) RestoreDefault(c *gin.Context) {
 
 var errStoredManifestInvalid = errors.New("stored portal manifest is invalid")
 
+// defaultPortalManifest 返回不依赖数据库的最小可运行门户 Manifest。
 func defaultPortalManifest() portalmanifest.Manifest {
 	return portalmanifest.Manifest{
 		Schema:       portalmanifest.SchemaV1,
@@ -295,6 +307,7 @@ func defaultPortalManifest() portalmanifest.Manifest {
 	}
 }
 
+// portalConfigurationDTO 将数据库 JSON 字段解析为类型安全的门户配置响应。
 func portalConfigurationDTO(configuration model.PortalConfiguration) (portalConfigResponse, error) {
 	response := portalConfigResponse{
 		ID: configuration.ID, Active: configuration.ActiveManifestJSON != "", UpdatedBy: configuration.UpdatedBy,
