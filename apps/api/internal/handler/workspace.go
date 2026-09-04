@@ -1,3 +1,5 @@
+// workspace.go 是工作区核心 HTTP 处理器，覆盖公开门户、内容管理、知识目录、项目、成员、申请和资产关联。
+// 该文件中的处理器负责组织隔离、分页参数、权限前置检查、事务编排和响应 DTO 转换，领域规则通过 service/model 协作完成。
 package handler
 
 import (
@@ -24,6 +26,7 @@ import (
 
 // WorkspaceHandler owns the first content read/write model shared by the
 // public portal and the protected CMS workspace.
+// WorkspaceHandler 保存工作区 API 使用的数据库、缓存、环境和可选外部依赖。
 type WorkspaceHandler struct {
 	db              *gorm.DB
 	cache           *cache.Cache
@@ -35,6 +38,7 @@ type WorkspaceHandler struct {
 	superbed        *superbed.Uploader
 }
 
+// MediaStorageResolver 按组织和存储驱动解析媒体存储实例，用于支持运行时切换 local/S3。
 type MediaStorageResolver interface {
 	Storage(context.Context, string, string) (storage.Store, error)
 }
@@ -49,6 +53,7 @@ var (
 
 var markdownAdminAssetPattern = regexp.MustCompile(`/api/v1/admin/assets/([a-zA-Z0-9-]+)/download`)
 
+// NewWorkspaceHandler 创建使用默认存储实现的工作区处理器。
 func NewWorkspaceHandler(db *gorm.DB, publicCache *cache.Cache, environment string) *WorkspaceHandler {
 	mediaStorage, err := storage.NewLocal("/tmp/qutcraft-uploads")
 	if err != nil {
@@ -57,10 +62,12 @@ func NewWorkspaceHandler(db *gorm.DB, publicCache *cache.Cache, environment stri
 	return NewWorkspaceHandlerWithDependencies(db, publicCache, environment, mediaStorage)
 }
 
+// NewWorkspaceHandlerWithDependencies 创建并注入自定义媒体存储，主要用于应用组装和测试。
 func NewWorkspaceHandlerWithDependencies(db *gorm.DB, publicCache *cache.Cache, environment string, mediaStorage storage.Store) *WorkspaceHandler {
 	return NewWorkspaceHandlerWithDependenciesAndNotifications(db, publicCache, environment, mediaStorage, nil)
 }
 
+// NewWorkspaceHandlerWithDependenciesAndNotifications 在工作区处理器中同时注入媒体存储和通知服务。
 func NewWorkspaceHandlerWithDependenciesAndNotifications(db *gorm.DB, publicCache *cache.Cache, environment string, mediaStorage storage.Store, notifications *service.NotificationService) *WorkspaceHandler {
 	if strings.TrimSpace(environment) == "" {
 		environment = "development"
@@ -84,10 +91,12 @@ func NewWorkspaceHandlerWithDependenciesAndNotifications(db *gorm.DB, publicCach
 
 // UseStorageResolver enables organization-scoped runtime storage selection
 // while preserving the existing static constructor for tests and embedders.
+// UseStorageResolver 设置按组织解析存储的策略；传入 nil 时回退到处理器默认存储。
 func (h *WorkspaceHandler) UseStorageResolver(resolver MediaStorageResolver) {
 	h.storageResolver = resolver
 }
 
+// storageFor 根据组织和驱动名获取存储实例，并统一处理 resolver 未配置的回退路径。
 func (h *WorkspaceHandler) storageFor(ctx context.Context, organizationID, driver string) (storage.Store, error) {
 	if h.storageResolver != nil {
 		return h.storageResolver.Storage(ctx, organizationID, driver)
@@ -101,6 +110,7 @@ func (h *WorkspaceHandler) storageFor(ctx context.Context, organizationID, drive
 	return h.mediaStorage, nil
 }
 
+// cachedPortalPage 读取或写入公开门户列表缓存，缓存失败不影响数据库查询结果返回。
 func (h *WorkspaceHandler) cachedPortalPage(c *gin.Context, slug, resource string, loader func() ([]gin.H, error)) {
 	key := "qutc:" + h.cacheNamespace + ":portal:" + slug + ":" + resource + ":" + cache.NormalizeQuery(c.Request.URL.RawQuery)
 	var items []gin.H
@@ -119,6 +129,7 @@ func (h *WorkspaceHandler) cachedPortalPage(c *gin.Context, slug, resource strin
 	pageOf(c, items)
 }
 
+// cachedPortalItem 读取或写入公开门户单项缓存，并保持与列表缓存相同的容错策略。
 func (h *WorkspaceHandler) cachedPortalItem(c *gin.Context, slug, resource string, loader func() (gin.H, error)) {
 	key := "qutc:" + h.cacheNamespace + ":portal:" + slug + ":" + resource
 	var item gin.H
@@ -141,6 +152,7 @@ func (h *WorkspaceHandler) cachedPortalItem(c *gin.Context, slug, resource strin
 	respond(c, http.StatusOK, item)
 }
 
+// invalidatePortalCache 清除组织门户相关缓存，供所有会改变公开数据的写操作调用。
 func (h *WorkspaceHandler) invalidatePortalCache(organizationID string) {
 	if h.cache == nil {
 		return
@@ -151,6 +163,7 @@ func (h *WorkspaceHandler) invalidatePortalCache(organizationID string) {
 	}
 }
 
+// listMeta 解析分页参数并计算总页数；参数非法时直接写入 400 响应。
 func listMeta(c *gin.Context, total int) (int, int, bool) {
 	page, pageSize := 1, 20
 	var err error
@@ -171,6 +184,7 @@ func listMeta(c *gin.Context, total int) (int, int, bool) {
 	return page, pageSize, true
 }
 
+// pageOf 按请求页码裁剪内存切片，并以统一 meta 响应输出分页结果。
 func pageOf[T any](c *gin.Context, values []T) {
 	page, pageSize, ok := listMeta(c, len(values))
 	if !ok {
@@ -187,6 +201,7 @@ func pageOf[T any](c *gin.Context, values []T) {
 	respondWithMeta(c, http.StatusOK, values[start:end], gin.H{"page": page, "page_size": pageSize, "total": len(values)})
 }
 
+// queryMax 读取并限制查询参数长度，避免超长过滤条件进入数据库查询。
 func queryMax(c *gin.Context, key string, max int) (string, bool) {
 	value := strings.TrimSpace(c.Query(key))
 	if len([]rune(value)) > max {
@@ -196,6 +211,7 @@ func queryMax(c *gin.Context, key string, max int) (string, bool) {
 	return value, true
 }
 
+// Organization 返回公开门户使用的组织基本资料。
 func (h *WorkspaceHandler) Organization(c *gin.Context) {
 	var org model.Organization
 	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&org).Error; err != nil {
@@ -205,6 +221,7 @@ func (h *WorkspaceHandler) Organization(c *gin.Context) {
 	respond(c, http.StatusOK, organizationProfileItem(org))
 }
 
+// PortalContentDetail 返回公开内容详情，并重写正文中的资产地址。
 func (h *WorkspaceHandler) PortalContentDetail(c *gin.Context) {
 	var organization model.Organization
 	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&organization).Error; err != nil {
@@ -221,6 +238,7 @@ func (h *WorkspaceHandler) PortalContentDetail(c *gin.Context) {
 	})
 }
 
+// PortalPosts 分页返回组织已发布的文章内容。
 func (h *WorkspaceHandler) PortalPosts(c *gin.Context) {
 	category, ok := queryMax(c, "category", 64)
 	if !ok {
@@ -247,6 +265,8 @@ func (h *WorkspaceHandler) PortalPosts(c *gin.Context) {
 		return items, nil
 	})
 }
+
+// PortalProjects 分页返回组织公开项目及其里程碑摘要。
 func (h *WorkspaceHandler) PortalProjects(c *gin.Context) {
 	status, ok := queryMax(c, "status", 16)
 	if !ok {
@@ -277,6 +297,8 @@ func (h *WorkspaceHandler) PortalProjects(c *gin.Context) {
 		return items, nil
 	})
 }
+
+// PortalResources 分页返回组织公开资源内容。
 func (h *WorkspaceHandler) PortalResources(c *gin.Context) {
 	kind, ok := queryMax(c, "kind", 16)
 	if !ok {
@@ -314,6 +336,8 @@ func (h *WorkspaceHandler) PortalResources(c *gin.Context) {
 		return items, nil
 	})
 }
+
+// PortalKnowledge 返回公开知识条目，并按目录信息补充展示字段。
 func (h *WorkspaceHandler) PortalKnowledge(c *gin.Context) {
 	category, ok := queryMax(c, "category", 64)
 	if !ok {
@@ -358,6 +382,7 @@ func (h *WorkspaceHandler) PortalKnowledge(c *gin.Context) {
 	})
 }
 
+// PortalKnowledgeDirectories 返回公开知识目录树及目录下的内容计数。
 func (h *WorkspaceHandler) PortalKnowledgeDirectories(c *gin.Context) {
 	var organization model.Organization
 	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&organization).Error; err != nil {
@@ -379,6 +404,7 @@ func (h *WorkspaceHandler) PortalKnowledgeDirectories(c *gin.Context) {
 	})
 }
 
+// knowledgeDirectoryNames 批量读取内容引用的目录名称，减少公开列表中的逐条查询。
 func (h *WorkspaceHandler) knowledgeDirectoryNames(organizationID string, contents []model.Content) map[string]string {
 	ids := make([]string, 0, len(contents))
 	seen := make(map[string]struct{})
@@ -405,6 +431,8 @@ func (h *WorkspaceHandler) knowledgeDirectoryNames(organizationID string, conten
 	}
 	return names
 }
+
+// AdminDashboard 汇总当前组织的内容、项目、成员和申请数量，供管理端首页展示。
 func (h *WorkspaceHandler) AdminDashboard(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -436,9 +464,13 @@ func (h *WorkspaceHandler) AdminDashboard(c *gin.Context) {
 	lastMetric := gin.H{"label": "进行中项目", "value": activeProjects, "change": "当前组织项目", "tone": "neutral"}
 	respond(c, http.StatusOK, gin.H{"organization_name": organization.Name, "updated_at": time.Now().UTC(), "metrics": []gin.H{{"label": "活跃成员", "value": activeMembers, "change": "当前组织成员", "tone": "primary"}, {"label": "已发布内容", "value": published, "change": "当前公开内容", "tone": "secondary"}, {"label": "内容总数", "value": total, "change": "含草稿", "tone": "neutral"}, lastMetric}, "pending_applications": pendingItems, "recent_content": recentItems})
 }
+
+// contentItems 返回管理端内容类型筛选器使用的固定选项。
 func contentItems() []gin.H {
 	return []gin.H{{"id": "content_001", "title": "QUTCraft CMS 项目正式启动", "type": "news", "status": "published", "author": "QUTCraft Admin", "updated_at": "2026-07-17T03:00:00Z"}}
 }
+
+// AdminContent 按类型、状态和关键词分页列出组织内容。
 func (h *WorkspaceHandler) AdminContent(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -457,6 +489,7 @@ func (h *WorkspaceHandler) AdminContent(c *gin.Context) {
 	pageOf(c, items)
 }
 
+// AdminContentDetail 返回管理端内容详情及当前用户可见的内部字段。
 func (h *WorkspaceHandler) AdminContentDetail(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -475,6 +508,7 @@ func (h *WorkspaceHandler) AdminContentDetail(c *gin.Context) {
 	respond(c, http.StatusOK, h.contentAdminItem(content, principal))
 }
 
+// AdminKnowledgeDirectories 列出管理端可维护的完整知识目录。
 func (h *WorkspaceHandler) AdminKnowledgeDirectories(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -493,6 +527,7 @@ func (h *WorkspaceHandler) AdminKnowledgeDirectories(c *gin.Context) {
 	pageOf(c, items)
 }
 
+// knowledgeDirectoryRequest 描述知识目录名称、slug 和父目录关系。
 type knowledgeDirectoryRequest struct {
 	Name        string `json:"name"`
 	Slug        string `json:"slug"`
@@ -504,10 +539,12 @@ type knowledgeDirectoryRequest struct {
 
 var knowledgeDirectorySlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
+// validKnowledgeDirectoryRequest 验证目录字段长度和 slug 格式。
 func validKnowledgeDirectoryRequest(body knowledgeDirectoryRequest) bool {
 	return strings.TrimSpace(body.Name) != "" && knowledgeDirectorySlugPattern.MatchString(strings.TrimSpace(body.Slug)) && len([]rune(body.Name)) <= 120 && len([]rune(body.Slug)) <= 120 && len([]rune(body.Description)) <= 500 && len([]rune(body.ParentID)) <= 64 && body.SortOrder >= 0
 }
 
+// validateKnowledgeDirectoryParent 验证父目录存在、同组织且不会形成循环引用。
 func (h *WorkspaceHandler) validateKnowledgeDirectoryParent(organizationID, directoryID, parentID string) error {
 	parentID = strings.TrimSpace(parentID)
 	if parentID == "" {
@@ -544,6 +581,7 @@ func (h *WorkspaceHandler) validateKnowledgeDirectoryParent(organizationID, dire
 	return nil
 }
 
+// AdminCreateKnowledgeDirectory 创建知识目录并写入审计记录。
 func (h *WorkspaceHandler) AdminCreateKnowledgeDirectory(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -578,6 +616,7 @@ func (h *WorkspaceHandler) AdminCreateKnowledgeDirectory(c *gin.Context) {
 	respond(c, http.StatusCreated, knowledgeDirectoryItem(directory))
 }
 
+// AdminUpdateKnowledgeDirectory 更新知识目录并重新校验父目录关系。
 func (h *WorkspaceHandler) AdminUpdateKnowledgeDirectory(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -616,10 +655,12 @@ func (h *WorkspaceHandler) AdminUpdateKnowledgeDirectory(c *gin.Context) {
 	respond(c, http.StatusOK, knowledgeDirectoryItem(directory))
 }
 
+// knowledgeDirectoryItem 将知识目录模型转换为管理端和门户共用的 DTO。
 func knowledgeDirectoryItem(directory model.KnowledgeDirectory) gin.H {
 	return gin.H{"id": directory.ID, "parent_id": directory.ParentID, "name": directory.Name, "slug": directory.Slug, "description": directory.Description, "sort_order": directory.SortOrder, "is_public": directory.IsPublic, "updated_at": directory.UpdatedAt}
 }
 
+// resolveContentDirectory 校验内容类型对应的目录 ID，并返回可写入内容记录的规范值。
 func (h *WorkspaceHandler) resolveContentDirectory(organizationID, contentType, directoryID string) (*string, error) {
 	directoryID = strings.TrimSpace(directoryID)
 	if directoryID == "" {
@@ -641,6 +682,7 @@ func (h *WorkspaceHandler) resolveContentDirectory(organizationID, contentType, 
 	return &directory.ID, nil
 }
 
+// respondContentDirectoryError 将目录不存在、类型不匹配等错误映射为 HTTP 响应，并返回是否已处理。
 func (h *WorkspaceHandler) respondContentDirectoryError(c *gin.Context, err error) bool {
 	if err == nil {
 		return false
@@ -657,6 +699,7 @@ func (h *WorkspaceHandler) respondContentDirectoryError(c *gin.Context, err erro
 	return true
 }
 
+// AdminCreateContent 创建草稿内容，绑定目录并记录初始版本。
 func (h *WorkspaceHandler) AdminCreateContent(c *gin.Context) {
 	var body service.ContentInput
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -690,6 +733,7 @@ func (h *WorkspaceHandler) AdminCreateContent(c *gin.Context) {
 	respond(c, http.StatusCreated, h.contentAdminItem(content, principal))
 }
 
+// AdminUpdateContent 更新内容草稿；已发布或审核中的内容需遵循额外状态限制。
 func (h *WorkspaceHandler) AdminUpdateContent(c *gin.Context) {
 	var body service.ContentInput
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -747,8 +791,13 @@ func (h *WorkspaceHandler) AdminUpdateContent(c *gin.Context) {
 	respond(c, http.StatusOK, h.contentAdminItem(content, principal))
 }
 
+// PublishContent 将内容提交为发布状态，具体迁移规则由 changeContentStatus 统一处理。
 func (h *WorkspaceHandler) PublishContent(c *gin.Context) { h.changeContentStatus(c, "published") }
+
+// ArchiveContent 将内容提交为归档状态，具体迁移规则由 changeContentStatus 统一处理。
 func (h *WorkspaceHandler) ArchiveContent(c *gin.Context) { h.changeContentStatus(c, "archived") }
+
+// changeContentStatus 执行内容状态迁移、权限检查、版本记录、资产绑定和审计写入。
 func (h *WorkspaceHandler) changeContentStatus(c *gin.Context, status string) {
 	principal, _ := middleware.PrincipalFromContext(c)
 	var content model.Content
@@ -803,6 +852,7 @@ func (h *WorkspaceHandler) changeContentStatus(c *gin.Context, status string) {
 	respond(c, http.StatusOK, h.contentAdminItem(content, principal))
 }
 
+// bindMarkdownAssets 从 Markdown 中提取资产链接，并把引用关系同步到内容资产关联表。
 func bindMarkdownAssets(db *gorm.DB, organizationID, contentID, body string) error {
 	matches := markdownAdminAssetPattern.FindAllStringSubmatch(body, -1)
 	if len(matches) == 0 {
@@ -843,6 +893,7 @@ func bindMarkdownAssets(db *gorm.DB, organizationID, contentID, body string) err
 	return nil
 }
 
+// createContentRevision 将当前内容快照写入递增版本号的修订记录。
 func createContentRevision(tx *gorm.DB, content model.Content, actorUserID, reason string) error {
 	var version int
 	if err := tx.Model(&model.ContentRevision{}).Where("content_id = ?", content.ID).Select("COALESCE(MAX(version), 0)").Scan(&version).Error; err != nil {
@@ -860,6 +911,7 @@ func createContentRevision(tx *gorm.DB, content model.Content, actorUserID, reas
 	}).Error
 }
 
+// AdminContentRevisions 分页列出指定内容的历史版本。
 func (h *WorkspaceHandler) AdminContentRevisions(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -888,6 +940,7 @@ func (h *WorkspaceHandler) AdminContentRevisions(c *gin.Context) {
 	respondWithMeta(c, http.StatusOK, items, gin.H{"page": page, "page_size": pageSize, "total": total})
 }
 
+// AdminContentRevisionDetail 返回指定版本的完整快照，包括正文和变更元数据。
 func (h *WorkspaceHandler) AdminContentRevisionDetail(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -906,6 +959,7 @@ func (h *WorkspaceHandler) AdminContentRevisionDetail(c *gin.Context) {
 	respond(c, http.StatusOK, contentRevisionItem(revision, true, h.db))
 }
 
+// RestoreContentRevision 将历史版本复制回当前内容，并产生新的修订记录以保留可追溯性。
 func (h *WorkspaceHandler) RestoreContentRevision(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -964,6 +1018,7 @@ func (h *WorkspaceHandler) RestoreContentRevision(c *gin.Context) {
 	respond(c, http.StatusOK, h.contentAdminItem(content, principal))
 }
 
+// contentRevisionItem 将内容修订模型投影为列表或详情响应，按 includeBody 控制是否返回正文。
 func contentRevisionItem(revision model.ContentRevision, includeBody bool, db *gorm.DB) gin.H {
 	var creator model.User
 	_ = db.Select("display_name").First(&creator, "id = ?", revision.CreatedBy).Error
@@ -984,6 +1039,7 @@ func contentRevisionItem(revision model.ContentRevision, includeBody bool, db *g
 	return item
 }
 
+// contentRevisionChangedFields 比较相邻快照并列出发生变化的业务字段。
 func contentRevisionChangedFields(previous, current model.ContentRevision) []string {
 	fields := make([]string, 0, 7)
 	if previous.Title != current.Title {
@@ -1010,6 +1066,7 @@ func contentRevisionChangedFields(previous, current model.ContentRevision) []str
 	return fields
 }
 
+// contentBodyDiffStats 以行文本为单位计算正文新增与删除行数，供版本详情展示。
 func contentBodyDiffStats(previous, current string) (int, int) {
 	previousLines := strings.Split(strings.ReplaceAll(previous, "\r\n", "\n"), "\n")
 	currentLines := strings.Split(strings.ReplaceAll(current, "\r\n", "\n"), "\n")
@@ -1032,10 +1089,12 @@ func contentBodyDiffStats(previous, current string) (int, int) {
 	return added, removed
 }
 
+// canTransitionContentStatus 判断内容状态机是否允许从 current 迁移到 target。
 func canTransitionContentStatus(current, target string) bool {
 	return service.CanTransitionContentStatus(current, target)
 }
 
+// contentPublicItem 生成公开内容列表 DTO，隐藏草稿、审核和内部审计字段。
 func contentPublicItem(content model.Content) gin.H {
 	publishedAt := content.PublishedAt
 	if publishedAt == nil {
@@ -1048,6 +1107,7 @@ func contentPublicItem(content model.Content) gin.H {
 	return gin.H{"id": content.ID, "title": content.Title, "excerpt": content.Excerpt, "category": category, "published_at": publishedAt, "reading_minutes": maxInt(1, len([]rune(content.Body))/900+1)}
 }
 
+// contentPublicDetailItem 生成公开内容详情 DTO，并将正文资产路径改写为门户下载路径。
 func (h *WorkspaceHandler) contentPublicDetailItem(slug string, content model.Content) gin.H {
 	category := content.Category
 	if content.Type == service.ContentTypeKnowledge && content.KnowledgeDirectoryID != nil {
@@ -1080,11 +1140,13 @@ func (h *WorkspaceHandler) contentPublicDetailItem(slug string, content model.Co
 	return item
 }
 
+// publicContentBody 替换管理端资产 URL，使公开正文不暴露内部管理路由。
 func publicContentBody(slug, body string) string {
 	publicPrefix := "/api/v1/portal/organizations/" + slug + "/assets/"
 	return markdownAdminAssetPattern.ReplaceAllString(body, publicPrefix+"$1/download")
 }
 
+// resourcePublicItem 生成资源内容的公开 DTO，并附加可访问的资产下载地址。
 func (h *WorkspaceHandler) resourcePublicItem(slug string, content model.Content) gin.H {
 	kind := content.Category
 	if kind != "document" && kind != "template" && kind != "package" && kind != "video" {
@@ -1099,6 +1161,7 @@ func (h *WorkspaceHandler) resourcePublicItem(slug string, content model.Content
 	return item
 }
 
+// contentAdminItem 生成管理端内容 DTO，并根据当前主体计算可编辑等能力标记。
 func (h *WorkspaceHandler) contentAdminItem(content model.Content, principal service.Principal) gin.H {
 	var author model.User
 	_ = h.db.First(&author, "id = ?", content.AuthorUserID).Error
@@ -1144,6 +1207,7 @@ func (h *WorkspaceHandler) contentAdminItem(content model.Content, principal ser
 	}
 }
 
+// maxInt 返回两个整数中的较大值，用于分页和统计结果的边界保护。
 func maxInt(a, b int) int {
 	if a > b {
 		return a
@@ -1151,6 +1215,7 @@ func maxInt(a, b int) int {
 	return b
 }
 
+// AdminUsers 分页列出组织成员，并附带角色、状态和用户资料。
 func (h *WorkspaceHandler) AdminUsers(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -1184,6 +1249,7 @@ func (h *WorkspaceHandler) AdminUsers(c *gin.Context) {
 	pageOf(c, items)
 }
 
+// MembershipHistory 返回成员状态和角色变更的审计历史。
 func (h *WorkspaceHandler) MembershipHistory(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -1207,6 +1273,7 @@ func (h *WorkspaceHandler) MembershipHistory(c *gin.Context) {
 	pageOf(c, items)
 }
 
+// LeaveMembership 允许当前用户主动离开组织，但不允许破坏最后的管理员保障。
 func (h *WorkspaceHandler) LeaveMembership(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -1240,6 +1307,7 @@ func (h *WorkspaceHandler) LeaveMembership(c *gin.Context) {
 	respond(c, http.StatusOK, gin.H{"state": "left", "left_at": time.Now().UTC()})
 }
 
+// AdminUpdateUser 更新成员角色、状态和显示资料，并执行自我降权等保护规则。
 func (h *WorkspaceHandler) AdminUpdateUser(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -1325,26 +1393,31 @@ func (h *WorkspaceHandler) AdminUpdateUser(c *gin.Context) {
 	respond(c, http.StatusOK, gin.H{"id": user.ID, "name": user.DisplayName, "email": user.Email, "role": body.Role, "state": body.State, "joined_at": membership.CreatedAt})
 }
 
+// validMemberWriteState 判断成员写操作使用的状态是否属于系统枚举。
 func validMemberWriteState(value string) bool {
 	return value == "active" || value == "disabled"
 }
 
+// validRole 判断成员角色是否为受支持的角色枚举。
 func validRole(value string) bool {
 	return value == "member" || value == "editor" || value == "administrator" || value == "owner"
 }
 
+// membershipRole 查询成员记录对应的有效角色，查询失败时返回空字符串。
 func membershipRole(db *gorm.DB, membershipID string) string {
 	var role string
 	db.Table("membership_roles AS mr").Select("COALESCE(MAX(r.`key`), 'member')").Joins("JOIN roles AS r ON r.id = mr.role_id").Where("mr.membership_id = ?", membershipID).Scan(&role)
 	return role
 }
 
+// membershipRoleByUser 按组织和用户查询角色，避免跨组织读取成员权限。
 func membershipRoleByUser(db *gorm.DB, organizationID, userID string) string {
 	var role string
 	db.Table("memberships AS m").Select("COALESCE(MAX(r.`key`), 'member')").Joins("JOIN membership_roles AS mr ON mr.membership_id = m.id").Joins("JOIN roles AS r ON r.id = mr.role_id").Where("m.organization_id = ? AND m.user_id = ? AND m.state = ?", organizationID, userID, "active").Scan(&role)
 	return role
 }
 
+// membershipChangeError 返回成员变更违反权限或组织安全规则时的错误原因。
 func membershipChangeError(actorRole string, actorIsSelf bool, currentRole, nextRole, nextState string) string {
 	if currentRole == "owner" && (nextRole != "owner" || nextState != "active") {
 		return "membership.owner_protected"
@@ -1358,6 +1431,7 @@ func membershipChangeError(actorRole string, actorIsSelf bool, currentRole, next
 	return ""
 }
 
+// membershipUpdateReason 生成写入成员审计事件的状态/角色变化描述。
 func membershipUpdateReason(currentState, currentRole, nextState, nextRole string) string {
 	switch {
 	case currentState == "active" && nextState == "disabled":
@@ -1371,6 +1445,7 @@ func membershipUpdateReason(currentState, currentRole, nextState, nextRole strin
 	}
 }
 
+// AdminProjects 分页列出管理端可见的组织项目。
 func (h *WorkspaceHandler) AdminProjects(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -1389,6 +1464,7 @@ func (h *WorkspaceHandler) AdminProjects(c *gin.Context) {
 	pageOf(c, items)
 }
 
+// AdminCreateProject 创建组织项目并初始化其公开/管理字段。
 func (h *WorkspaceHandler) AdminCreateProject(c *gin.Context) {
 	principal, _ := middleware.PrincipalFromContext(c)
 	var body projectRequest
@@ -1413,6 +1489,7 @@ func (h *WorkspaceHandler) AdminCreateProject(c *gin.Context) {
 	respond(c, http.StatusCreated, projectAdminItem(project, h.db))
 }
 
+// AdminUpdateProject 更新项目基础信息并记录变更审计。
 func (h *WorkspaceHandler) AdminUpdateProject(c *gin.Context) {
 	principal, _ := middleware.PrincipalFromContext(c)
 	var body projectRequest
@@ -1439,6 +1516,7 @@ func (h *WorkspaceHandler) AdminUpdateProject(c *gin.Context) {
 	respond(c, http.StatusOK, projectAdminItem(project, h.db))
 }
 
+// projectForPrincipal 解析当前组织中的项目并提取主体；失败时直接写入对应响应。
 func (h *WorkspaceHandler) projectForPrincipal(c *gin.Context) (model.Project, service.Principal, bool) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -1453,6 +1531,7 @@ func (h *WorkspaceHandler) projectForPrincipal(c *gin.Context) (model.Project, s
 	return project, principal, true
 }
 
+// AdminProjectMembers 列出项目成员及其项目内角色。
 func (h *WorkspaceHandler) AdminProjectMembers(c *gin.Context) {
 	project, _, ok := h.projectForPrincipal(c)
 	if !ok {
@@ -1482,15 +1561,18 @@ func (h *WorkspaceHandler) AdminProjectMembers(c *gin.Context) {
 	pageOf(c, items)
 }
 
+// projectMemberRequest 描述添加或修改项目成员时的组织成员 ID 和项目角色。
 type projectMemberRequest struct {
 	UserID string `json:"user_id"`
 	Role   string `json:"role"`
 }
 
+// validProjectMemberRole 判断项目角色是否属于 owner、manager 或 member。
 func validProjectMemberRole(value string) bool {
 	return value == "member" || value == "contributor" || value == "lead"
 }
 
+// AdminAddProjectMember 将组织成员加入项目并防止重复关联。
 func (h *WorkspaceHandler) AdminAddProjectMember(c *gin.Context) {
 	project, principal, ok := h.projectForPrincipal(c)
 	if !ok {
@@ -1543,6 +1625,7 @@ func (h *WorkspaceHandler) AdminAddProjectMember(c *gin.Context) {
 	respond(c, http.StatusCreated, projectMemberItem(h.db, member))
 }
 
+// AdminUpdateProjectMember 修改项目成员角色。
 func (h *WorkspaceHandler) AdminUpdateProjectMember(c *gin.Context) {
 	project, principal, ok := h.projectForPrincipal(c)
 	if !ok {
@@ -1577,6 +1660,7 @@ func (h *WorkspaceHandler) AdminUpdateProjectMember(c *gin.Context) {
 	respond(c, http.StatusOK, projectMemberItem(h.db, member))
 }
 
+// AdminRemoveProjectMember 从项目移除成员，并保留项目所有权约束。
 func (h *WorkspaceHandler) AdminRemoveProjectMember(c *gin.Context) {
 	project, principal, ok := h.projectForPrincipal(c)
 	if !ok {
@@ -1603,12 +1687,14 @@ func (h *WorkspaceHandler) AdminRemoveProjectMember(c *gin.Context) {
 	respond(c, http.StatusOK, gin.H{"removed": true, "user_id": member.UserID, "project_id": project.ID})
 }
 
+// projectMemberItem 将项目成员模型与用户资料合并为管理端 DTO。
 func projectMemberItem(db *gorm.DB, member model.ProjectMember) gin.H {
 	var user model.User
 	_ = db.First(&user, "id = ?", member.UserID).Error
 	return gin.H{"user_id": member.UserID, "name": user.DisplayName, "email": user.Email, "state": user.State, "role": member.Role, "assigned_at": member.CreatedAt}
 }
 
+// AdminProjectMilestones 列出项目里程碑，并按项目权限限制访问范围。
 func (h *WorkspaceHandler) AdminProjectMilestones(c *gin.Context) {
 	project, _, ok := h.projectForPrincipal(c)
 	if !ok {
@@ -1626,16 +1712,19 @@ func (h *WorkspaceHandler) AdminProjectMilestones(c *gin.Context) {
 	pageOf(c, items)
 }
 
+// projectMilestoneRequest 描述里程碑名称、状态、截止时间和完成说明。
 type projectMilestoneRequest struct {
 	Title  string `json:"title"`
 	Status string `json:"status"`
 	DueAt  string `json:"due_at"`
 }
 
+// validProjectMilestoneStatus 判断里程碑状态是否为受支持的生命周期值。
 func validProjectMilestoneStatus(value string) bool {
 	return value == "planned" || value == "active" || value == "completed"
 }
 
+// parseOptionalTime 解析可为空的 RFC3339 时间；空值表示不设置时间，非法值返回 false。
 func parseOptionalTime(value string) (*time.Time, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -1649,10 +1738,12 @@ func parseOptionalTime(value string) (*time.Time, bool) {
 	return &parsed, true
 }
 
+// validProjectMilestoneRequest 验证里程碑标题、状态和描述长度。
 func validProjectMilestoneRequest(body projectMilestoneRequest) bool {
 	return strings.TrimSpace(body.Title) != "" && len([]rune(body.Title)) <= 160 && validProjectMilestoneStatus(body.Status)
 }
 
+// AdminCreateProjectMilestone 为项目创建里程碑并写入审计记录。
 func (h *WorkspaceHandler) AdminCreateProjectMilestone(c *gin.Context) {
 	project, principal, ok := h.projectForPrincipal(c)
 	if !ok {
@@ -1686,6 +1777,7 @@ func (h *WorkspaceHandler) AdminCreateProjectMilestone(c *gin.Context) {
 	respond(c, http.StatusCreated, projectMilestoneItem(milestone))
 }
 
+// AdminUpdateProjectMilestone 更新项目里程碑并记录状态变化。
 func (h *WorkspaceHandler) AdminUpdateProjectMilestone(c *gin.Context) {
 	project, principal, ok := h.projectForPrincipal(c)
 	if !ok {
@@ -1727,6 +1819,7 @@ func (h *WorkspaceHandler) AdminUpdateProjectMilestone(c *gin.Context) {
 	respond(c, http.StatusOK, projectMilestoneItem(milestone))
 }
 
+// AdminDeleteProjectMilestone 删除指定项目里程碑。
 func (h *WorkspaceHandler) AdminDeleteProjectMilestone(c *gin.Context) {
 	project, principal, ok := h.projectForPrincipal(c)
 	if !ok {
@@ -1749,10 +1842,12 @@ func (h *WorkspaceHandler) AdminDeleteProjectMilestone(c *gin.Context) {
 	respond(c, http.StatusOK, gin.H{"removed": true, "id": milestone.ID, "project_id": project.ID})
 }
 
+// projectMilestoneItem 将里程碑模型转换为稳定的管理端/门户响应。
 func projectMilestoneItem(milestone model.ProjectMilestone) gin.H {
 	return gin.H{"id": milestone.ID, "project_id": milestone.ProjectID, "title": milestone.Title, "status": milestone.Status, "due_at": milestone.DueAt, "completed_at": milestone.CompletedAt, "updated_at": milestone.UpdatedAt}
 }
 
+// projectRequest 描述创建或更新项目时的基础资料和标签。
 type projectRequest struct {
 	Title    string   `json:"title"`
 	Summary  string   `json:"summary"`
@@ -1761,6 +1856,7 @@ type projectRequest struct {
 	IsPublic bool     `json:"is_public"`
 }
 
+// validProjectRequest 校验项目名称、摘要、slug 和标签数量/长度。
 func validProjectRequest(body projectRequest) bool {
 	if strings.TrimSpace(body.Title) == "" || len([]rune(body.Title)) > 160 || len([]rune(body.Summary)) > 500 {
 		return false
@@ -1771,10 +1867,12 @@ func validProjectRequest(body projectRequest) bool {
 	return len(body.Tags) <= 12
 }
 
+// projectPublicItem 生成公开项目 DTO，隐藏管理字段。
 func projectPublicItem(project model.Project) gin.H {
 	return gin.H{"id": project.ID, "title": project.Title, "summary": project.Summary, "status": project.Status, "tags": splitTags(project.Tags), "updated_at": project.UpdatedAt}
 }
 
+// projectAdminItem 生成管理端项目 DTO，并补充成员和里程碑统计。
 func projectAdminItem(project model.Project, db *gorm.DB) gin.H {
 	var owner model.User
 	_ = db.First(&owner, "id = ?", project.OwnerUserID).Error
@@ -1784,6 +1882,7 @@ func projectAdminItem(project model.Project, db *gorm.DB) gin.H {
 	return gin.H{"id": project.ID, "title": project.Title, "summary": project.Summary, "status": project.Status, "tags": splitTags(project.Tags), "is_public": project.IsPublic, "owner": owner.DisplayName, "member_count": memberCount, "milestone_count": milestoneCount, "updated_at": project.UpdatedAt}
 }
 
+// splitTags 将逗号分隔标签清洗为有序切片，并丢弃空标签。
 func splitTags(value string) []string {
 	parts := strings.Split(value, ",")
 	tags := make([]string, 0, len(parts))
@@ -1795,6 +1894,7 @@ func splitTags(value string) []string {
 	return tags
 }
 
+// applicationRequest 描述加入组织或申请参与项目时提交的个人与动机信息。
 type applicationRequest struct {
 	Type      string `json:"type"`
 	ClassName string `json:"class_name"`
@@ -1805,6 +1905,7 @@ type applicationRequest struct {
 	Note      string `json:"note"`
 }
 
+// applicationDecisionRequest 指定管理员对申请采取的决定及可选备注。
 type applicationDecisionRequest struct {
 	Reason         string `json:"reason"`
 	SkinInviteCode string `json:"skin_invite_code"`
@@ -1812,6 +1913,7 @@ type applicationDecisionRequest struct {
 
 var qqNumberPattern = regexp.MustCompile(`^[0-9]{5,15}$`)
 
+// validApplicationRequest 按申请类型验证必填字段，并限制文本长度和审核模式枚举。
 func validApplicationRequest(body applicationRequest) bool {
 	if body.Type == "" {
 		body.Type = "whitelist"
@@ -1835,6 +1937,7 @@ func validApplicationRequest(body applicationRequest) bool {
 		qqNumberPattern.MatchString(strings.TrimSpace(body.QQNumber))
 }
 
+// SubmitApplication 创建公开申请，校验重复申请和组织/项目归属。
 func (h *WorkspaceHandler) SubmitApplication(c *gin.Context) {
 	var body applicationRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -1910,6 +2013,7 @@ func (h *WorkspaceHandler) SubmitApplication(c *gin.Context) {
 	respond(c, http.StatusCreated, gin.H{"id": application.ID, "status": application.Status, "submitted_at": application.CreatedAt})
 }
 
+// AdminApplications 分页列出组织申请，并支持按状态和类型过滤。
 func (h *WorkspaceHandler) AdminApplications(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -1970,6 +2074,7 @@ func (h *WorkspaceHandler) AdminApplications(c *gin.Context) {
 	respondWithMeta(c, http.StatusOK, items, gin.H{"page": page, "page_size": pageSize, "total": total})
 }
 
+// AdminApplicationDecision 接受或拒绝申请，更新成员/项目关系并写入审计事件。
 func (h *WorkspaceHandler) AdminApplicationDecision(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -2009,6 +2114,7 @@ func (h *WorkspaceHandler) AdminApplicationDecision(c *gin.Context) {
 	respond(c, http.StatusOK, h.applicationAdminItem(application))
 }
 
+// applicationAdminItem 将申请模型转换为管理端展示对象，隐藏不必要的内部字段。
 func (h *WorkspaceHandler) applicationAdminItem(application model.Application) gin.H {
 	return gin.H{"id": application.ID, "applicant": application.ApplicantName, "type": application.Type, "submitted_at": application.CreatedAt, "note": application.Note, "status": application.Status, "class_name": application.ClassName, "game_id": application.GameID, "qq_number": application.QQNumber, "email": application.Email, "decided_at": application.DecidedAt, "decided_by": application.DecidedBy, "decision_reason": application.DecisionReason, "skin_invite_code": application.SkinInviteCode}
 }

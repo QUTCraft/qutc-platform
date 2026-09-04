@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// TestTokenPairResponseSetsTimedBrowserSessionCookies 验证令牌响应会写入带有效期的浏览器会话 Cookie。
 func TestTokenPairResponseSetsTimedBrowserSessionCookies(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
@@ -44,6 +45,7 @@ func TestTokenPairResponseSetsTimedBrowserSessionCookies(t *testing.T) {
 	}
 }
 
+// TestSessionCookiesHonorForwardedHTTPS 验证反向代理通过 X-Forwarded-Proto 表示 HTTPS 时 Cookie 仍为 Secure。
 func TestSessionCookiesHonorForwardedHTTPS(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
@@ -59,6 +61,7 @@ func TestSessionCookiesHonorForwardedHTTPS(t *testing.T) {
 	}
 }
 
+// cookieMap 将响应 Cookie 按名称索引，便于测试逐项检查属性。
 func cookieMap(cookies []*http.Cookie) map[string]*http.Cookie {
 	result := make(map[string]*http.Cookie, len(cookies))
 	for _, cookie := range cookies {

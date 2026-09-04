@@ -1,3 +1,5 @@
+// auth.go 实现注册、登录、刷新、退出、当前用户信息和组织切换等认证接口。
+// 处理器同时维护 HTTP-only 会话 Cookie 与 JSON token 响应，确保浏览器和 API 客户端都能使用认证服务。
 package handler
 
 import (
@@ -13,6 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// AuthHandler 聚合认证服务、数据库和会话 Cookie 策略。
 type AuthHandler struct {
 	db           *gorm.DB
 	auth         *service.AuthService
@@ -20,10 +23,12 @@ type AuthHandler struct {
 	secureCookie bool
 }
 
+// NewAuthHandler 创建认证处理器；refreshTTL 用于补全服务未返回会话过期时间的情况。
 func NewAuthHandler(db *gorm.DB, auth *service.AuthService, refreshTTL time.Duration, secureCookie bool) *AuthHandler {
 	return &AuthHandler{db: db, auth: auth, refreshTTL: refreshTTL, secureCookie: secureCookie}
 }
 
+// registerRequest 定义注册接口的输入，并通过 Gin binding 约束邮箱、名称和密码长度。
 type registerRequest struct {
 	Email           string `json:"email" binding:"required,email"`
 	DisplayName     string `json:"display_name" binding:"required,max=80"`
@@ -31,20 +36,25 @@ type registerRequest struct {
 	InvitationToken string `json:"invitation_token"`
 }
 
+// loginRequest 定义登录接口所需的邮箱和密码。
 type loginRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required,max=128"`
 }
 
+// switchOrganizationRequest 指定要切换到的组织 ID。
 type switchOrganizationRequest struct {
 	OrganizationID string `json:"organization_id" binding:"required,max=64"`
 }
 
 const (
-	refreshCookieName       = "qutc_refresh"
+	// refreshCookieName 保存长期刷新令牌，仅在认证 API 路径下发送。
+	refreshCookieName = "qutc_refresh"
+	// sessionExpiryCookieName 保存会话过期时间戳，供前端展示会话状态；它不包含令牌秘密。
 	sessionExpiryCookieName = "qutc_session_expires"
 )
 
+// cookieSecure 根据部署开关、直接 TLS 或反向代理转发协议决定 Cookie 的 Secure 属性。
 func (h *AuthHandler) cookieSecure(c *gin.Context) bool {
 	if !h.secureCookie {
 		return false
@@ -56,6 +66,8 @@ func (h *AuthHandler) cookieSecure(c *gin.Context) bool {
 	return strings.EqualFold(forwardedProto, "https")
 }
 
+// setSessionCookies 写入访问、刷新和会话到期三个 Cookie，并返回最终采用的过期时间。
+// 对过短或缺失的 TTL 使用至少 1 秒，避免浏览器立即丢弃新 Cookie。
 func (h *AuthHandler) setSessionCookies(c *gin.Context, pair service.TokenPair) time.Time {
 	now := time.Now().UTC()
 	sessionExpiresAt := pair.SessionExpiresAt.UTC()
@@ -77,6 +89,7 @@ func (h *AuthHandler) setSessionCookies(c *gin.Context, pair service.TokenPair) 
 	return sessionExpiresAt
 }
 
+// clearSessionCookies 以过去时间和 MaxAge=-1 覆盖三个会话 Cookie，使浏览器立即删除它们。
 func (h *AuthHandler) clearSessionCookies(c *gin.Context) {
 	secure := h.cookieSecure(c)
 	expired := time.Unix(1, 0).UTC()
@@ -85,11 +98,13 @@ func (h *AuthHandler) clearSessionCookies(c *gin.Context) {
 	http.SetCookie(c.Writer, &http.Cookie{Name: sessionExpiryCookieName, Value: "", Path: "/", MaxAge: -1, Expires: expired, Secure: secure, SameSite: http.SameSiteStrictMode})
 }
 
+// tokenPairResponse 统一设置会话 Cookie，并返回访问令牌及用户信息 JSON。
 func (h *AuthHandler) tokenPairResponse(c *gin.Context, pair service.TokenPair) gin.H {
 	sessionExpiresAt := h.setSessionCookies(c, pair)
 	return gin.H{"access_token": pair.AccessToken, "token_type": pair.TokenType, "expires_in": pair.ExpiresIn, "session_expires_at": sessionExpiresAt.Format(time.RFC3339), "user": pair.User}
 }
 
+// Register 创建用户账户；若携带邀请令牌，则由认证服务完成邀请关联。
 func (h *AuthHandler) Register(c *gin.Context) {
 	var request registerRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -127,6 +142,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	respond(c, http.StatusCreated, h.tokenPairResponse(c, pair))
 }
 
+// Login 校验凭据并建立新的访问/刷新会话。
 func (h *AuthHandler) Login(c *gin.Context) {
 	var request loginRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -145,6 +161,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	respond(c, http.StatusOK, h.tokenPairResponse(c, pair))
 }
 
+// Refresh 使用刷新令牌轮换访问令牌，并同步更新会话 Cookie。
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	refreshToken, cookieErr := c.Cookie(refreshCookieName)
 	if cookieErr != nil || strings.TrimSpace(refreshToken) == "" {
@@ -164,6 +181,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	respond(c, http.StatusOK, h.tokenPairResponse(c, pair))
 }
 
+// Logout 撤销当前刷新会话并清理浏览器中的所有认证 Cookie。
 func (h *AuthHandler) Logout(c *gin.Context) {
 	refreshToken, _ := c.Cookie(refreshCookieName)
 	if err := h.auth.Logout(refreshToken); err != nil {
@@ -174,6 +192,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	respond(c, http.StatusOK, gin.H{"revoked": strings.TrimSpace(refreshToken) != ""})
 }
 
+// Me 返回当前访问令牌对应的用户和组织上下文。
 func (h *AuthHandler) Me(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -188,6 +207,7 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	respond(c, http.StatusOK, profile)
 }
 
+// Organizations 列出当前用户有权加入的组织。
 func (h *AuthHandler) Organizations(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -202,6 +222,7 @@ func (h *AuthHandler) Organizations(c *gin.Context) {
 	respond(c, http.StatusOK, organizations)
 }
 
+// SwitchOrganization 验证成员关系后签发目标组织上下文下的新令牌对。
 func (h *AuthHandler) SwitchOrganization(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -235,6 +256,7 @@ func (h *AuthHandler) SwitchOrganization(c *gin.Context) {
 	respond(c, http.StatusOK, h.tokenPairResponse(c, pair))
 }
 
+// UpdateMe 更新当前用户的展示名称等个人资料，并返回更新后的用户信息。
 func (h *AuthHandler) UpdateMe(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {

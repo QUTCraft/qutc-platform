@@ -1,3 +1,4 @@
+// audit.go 提供按组织隔离的审计事件查询接口，并负责将查询参数转换为安全的数据库过滤条件。
 package handler
 
 import (
@@ -10,10 +11,12 @@ import (
 	"gorm.io/gorm"
 )
 
+// AuditHandler 持有数据库连接，用于读取不可变的审计事件记录。
 type AuditHandler struct {
 	db *gorm.DB
 }
 
+// auditEventRow 是审计列表的公开投影；OrganizationID 仅用于内部查询，不返回给客户端。
 type auditEventRow struct {
 	ID             string    `json:"id"`
 	ActorUserID    string    `json:"actor_user_id"`
@@ -27,10 +30,12 @@ type auditEventRow struct {
 	OrganizationID string    `json:"-"`
 }
 
+// NewAuditHandler 创建审计处理器。
 func NewAuditHandler(db *gorm.DB) *AuditHandler {
 	return &AuditHandler{db: db}
 }
 
+// List 按分页、动作、目标、结果、操作者、请求 ID 和日期范围查询当前组织的审计事件。
 func (h *AuditHandler) List(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -124,6 +129,7 @@ func (h *AuditHandler) List(c *gin.Context) {
 	respondWithMeta(c, http.StatusOK, events, gin.H{"page": page, "page_size": pageSize, "total": total})
 }
 
+// auditDate 解析 YYYY-MM-DD 查询参数，并返回“有值”和“解析成功”两个状态。
 func auditDate(c *gin.Context, key string) (time.Time, bool, bool) {
 	raw := strings.TrimSpace(c.Query(key))
 	if raw == "" {
