@@ -172,6 +172,7 @@ func main() {
 	admin.PATCH("/knowledge/directories/:id", middleware.RequirePermission(authService, "knowledge:manage"), workspaceHandler.AdminUpdateKnowledgeDirectory)
 	admin.POST("/content", middleware.RequirePermission(authService, "content:create"), workspaceHandler.AdminCreateContent)
 	admin.PATCH("/content/:id", middleware.RequirePermission(authService, "content:update"), workspaceHandler.AdminUpdateContent)
+	admin.DELETE("/content/:id", middleware.RequirePermission(authService, "content:update"), workspaceHandler.AdminDeleteContent)
 	admin.POST("/content/:id/submit", middleware.RequirePermission(authService, "content:submit"), workspaceHandler.SubmitContentReview)
 	admin.POST("/content/:id/request-archive", middleware.RequirePermission(authService, "content:submit"), workspaceHandler.RequestContentArchive)
 	admin.POST("/content/:id/reject-review", middleware.RequirePermission(authService, "content:publish"), workspaceHandler.RejectContentReview)

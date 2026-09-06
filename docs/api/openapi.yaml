@@ -641,6 +641,27 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Admin]
+      operationId: deleteAdminContent
+      summary: 永久删除非已发布内容
+      description: 仅作者或具有内容审核权限的管理员可删除；已发布内容必须先下线。删除会同时移除修订历史与审核记录，正文引用的媒体文件保留在资源库中并解除关联。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      parameters:
+        - name: content_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: 内容已永久删除
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentDeleteResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/admin/content/{content_id}/publish:
     post:
       tags: [Admin]
@@ -2482,7 +2503,7 @@ components:
         reviewed_at: { type: [string, 'null'], format: date-time }
     AdminContent:
       type: object
-      required: [id, title, type, status, author_user_id, author, is_author, updated_at, pending_review, can_edit, can_submit, can_publish, can_archive, can_request_archive, can_review]
+      required: [id, title, type, status, author_user_id, author, is_author, updated_at, pending_review, can_edit, can_submit, can_publish, can_archive, can_request_archive, can_review, can_delete]
       properties:
         id: { type: string }
         title: { type: string, maxLength: 160 }
@@ -2512,6 +2533,7 @@ components:
         can_archive: { type: boolean, description: '当前会话是否可直接下线已发布内容。' }
         can_request_archive: { type: boolean, description: '当前会话是否为原作者且可申请下线。' }
         can_review: { type: boolean, description: '当前会话是否可处理 pending_review。' }
+        can_delete: { type: boolean, description: '当前会话是否可永久删除该内容；已发布内容永远不可删除，需先下线。' }
     CreateAdminContentRequest:
       type: object
       required: [title, type]
@@ -3633,6 +3655,18 @@ components:
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/AssetDeleteResult' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    ContentDeleteResult:
+      type: object
+      required: [removed, id]
+      properties:
+        removed: { type: boolean, const: true }
+        id: { type: string }
+    ContentDeleteResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/ContentDeleteResult' }
         meta: { $ref: '#/components/schemas/Meta' }
     AuthUserResponse:
       type: object

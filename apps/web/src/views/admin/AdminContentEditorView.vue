@@ -19,6 +19,7 @@ const loading = ref(true)
 const loadError = ref<Error | null>(null)
 const saving = ref(false)
 const publishing = ref(false)
+const deleting = ref(false)
 const assetUploading = ref(false)
 const status = ref<AdminContent['status']>('draft')
 const currentContent = ref<AdminContent | null>(null)
@@ -50,6 +51,7 @@ const canPublish = computed(() => currentContent.value?.can_publish === true)
 const canArchive = computed(() => currentContent.value?.can_archive === true)
 const canRequestArchive = computed(() => currentContent.value?.can_request_archive === true)
 const canReview = computed(() => currentContent.value?.can_review === true)
+const canDelete = computed(() => !isNew.value && currentContent.value?.can_delete === true)
 const pendingReview = computed(() => currentContent.value?.pending_review ?? null)
 const readOnly = computed(() => !canEdit.value)
 const statusLabel = computed(() => ({ draft: '草稿', review: '待审核', published: '已发布', archived: '已下线' })[status.value])
@@ -270,6 +272,27 @@ async function requestArchive() {
 	}
 }
 
+async function deleteContent() {
+	if (!contentId.value || !canDelete.value) return
+	try {
+		await ElMessageBox.confirm('确定永久删除该内容？修订历史与审核记录将一并清除，此操作无法恢复。', '永久删除内容', {
+			confirmButtonText: '永久删除', cancelButtonText: '取消', type: 'warning',
+		})
+	} catch {
+		return
+	}
+	deleting.value = true
+	try {
+		await adminApi.deleteContent(contentId.value)
+		ElMessage.success('内容已永久删除。')
+		await router.push('/admin/content')
+	} catch (error) {
+		ElMessage.error(error instanceof Error ? error.message : '内容删除失败。')
+	} finally {
+		deleting.value = false
+	}
+}
+
 async function rejectReview() {
 	if (!contentId.value || !canReview.value) return
 	const reviewType = pendingReview.value?.type
@@ -452,6 +475,7 @@ onBeforeUnmount(() => {
 		<el-button v-if="canReview" type="warning" plain :loading="publishing" @click="rejectReview">退回</el-button>
 		<el-button v-if="canRequestArchive" type="warning" :loading="publishing" @click="requestArchive">申请下线</el-button>
 		<el-button v-if="canArchive" type="danger" :loading="publishing" @click="archive">{{ pendingReview?.type === 'archive' ? '批准下线' : '下线' }}</el-button>
+		<el-button v-if="canDelete" type="danger" plain :loading="deleting" @click="deleteContent">删除</el-button>
       </div>
     </header>
 

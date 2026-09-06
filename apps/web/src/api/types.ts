@@ -146,6 +146,7 @@ export interface AdminContent {
 	can_archive?: boolean
 	can_request_archive?: boolean
 	can_review?: boolean
+	can_delete?: boolean
 }
 
 export interface ContentReviewRequest {

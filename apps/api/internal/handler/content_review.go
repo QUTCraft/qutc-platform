@@ -33,6 +33,7 @@ var (
 	errContentReviewNotFound     = errors.New("pending content review not found")
 	errContentReviewStateInvalid = errors.New("content state cannot enter this review workflow")
 	errContentReviewPermission   = errors.New("content review permission denied")
+	errContentPublishedBlocked   = errors.New("published content cannot be deleted")
 )
 
 // contentReviewRequestBody 是提交审核或归档申请时的可选备注。

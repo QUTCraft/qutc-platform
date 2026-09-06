@@ -49,12 +49,13 @@ type apiEnvelope[T any] struct {
 }
 
 type contentDTO struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Type     string `json:"type"`
-	Status   string `json:"status"`
-	Body     string `json:"body"`
-	Category string `json:"category"`
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Type      string `json:"type"`
+	Status    string `json:"status"`
+	Body      string `json:"body"`
+	Category  string `json:"category"`
+	CanDelete bool   `json:"can_delete"`
 }
 
 type publicPostDTO struct {

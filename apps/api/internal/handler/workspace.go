@@ -22,6 +22,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // WorkspaceHandler owns the first content read/write model shared by the
@@ -791,6 +792,63 @@ func (h *WorkspaceHandler) AdminUpdateContent(c *gin.Context) {
 	respond(c, http.StatusOK, h.contentAdminItem(content, principal))
 }
 
+// AdminDeleteContent permanently removes a non-published content record along
+// with its revisions and review requests. Uploaded media stays in the
+// organization library but is detached from the removed content.
+func (h *WorkspaceHandler) AdminDeleteContent(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		var content model.Content
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&content).Error; err != nil {
+			return err
+		}
+		if err := requireContentEdit(tx, principal, content); err != nil {
+			return err
+		}
+		if content.Status == service.ContentStatusPublished {
+			return errContentPublishedBlocked
+		}
+		if err := deleteContentReviewRecords(tx, principal.OrganizationID, content.ID); err != nil {
+			return err
+		}
+		if err := tx.Where("content_id = ? AND organization_id = ?", content.ID, principal.OrganizationID).Delete(&model.ContentRevision{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.MediaAsset{}).
+			Where("content_id = ? AND organization_id = ?", content.ID, principal.OrganizationID).
+			Update("content_id", "").Error; err != nil {
+			return err
+		}
+		result := tx.Where("id = ? AND organization_id = ?", content.ID, principal.OrganizationID).Delete(&model.Content{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "content.delete", "content", content.ID)
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			fail(c, http.StatusNotFound, "content.not_found", "内容不存在或不属于当前组织。")
+		case errors.Is(err, errContentEditForbidden):
+			fail(c, http.StatusForbidden, "content.author_required", "普通编辑只能删除自己创建的内容。")
+		case errors.Is(err, errContentPublishedBlocked):
+			fail(c, http.StatusConflict, "content.published_delete_blocked", "已发布内容不能删除，请先下线后再删除。")
+		default:
+			fail(c, http.StatusInternalServerError, "content.delete_failed", "内容删除失败。")
+		}
+		return
+	}
+	h.invalidatePortalCache(principal.OrganizationID)
+	respond(c, http.StatusOK, gin.H{"removed": true, "id": c.Param("id")})
+}
+
 // PublishContent 将内容提交为发布状态，具体迁移规则由 changeContentStatus 统一处理。
 func (h *WorkspaceHandler) PublishContent(c *gin.Context) { h.changeContentStatus(c, "published") }
 
@@ -1182,6 +1240,7 @@ func (h *WorkspaceHandler) contentAdminItem(content model.Content, principal ser
 	canPublishPermission, _ := principalHasPermission(h.db, principal, "content:publish")
 	canArchivePermission, _ := principalHasPermission(h.db, principal, "content:archive")
 	editableState := content.Status == service.ContentStatusDraft || content.Status == service.ContentStatusArchived
+	canDelete := content.Status != service.ContentStatusPublished && (isAuthor || canModerate)
 	var pendingReview any
 	var review model.ContentReviewRequest
 	if h.db.Where("organization_id = ? AND content_id = ? AND status = ?", content.OrganizationID, content.ID, contentReviewPending).Order("created_at DESC").First(&review).Error == nil {
@@ -1204,6 +1263,7 @@ func (h *WorkspaceHandler) contentAdminItem(content model.Content, principal ser
 		"can_archive":         canArchivePermission && content.Status == service.ContentStatusPublished,
 		"can_request_archive": isAuthor && content.Status == service.ContentStatusPublished && pendingReview == nil,
 		"can_review":          canReview,
+		"can_delete":          canDelete,
 	}
 }
 
