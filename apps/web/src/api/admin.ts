@@ -1,13 +1,16 @@
 import { del, get, getPage, patch, post, put, upload } from '@/api/client'
 import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminInvitationSummary, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIConfigurationUpdate, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, BatchInvitationResponse, ContentRevision, EmailAdapterStatus, IntegrationSettings, IntegrationSettingsUpdate, IntegrationTestResult, Invitation, InvitationRole, InvitationStatus, InvitationTemplate, MediaAsset, NotificationOutbox, Organization, PortalConfiguration, PortalManifest, PublishAssetResourceInput } from '@/api/types'
 
+// adminBase 集中声明受 RBAC 保护的管理端 API 前缀，避免各领域接口硬编码不一致。
 const adminBase = '/api/v1/admin'
 
+// PageQuery 是列表接口共享的分页参数；页码从 1 开始，page_size 由后端限制最大值。
 export interface PageQuery {
   page?: number
   page_size?: number
 }
 
+// withQuery 忽略 undefined 和空字符串筛选项，避免 URL 中出现无语义的 “key=” 参数。
 function withQuery(path: string, params: object = {}) {
   const query = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
@@ -17,6 +20,7 @@ function withQuery(path: string, params: object = {}) {
   return `${path}${suffix ? `?${suffix}` : ''}`
 }
 
+// adminApi 按业务领域聚合管理端请求。方法只描述 HTTP 契约，权限判断始终由后端执行。
 export const adminApi = {
   getDashboard: () => get<AdminDashboard>(`${adminBase}/dashboard`),
 	getOrganization: () => get<Organization>(`${adminBase}/organization`),
@@ -34,6 +38,7 @@ export const adminApi = {
 	rejectContentReview: (id: string, feedback: string) => post<AdminContent>(`${adminBase}/content/${id}/reject-review`, { feedback }),
   publishContent: (id: string) => post<AdminContent>(`${adminBase}/content/${id}/publish`),
   archiveContent: (id: string) => post<AdminContent>(`${adminBase}/content/${id}/archive`),
+  // contentId 可选：提供时将上传文件关联到内容草稿，省去后续再绑定的操作。
   uploadAsset: (file: File, contentId?: string) => {
     const formData = new FormData()
     formData.append('file', file)
@@ -99,6 +104,7 @@ export const adminApi = {
   createProjectMilestone: (id: string, payload: { title: string; status: AdminProjectMilestone['status']; due_at?: string }) => post<AdminProjectMilestone>(`${adminBase}/projects/${id}/milestones`, payload),
   updateProjectMilestone: (projectId: string, milestoneId: string, payload: { title: string; status: AdminProjectMilestone['status']; due_at?: string }) => patch<AdminProjectMilestone>(`${adminBase}/projects/${projectId}/milestones/${milestoneId}`, payload),
   removeProjectMilestone: (projectId: string, milestoneId: string) => del<{ removed: boolean }>(`${adminBase}/projects/${projectId}/milestones/${milestoneId}`),
+  // 申请列表单独构造查询参数，以保留 filters 中多维度的审核筛选条件。
   getApplications: (filters: AdminApplicationFilters = {}) => {
     const query = new URLSearchParams()
     Object.entries(filters).forEach(([key, value]) => {
@@ -107,6 +113,7 @@ export const adminApi = {
     const suffix = query.toString()
     return getPage<AdminApplication>(`${adminBase}/applications${suffix ? `?${suffix}` : ''}`)
   },
+  // skinInviteCode 是可选皮肤邀请码；审核通过时一并交由后端安全处理，不在客户端持久化。
   approveApplication: (id: string, reason = '', skinInviteCode = '') => post<AdminApplication>(`${adminBase}/applications/${id}/approve`, { reason, skin_invite_code: skinInviteCode }),
   rejectApplication: (id: string, reason: string) => post<AdminApplication>(`${adminBase}/applications/${id}/reject`, { reason }),
   getPortalConfiguration: () => get<PortalConfiguration>(`${adminBase}/portal/config`),

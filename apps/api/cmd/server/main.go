@@ -26,7 +26,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// main 组装应用全部依赖、注册 HTTP 路由并启动服务进程。
+// 当第一个命令行参数为 healthcheck 时，它改为执行轻量就绪探测后退出。
 func main() {
+	// Docker 的健康检查会以独立进程调用此入口；此时不初始化数据库、后台任务等完整服务，
+	// 只探测已运行实例的就绪状态，以避免健康检查本身占用业务资源。
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		if err := checkReadiness("http://127.0.0.1:8080/readyz"); err != nil {
 			log.Printf("readiness check failed: %v", err)
@@ -34,6 +38,8 @@ func main() {
 		}
 		return
 	}
+	// 应用启动顺序刻意固定：先读取并校验配置，再初始化有外部依赖的基础设施，
+	// 最后才注册路由并开始监听。这样错误会在启动阶段暴露，而不是运行时首次请求才失败。
 	cfg := config.Load()
 	logging.Init(cfg.AppEnv)
 	appLogger := slog.Default()
@@ -47,6 +53,7 @@ func main() {
 	if err := database.MigrateAndSeed(db, cfg); err != nil {
 		log.Fatalf("database migration or seed failed: %v", err)
 	}
+	// Redis 仅用于可降级的公开内容缓存；缓存不可用不应改变数据库中的业务事实。
 	publicCache := cache.New(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.PublicCacheTTL)
 	storageContext, cancelStorageInitialization := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelStorageInitialization()
@@ -87,6 +94,7 @@ func main() {
 		log.Fatalf("model provider initialization failed: %v", err)
 	}
 
+	// 图床是可选集成：只有显式启用且令牌存在时才创建上传器，避免配置不完整时误走第三方服务。
 	var superbedUploader *superbed.Uploader
 	if cfg.SuperbedEnabled && strings.TrimSpace(cfg.SuperbedToken) != "" {
 		superbedUploader = superbed.New(cfg.SuperbedToken, cfg.SuperbedUploadURL, cfg.SuperbedTimeout)
@@ -95,6 +103,8 @@ func main() {
 	if cfg.AppEnv == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
+	// 使用 gin.New 而非 Default，确保中间件顺序完全可控：请求 ID 先生成，
+	// 日志才能关联后续处理过程；恢复、跨域策略则统一作用于全部路由。
 	router := gin.New()
 	if err := router.SetTrustedProxies(nil); err != nil {
 		log.Fatalf("configure trusted proxies: %v", err)
@@ -108,6 +118,8 @@ func main() {
 	}, emailSender, mediaStorage, cfg.JWTAccessSecret)
 	integrationHandler := handler.NewIntegrationHandler(integrationService)
 	notificationService := service.NewNotificationServiceWithResolver(db, integrationService)
+	// 通知与 AI 任务均由进程内 worker 异步执行；HTTP 请求只负责创建任务，
+	// 避免邮件发送或模型调用阻塞用户请求。
 	notificationService.StartWorker(context.Background(), 2*time.Second)
 	notificationHandler := handler.NewNotificationHandler(db, notificationService)
 	invitationHandler := handler.NewInvitationHandlerWithIntegrations(db, authService, integrationService)
@@ -138,6 +150,7 @@ func main() {
 	router.GET("/healthz", healthHandler.Liveness)
 	router.GET("/readyz", healthHandler.Readiness)
 
+	// 所有业务接口挂在版本化前缀下，便于未来在不破坏旧客户端的前提下演进 API。
 	v1 := router.Group("/api/v1")
 	auth := v1.Group("/auth")
 	auth.POST("/register", authRateLimiter.Middleware(), authHandler.Register)
@@ -157,6 +170,7 @@ func main() {
 	membership.GET("/history", workspaceHandler.MembershipHistory)
 	membership.POST("/leave", workspaceHandler.LeaveMembership)
 
+	// 管理端先统一验证身份；每条路由再声明最小权限，从路由表即可审阅 RBAC 边界。
 	admin := v1.Group("/admin", middleware.RequireAuth(authService))
 	admin.GET("/session", middleware.RequirePermission(authService, "organization:read"), authHandler.Me)
 	admin.GET("/dashboard", middleware.RequirePermission(authService, "organization:read"), workspaceHandler.AdminDashboard)
@@ -233,6 +247,7 @@ func main() {
 	admin.PUT("/ai/activity-plans/:plan_id/evaluation", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "ai:use"), aiHandler.SaveActivityPlanEvaluation)
 	admin.POST("/ai/activity-plans/:plan_id/approve", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "ai:use"), middleware.RequirePermission(authService, "project:manage"), middleware.RequirePermission(authService, "content:create"), aiHandler.ApproveActivityPlan)
 
+	// 门户接口保持匿名可读。写入申请仍必须经过独立限流，防止公开端点被滥用。
 	portal := v1.Group("/portal/organizations/:slug")
 	portal.GET("", workspaceHandler.Organization)
 	portal.GET("/configuration", portalConfigHandler.Public)
@@ -251,7 +266,9 @@ func main() {
 	}
 }
 
+// checkReadiness 请求 target 指向的就绪接口；仅 HTTP 200 代表实例可接收业务流量。
 func checkReadiness(target string) error {
+	// 读取并丢弃响应体以便 HTTP 客户端复用连接；状态码而非响应内容才是就绪契约。
 	client := &http.Client{Timeout: 2 * time.Second}
 	response, err := client.Get(target)
 	if err != nil {
@@ -265,7 +282,9 @@ func checkReadiness(target string) error {
 	return nil
 }
 
+// corsConfig 从已校验的应用配置构造全局跨域策略，供浏览器携带会话 Cookie 调用 API。
 func corsConfig(cfg config.Config) cors.Config {
+	// 开启 Cookie 凭据时不能使用通配来源，Config.Validate 已在启动前保证这一安全约束。
 	return cors.Config{
 		AllowOrigins:     cfg.CORSAllowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},

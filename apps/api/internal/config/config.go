@@ -132,6 +132,8 @@ type Config struct {
 // 回退到默认值；枚举类字符串在此处统一转成小写，从而让后续 Validate 的比较保持简单且一致。
 // Load 只负责读取和规范化，不保证组合后的配置一定可用，调用方仍应在启动服务前调用 Validate。
 func Load() Config {
+	// 这里集中处理默认值与轻量规范化（如去空格、统一小写）。
+	// 依赖关系及生产环境安全限制由 Validate 统一检查，避免散落在各初始化点。
 	return Config{
 		// 基础服务与数据依赖。
 		AppEnv:   value("APP_ENV", "development"),
@@ -334,6 +336,7 @@ func (c Config) Validate() error {
 // boolean 读取布尔环境变量，并兼容部署配置中常见的多种真假写法。
 // 空值或无法识别的值不会猜测其含义，而是返回 fallback。
 func boolean(key string, fallback bool) bool {
+	// 不可识别的布尔输入回退到默认值，而非猜测用户意图；这使部署行为可预测。
 	raw := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
 	switch raw {
 	case "1", "true", "yes", "on":
@@ -348,6 +351,7 @@ func boolean(key string, fallback bool) bool {
 // integer 读取非负十进制整数。空值、解析失败或负数都会回退到 fallback。
 // fmt.Sscanf 在这里与既有配置格式保持兼容；业务上必须大于零的字段由 positiveInteger 再约束。
 func integer(key string, fallback int) int {
+	// Redis DB 等允许为零的配置使用此解析器；负值与非数字均视为无效输入。
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
 		return fallback
@@ -361,6 +365,7 @@ func integer(key string, fallback int) int {
 
 // positiveInteger 在 integer 的非负约束上进一步拒绝 0，适用于速率上限等必须为正的配置。
 func positiveInteger(key string, fallback int) int {
+	// 速率限制等数量配置必须严格大于零，避免零值导致意外禁用或除零语义。
 	value := integer(key, fallback)
 	if value <= 0 {
 		return fallback
@@ -371,6 +376,7 @@ func positiveInteger(key string, fallback int) int {
 // csv 将逗号分隔字符串转换为切片，同时去除每项空白并丢弃空项。
 // 它保留有效项的原始顺序，也不会自动去重，以便配置行为与输入顺序保持一致。
 func csv(raw string) []string {
+	// CORS 来源等列表配置会忽略空项，允许在环境变量中保留可读的空格与尾逗号。
 	values := make([]string, 0)
 	for _, item := range strings.Split(raw, ",") {
 		if item = strings.TrimSpace(item); item != "" {
@@ -391,6 +397,7 @@ func value(key, fallback string) string {
 // duration 使用 time.ParseDuration 解析 Go 风格时长（例如 500ms、30s、2h）。
 // 解析失败、零值或负值均使用 fallback，避免产生立即过期或永不正常执行的超时配置。
 func duration(key string, fallback time.Duration) time.Duration {
+	// 只接受正时长，非法或非正值回退默认值，防止超时被意外设为永久等待。
 	parsed, err := time.ParseDuration(value(key, fallback.String()))
 	if err != nil || parsed <= 0 {
 		return fallback

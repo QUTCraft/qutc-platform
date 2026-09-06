@@ -39,6 +39,7 @@ type ContentInput struct {
 
 // NormalizeContentInput applies the same whitespace and length rules to both
 // create and update requests before the handler writes anything to the DB.
+// NormalizeContentInput 清理内容输入、填充可推导字段，并验证类型与状态是否合法。
 func NormalizeContentInput(input ContentInput) (ContentInput, error) {
 	input.Title = strings.TrimSpace(input.Title)
 	input.Type = strings.TrimSpace(input.Type)
@@ -63,6 +64,7 @@ func NormalizeContentInput(input ContentInput) (ContentInput, error) {
 	}
 }
 
+// IsContentType 判断 value 是否为平台支持的内容类型。
 func IsContentType(value string) bool {
 	switch value {
 	case ContentTypeNews, ContentTypeResource, ContentTypeKnowledge:
@@ -72,6 +74,7 @@ func IsContentType(value string) bool {
 	}
 }
 
+// IsContentStatus 判断 value 是否为平台支持的内容生命周期状态。
 func IsContentStatus(value string) bool {
 	switch value {
 	case ContentStatusDraft, ContentStatusReview, ContentStatusPublished, ContentStatusArchived:
@@ -84,6 +87,7 @@ func IsContentStatus(value string) bool {
 // CanTransitionContentStatus is the only allowed publication state machine.
 // Authors submit draft or archived content to review; reviewers can publish or
 // return it to draft, and published content must be archived before editing.
+// CanTransitionContentStatus 依据状态机判断 current 是否允许迁移到 target。
 func CanTransitionContentStatus(current, target string) bool {
 	if !IsContentStatus(current) || !IsContentStatus(target) || current == target {
 		return false

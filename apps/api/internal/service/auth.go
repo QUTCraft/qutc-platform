@@ -73,18 +73,22 @@ type AuthService struct {
 	cfg config.Config
 }
 
+// NewAuthService 创建认证领域服务；db 保存用户与会话事实，cfg 提供 JWT 签发策略。
 func NewAuthService(db *gorm.DB, cfg config.Config) *AuthService {
 	return &AuthService{db: db, cfg: cfg}
 }
 
+// Register 创建独立注册用户并返回当前组织会话；不接受邀请令牌。
 func (s *AuthService) Register(email, displayName, password string) (TokenPair, error) {
 	return s.register(email, displayName, password, "")
 }
 
+// RegisterWithInvitation 原子地注册用户、接受 invitationToken 并签发目标组织会话。
 func (s *AuthService) RegisterWithInvitation(email, displayName, password, invitationToken string) (TokenPair, error) {
 	return s.register(email, displayName, password, invitationToken)
 }
 
+// register 是两种注册入口共享的事务实现；invitationToken 为空时按普通注册处理。
 func (s *AuthService) register(email, displayName, password, invitationToken string) (TokenPair, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	displayName = strings.TrimSpace(displayName)
@@ -194,6 +198,7 @@ func (s *AuthService) register(email, displayName, password, invitationToken str
 	return pair, err
 }
 
+// Login 校验邮箱密码，并为用户当前有效组织创建新的访问与刷新令牌对。
 func (s *AuthService) Login(email, password string) (TokenPair, error) {
 	var user model.User
 	if err := s.db.Where("email = ? AND state = ?", strings.ToLower(strings.TrimSpace(email)), "active").First(&user).Error; err != nil {
@@ -212,6 +217,7 @@ func (s *AuthService) Login(email, password string) (TokenPair, error) {
 	return s.issueTokenPair(s.db, user, organizationID)
 }
 
+// Refresh 校验并轮换刷新令牌，返回新的令牌对；旧令牌会立即失效以降低重放风险。
 func (s *AuthService) Refresh(refreshToken string) (TokenPair, error) {
 	hash := tokenHash(refreshToken)
 	var stored model.RefreshToken
@@ -262,6 +268,7 @@ func (s *AuthService) Refresh(refreshToken string) (TokenPair, error) {
 	return pair, err
 }
 
+// ListOrganizations 返回 principal 所属且仍有效的组织，供前端组织切换器展示。
 func (s *AuthService) ListOrganizations(principal Principal) ([]OrganizationMembershipView, error) {
 	type organizationMembershipRow struct {
 		ID        string
@@ -292,6 +299,7 @@ func (s *AuthService) ListOrganizations(principal Principal) ([]OrganizationMemb
 	return items, nil
 }
 
+// SwitchOrganization 在确认成员关系后轮换会话，使新 JWT 绑定 organizationID。
 func (s *AuthService) SwitchOrganization(principal Principal, organizationID, refreshToken string) (TokenPair, error) {
 	organizationID = strings.TrimSpace(organizationID)
 	refreshToken = strings.TrimSpace(refreshToken)
@@ -339,6 +347,7 @@ func (s *AuthService) SwitchOrganization(principal Principal, organizationID, re
 	return pair, err
 }
 
+// Logout 撤销 refreshToken 对应的会话；空令牌视为无操作，保持注销接口幂等。
 func (s *AuthService) Logout(refreshToken string) error {
 	if strings.TrimSpace(refreshToken) == "" {
 		return nil
@@ -347,6 +356,7 @@ func (s *AuthService) Logout(refreshToken string) error {
 	return s.db.Model(&model.RefreshToken{}).Where("token_hash = ? AND revoked_at IS NULL", tokenHash(refreshToken)).Update("revoked_at", now).Error
 }
 
+// ParseAccessToken 验证 JWT 签名和声明，并转换为请求范围内的 Principal。
 func (s *AuthService) ParseAccessToken(raw string) (Principal, error) {
 	claims := &accessClaims{}
 	token, err := jwt.ParseWithClaims(raw, claims, func(token *jwt.Token) (interface{}, error) {
@@ -361,6 +371,7 @@ func (s *AuthService) ParseAccessToken(raw string) (Principal, error) {
 	return Principal{UserID: claims.Subject, OrganizationID: claims.OrganizationID, Email: claims.Email}, nil
 }
 
+// AuthenticateAccessToken 除解析 JWT 外还确认用户及其组织成员关系没有被停用。
 func (s *AuthService) AuthenticateAccessToken(raw string) (Principal, error) {
 	principal, err := s.ParseAccessToken(raw)
 	if err != nil {
@@ -386,6 +397,7 @@ func (s *AuthService) AuthenticateAccessToken(raw string) (Principal, error) {
 	return principal, nil
 }
 
+// ProfileFor 读取 principal 当前用户的可展示资料。
 func (s *AuthService) ProfileFor(principal Principal) (Profile, error) {
 	var user model.User
 	if err := s.db.Where("id = ? AND state = ?", principal.UserID, "active").First(&user).Error; err != nil {
@@ -398,6 +410,7 @@ func (s *AuthService) ProfileFor(principal Principal) (Profile, error) {
 	return Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Bio: user.Bio, AvatarURL: user.AvatarURL, OrganizationID: principal.OrganizationID, DefaultOrganizationID: user.DefaultOrganizationID, Roles: roles}, nil
 }
 
+// UpdateProfile 更新当前用户允许自行修改的资料字段，并返回持久化后的资料。
 func (s *AuthService) UpdateProfile(principal Principal, displayName, bio, avatarURL string) (Profile, error) {
 	displayName = strings.TrimSpace(displayName)
 	bio = strings.TrimSpace(bio)
@@ -416,6 +429,7 @@ func (s *AuthService) UpdateProfile(principal Principal, displayName, bio, avata
 	return s.ProfileFor(principal)
 }
 
+// HasPermission 依据 principal 当前组织中的角色判断是否具备 permission；角色实时从数据库读取。
 func (s *AuthService) HasPermission(principal Principal, permission string) (bool, error) {
 	var count int64
 	err := s.db.Table("permissions").
@@ -427,6 +441,7 @@ func (s *AuthService) HasPermission(principal Principal, permission string) (boo
 	return count > 0, err
 }
 
+// issueTokenPair 生成短期访问 JWT 与可撤销的长期刷新令牌，并将后者哈希后存储。
 func (s *AuthService) issueTokenPair(db *gorm.DB, user model.User, organizationID string) (TokenPair, error) {
 	now := time.Now().UTC()
 	accessClaims := accessClaims{OrganizationID: organizationID, Email: user.Email, RegisteredClaims: jwt.RegisteredClaims{
@@ -450,6 +465,7 @@ func (s *AuthService) issueTokenPair(db *gorm.DB, user model.User, organizationI
 	return TokenPair{AccessToken: accessToken, RefreshToken: refreshToken, TokenType: "Bearer", ExpiresIn: int64(s.cfg.JWTAccessTTL.Seconds()), SessionExpiresAt: now.Add(s.cfg.JWTRefreshTTL), User: Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Bio: user.Bio, AvatarURL: user.AvatarURL, OrganizationID: organizationID, DefaultOrganizationID: user.DefaultOrganizationID, Roles: roles}}, nil
 }
 
+// hasActiveMembership 检查 userID 在 organizationID 中是否存在有效成员关系。
 func (s *AuthService) hasActiveMembership(db *gorm.DB, userID, organizationID string) (bool, error) {
 	var count int64
 	if err := db.Model(&model.Membership{}).
@@ -460,6 +476,7 @@ func (s *AuthService) hasActiveMembership(db *gorm.DB, userID, organizationID st
 	return count == 1, nil
 }
 
+// activeOrganizationID 选取用户第一个有效组织，作为新登录会话的默认组织。
 func (s *AuthService) activeOrganizationID(userID string) (string, error) {
 	var user model.User
 	if err := s.db.Where("id = ? AND state = ?", userID, "active").First(&user).Error; err != nil {
@@ -487,6 +504,7 @@ func (s *AuthService) activeOrganizationID(userID string) (string, error) {
 	return membership.OrganizationID, nil
 }
 
+// rolesFor 查询用户在指定组织的全部有效角色键。
 func (s *AuthService) rolesFor(db *gorm.DB, userID, organizationID string) ([]string, error) {
 	var roles []string
 	err := db.Table("roles").
@@ -498,6 +516,7 @@ func (s *AuthService) rolesFor(db *gorm.DB, userID, organizationID string) ([]st
 	return roles, err
 }
 
+// randomToken 生成可安全公开传递的随机令牌原文；数据库只保存其哈希。
 func randomToken() (string, error) {
 	bytes := make([]byte, 48)
 	if _, err := rand.Read(bytes); err != nil {
@@ -506,6 +525,7 @@ func randomToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(bytes), nil
 }
 
+// tokenHash 生成令牌的固定 SHA-256 哈希，用于安全查找和比对而不落库存储原文。
 func tokenHash(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return fmt.Sprintf("%x", sum[:])
