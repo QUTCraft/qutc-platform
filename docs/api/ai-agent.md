@@ -440,3 +440,20 @@ docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.y
 ```
 
 S6 集成测试验证登录与 RBAC、配置读取与持久化、停用后拒绝运行、重新启用、智能体目录、知识检索、跨组织引用拒绝、Prompt Injection 隔离、异步 Mock 终态、引用快照和审计。活动策划专项还验证 `activity-planner/v2`、Editor 可读但无权批准、里程碑依赖校验、部分批准、重复批准、审批 Request ID 逐对象审计，以及真实 MySQL 外键故障下项目/草稿/审计整体回滚。测试同时连续三轮验证“生成本身不创建内容 → 人工确认创建 draft → Portal 仍不可见 → 人工发布后可见且保留来源 ID → 下线后不可见”。
+
+## 8. 个人 AI 咨询
+
+登录后的任意成员可以在后台的“AI 咨询”页面配置自己的 OpenAI Chat Completions 兼容接口，也可以在内容编辑器中打开右侧的咨询面板。个人配置按 `user_id` 隔离，不随组织切换共享；API Key 只在保存请求中上传，服务端使用 Agent Credential Secret 通过 AES-GCM 加密保存，读取接口只返回 `api_key_configured`，浏览器不写入 localStorage/sessionStorage。
+
+接口如下：
+
+| HTTP | 路径 | 用途 |
+| --- | --- | --- |
+| `GET` | `/api/v1/auth/me/ai-config` | 读取个人地址、模型、密钥是否已配置，以及当前组织 AI 是否可用。 |
+| `PATCH` | `/api/v1/auth/me/ai-config` | 保存个人地址、模型和 Key；同一地址留空 Key 可保留旧 Key，更换地址必须重新填写。 |
+| `DELETE` | `/api/v1/auth/me/ai-config` | 删除个人配置，不影响组织级配置。 |
+| `POST` | `/api/v1/auth/me/ai-chat` | 按本次请求选择 `personal` 或 `organization` 执行一次同步咨询。 |
+
+个人地址必须是公开 HTTPS 根地址，服务端会追加 `/chat/completions`，并在每次连接时校验 DNS 解析结果，拒绝回环、内网、链路本地、保留地址、本地域名、代理和重定向。咨询请求最多包含 20 条交替消息、40000 个对话字符和 30000 个可选文章字符；只有用户主动勾选“将当前文章发送给所选 AI 服务”时，未保存正文才会出站。对话不落库，页面切换、账号切换、组织切换和停止请求都会清空当前会话。
+
+个人咨询每个账户每小时最多 30 次；组织咨询沿用组织 `run_limit_per_hour`，并和异步智能体运行共用小时额度。每次配置变更和咨询配额预留只写入不含正文、密钥和 Prompt 的审计元数据。回答不会自动保存、创建草稿、发布内容或批准方案；编辑器中的“追加到正文”必须由用户主动点击，且仍需手动保存。

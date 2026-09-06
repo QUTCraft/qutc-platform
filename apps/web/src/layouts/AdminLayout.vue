@@ -25,6 +25,7 @@ const navigation = [
   { label: '申请审核', to: '/admin/reviews', icon: DocumentChecked },
   { label: '审计记录', to: '/admin/audit', icon: Tickets },
   { label: '活动策划', to: '/admin/activity-planner', icon: Promotion },
+  { label: 'AI 咨询', to: '/admin/assistant', icon: MagicStick },
   { label: '智能体配置', to: '/admin/ai', icon: MagicStick },
   { label: '系统设置', to: '/admin/settings', icon: Setting },
 ]

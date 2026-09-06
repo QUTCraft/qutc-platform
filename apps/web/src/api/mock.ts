@@ -43,6 +43,7 @@ import type {
   MediaAsset,
   PublishAssetResourceInput,
 } from '@/api/types'
+import type { EditorChatResult, PersonalAIConfiguration } from '@/api/personal-ai-types'
 
 const organization: Organization = {
   id: 'org_qutcraft',
@@ -392,6 +393,12 @@ let portalConfiguration: PortalConfiguration = {
 const mockUserKey = 'qutc.mock_user'
 const savedMockUser = () => { try { return JSON.parse(window.localStorage.getItem(mockUserKey) ?? 'null') as AuthUser | null } catch { return null } }
 let mockUser: AuthUser | null = savedMockUser()
+let personalAIConfiguration: PersonalAIConfiguration = {
+  base_url: '',
+  model: '',
+  api_key_configured: false,
+  organization_available: true,
+}
 const saveMockUser = (user: AuthUser | null) => { mockUser = user; if (user) window.localStorage.setItem(mockUserKey, JSON.stringify(user)); else window.localStorage.removeItem(mockUserKey) }
 const authPair = (user: AuthUser): TokenPair => ({ access_token: 'mock-access-token', token_type: 'Bearer', expires_in: 900, session_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), user })
 const requireMockAdmin = () => { if (!mockUser) throw new Error('请先登录后再访问管理工作台。') }
@@ -406,6 +413,10 @@ export async function mockGet<T>(path: string): Promise<T> {
   if (path.endsWith('/auth/organizations')) {
     requireMockAdmin()
     return mockOrganizations.map((item) => ({ ...item, current: item.id === mockUser?.organization_id })) as T
+  }
+  if (path.endsWith('/auth/me/ai-config')) {
+    if (!mockUser) throw new Error('当前会话已失效。')
+    return structuredClone(personalAIConfiguration) as T
   }
   if (path.includes('/admin/')) requireMockAdmin()
   if (path.endsWith('/admin/dashboard')) {
@@ -663,6 +674,18 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     saveMockUser(user)
     return authPair(user) as T
   }
+	if (path.endsWith('/auth/me/ai-chat')) {
+		if (!mockUser) throw new Error('当前会话已失效。')
+		const payload = body as { source?: string; messages?: Array<{ role: string; content: string }> }
+		const question = payload.messages?.at(-1)?.content?.trim() || '请给出建议。'
+		const result: EditorChatResult = {
+			markdown: `# 开发 Mock 咨询\n\n这是本地演示回答，已收到你的问题：\n\n> ${question.replaceAll('>', '\\>')}\n\n请在真实接口配置后再用于正式内容。`,
+			source: payload.source === 'organization' ? 'organization' : 'personal',
+			model: 'mock-editor-chat-v1',
+			request_id: `mock-request-${Date.now()}`,
+		}
+		return result as T
+	}
 	if (path.endsWith('/apply')) return { id: `application_${Date.now()}`, status: 'pending', submitted_at: new Date().toISOString() } as T
 	if (path.includes('/admin/')) requireMockAdmin()
 	const publishAssetMatch = path.match(/\/admin\/assets\/([^/]+)\/publish$/)
@@ -1185,6 +1208,22 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
 
 export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
   await wait()
+	if (path.endsWith('/auth/me/ai-config')) {
+		if (!mockUser) throw new Error('当前会话已失效。')
+		const payload = body as { base_url?: string; model?: string; api_key?: string }
+		if (!payload.base_url?.trim() || !payload.model?.trim() || (!payload.api_key?.trim() && !personalAIConfiguration.api_key_configured)) {
+			throw new Error('请填写接口地址、模型和 API Key。')
+		}
+		let baseURL = payload.base_url.trim()
+		while (baseURL.endsWith('/')) baseURL = baseURL.slice(0, -1)
+		personalAIConfiguration = {
+			...personalAIConfiguration,
+			base_url: baseURL,
+			model: payload.model.trim(),
+			api_key_configured: true,
+		}
+		return structuredClone(personalAIConfiguration) as T
+	}
   requireMockAdmin()
 	if (path.endsWith('/admin/organization')) {
 		const currentOrganization = mockUser?.organization_id === campusOrganization.id ? campusOrganization : organization
@@ -1336,6 +1375,11 @@ export async function mockPut<T>(path: string, body: unknown): Promise<T> {
 
 export async function mockDelete<T>(path: string): Promise<T> {
   await wait()
+	if (path.endsWith('/auth/me/ai-config')) {
+		if (!mockUser) throw new Error('当前会话已失效。')
+		personalAIConfiguration = { base_url: '', model: '', api_key_configured: false, organization_available: true }
+		return { removed: true } as T
+	}
   requireMockAdmin()
   const assetMatch = path.match(/\/admin\/assets\/([^/]+)$/)
   if (assetMatch) {

@@ -136,10 +136,10 @@ export async function getPage<T>(path: string, signal?: AbortSignal): Promise<Pa
 }
 
 /** 发送 JSON POST 请求；body 为 undefined 时不附带请求体。 */
-export async function post<T>(path: string, body?: unknown): Promise<T> {
+export async function post<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   if (apiMode === 'mock') return (await loadMockApi()).mockPost<T>(path, body)
 
-  const response = await fetchWithSessionRetry(path, () => ({ method: 'POST', headers: headers(true), credentials: 'include', body: body === undefined ? undefined : JSON.stringify(body) }))
+  const response = await fetchWithSessionRetry(path, () => ({ method: 'POST', headers: headers(true), credentials: 'include', signal, body: body === undefined ? undefined : JSON.stringify(body) }))
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | { error?: { code?: string; message?: string } } | null
   if (!response.ok || !payload || !('data' in payload)) {
     const error = payload && 'error' in payload ? payload.error : undefined

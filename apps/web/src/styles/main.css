@@ -1657,6 +1657,9 @@ h1, h2, h3, h4, h5, h6, p {
   gap: 16px;
 }
 
+.news-link { color: inherit; text-decoration: none; }
+.news-link:focus-visible { outline: 3px solid var(--md-sys-color-primary); outline-offset: 4px; }
+.news-link:hover h3 { color: var(--md-sys-color-primary); }
 .lead-news {
   display: flex;
   flex-direction: column;

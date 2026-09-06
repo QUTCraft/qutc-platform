@@ -1,4 +1,5 @@
 import { del, get, getPage, patch, post, put, upload } from '@/api/client'
+import type { PersonalAIConfiguration, EditorChatInput, EditorChatResult } from '@/api/personal-ai-types'
 import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminInvitationSummary, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIConfigurationUpdate, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, BatchInvitationResponse, ContentRevision, EmailAdapterStatus, IntegrationSettings, IntegrationSettingsUpdate, IntegrationTestResult, Invitation, InvitationRole, InvitationStatus, InvitationTemplate, MediaAsset, NotificationOutbox, Organization, PortalConfiguration, PortalManifest, PublishAssetResourceInput } from '@/api/types'
 
 // adminBase 集中声明受 RBAC 保护的管理端 API 前缀，避免各领域接口硬编码不一致。
@@ -22,6 +23,10 @@ function withQuery(path: string, params: object = {}) {
 
 // adminApi 按业务领域聚合管理端请求。方法只描述 HTTP 契约，权限判断始终由后端执行。
 export const adminApi = {
+  getPersonalAI: () => get<PersonalAIConfiguration>('/api/v1/auth/me/ai-config'),
+  savePersonalAI: (payload: { base_url: string; model: string; api_key: string }) => patch<PersonalAIConfiguration>('/api/v1/auth/me/ai-config', payload),
+  deletePersonalAI: () => del<{ removed: boolean }>('/api/v1/auth/me/ai-config'),
+  chat: (payload: EditorChatInput, signal?: AbortSignal) => post<EditorChatResult>('/api/v1/auth/me/ai-chat', payload, signal),
   getDashboard: () => get<AdminDashboard>(`${adminBase}/dashboard`),
 	getOrganization: () => get<Organization>(`${adminBase}/organization`),
 	updateOrganization: (payload: Pick<Organization, 'name' | 'short_name' | 'tagline' | 'introduction' | 'contact_email' | 'filing_number' | 'logo_asset_id' | 'social_links' | 'is_public'>) => patch<Organization>(`${adminBase}/organization`, payload),

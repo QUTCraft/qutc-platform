@@ -240,23 +240,23 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
           action-to="/posts"
         />
         <div class="news-layout">
-          <article v-if="heroNews" class="lead-news">
+          <RouterLink v-if="heroNews" :to="{ name: 'post-detail', params: { id: heroNews.id } }" class="lead-news news-link">
             <div class="lead-news-top">
               <span class="category-badge">{{ heroNews.category }}</span>
               <small>{{ formatDate(heroNews.published_at) }} · {{ heroNews.reading_minutes }} 分钟阅读</small>
             </div>
             <h2>{{ heroNews.title }}</h2>
             <p>{{ heroNews.excerpt }}</p>
-          </article>
+          </RouterLink>
 
           <div class="news-list">
-            <article v-for="post in data.posts.slice(1)" :key="post.id" class="news-row">
+            <RouterLink v-for="post in data.posts.slice(1)" :key="post.id" :to="{ name: 'post-detail', params: { id: post.id } }" class="news-row news-link">
               <div class="news-row-main">
                 <span class="row-category">{{ post.category }}</span>
                 <h3>{{ post.title }}</h3>
               </div>
               <small class="row-date">{{ formatDate(post.published_at) }}</small>
-            </article>
+            </RouterLink>
           </div>
         </div>
         <div v-if="!data.posts.length" class="portal-empty-state">

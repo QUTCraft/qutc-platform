@@ -139,6 +139,63 @@ func TestOpenAICompatibleProvider(t *testing.T) {
 	}
 }
 
+func TestEditorChatForwardsOnlyConversationMessagesAfterReferenceContext(t *testing.T) {
+	const apiKey = "test-editor-chat-key"
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		var payload compatibleRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if len(payload.Messages) != 4 {
+			t.Fatalf("message count = %d, want system + context + 2 chat messages", len(payload.Messages))
+		}
+		if payload.Messages[0].Role != "system" || payload.Messages[1].Role != "user" ||
+			payload.Messages[2].Role != "user" || payload.Messages[3].Role != "assistant" {
+			t.Fatalf("message roles = %+v", payload.Messages)
+		}
+		if !strings.Contains(payload.Messages[1].Content, "文章参考资料") || payload.Messages[2].Content != "请给出三点修改建议。" || payload.Messages[3].Content != "上一轮回答" {
+			t.Fatalf("message content = %+v", payload.Messages)
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"model":"editor-test","choices":[{"message":{"role":"assistant","content":"可以从结构、语气和事实核对三方面修改。"}}]}`))
+	}))
+	defer server.Close()
+
+	provider, err := New(Config{Driver: "openai_compatible", BaseURL: server.URL, APIKey: apiKey, Model: "editor-model", Timeout: time.Second})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	result, err := provider.Generate(context.Background(), GenerateRequest{
+		AgentKey: "editor-chat", PromptVersion: "editor-chat/v1",
+		Task:     "以下是用户主动附带的文章参考资料（可为空）：\n当前草稿",
+		Messages: []ChatMessage{{Role: "user", Content: "请给出三点修改建议。"}, {Role: "assistant", Content: "上一轮回答"}},
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if result.Markdown == "" || result.Model != "editor-test" {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestValidatePublicEndpointRejectsPrivateDestinations(t *testing.T) {
+	for _, raw := range []string{
+		"http://api.example.test/v1",
+		"https://127.0.0.1/v1",
+		"https://[::1]/v1",
+		"https://service.local/v1",
+		"https://192.168.1.20/v1",
+		"https://api.example.test/v1?token=secret",
+	} {
+		if err := ValidatePublicEndpoint(raw); err == nil {
+			t.Errorf("ValidatePublicEndpoint(%q) accepted a forbidden endpoint", raw)
+		}
+	}
+	if err := ValidatePublicEndpoint("https://api.example.test/v1"); err != nil {
+		t.Fatalf("ValidatePublicEndpoint() rejected a public HTTPS endpoint: %v", err)
+	}
+}
+
 func TestDisabledProviderRejectsGeneration(t *testing.T) {
 	provider, err := New(Config{Driver: "disabled"})
 	if err != nil {

@@ -97,6 +97,19 @@ test('public portal routes remain navigable', async ({ page }) => {
   await expect(page.locator('body')).not.toContainText(/正在打开(?:管理)?页面/)
 })
 
+test('home dynamic cards open their public detail pages', async ({ page }) => {
+  await page.goto('/')
+  const newsLinks = page.locator('.news-layout .news-link')
+  await expect(newsLinks).toHaveCount(3)
+  await newsLinks.first().click()
+  await expect(page).toHaveURL(/\/posts\/post_[^/]+$/)
+  await expect(page.locator('.content-detail-body')).toBeVisible()
+  await page.goBack()
+  await expect(page).toHaveURL(/\/$/)
+  await newsLinks.nth(1).click()
+  await expect(page).toHaveURL(/\/posts\/post_[^/]+$/)
+})
+
 test('knowledge code blocks support folding and copying', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'http://127.0.0.1:4173' })
   await page.goto('/knowledge/knowledge_handoff')
@@ -311,7 +324,7 @@ test('owner can batch upload and manage unlinked media assets', async ({ page })
   await expect(page).toHaveURL(/\/admin$/)
   await page.goto('/admin/assets')
 
-  await expect(page.getByRole('heading', { name: '资源文件', exact: true })).toBeVisible()
+  await expect(page.locator('main').getByRole('heading', { name: '资源文件', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '快捷上传', exact: true })).toBeVisible()
   await expect(page.getByText('服务器本地存储', { exact: true })).toBeVisible()
 

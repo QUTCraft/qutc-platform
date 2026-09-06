@@ -6,6 +6,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/admin'
 import type { AdminContent, ContentRevision } from '@/api/types'
 import AIContentAssistant from '@/components/admin/AIContentAssistant.vue'
+import AIChatPanel from '@/components/admin/AIChatPanel.vue'
 import MarkdownContent from '@/components/MarkdownContent.vue'
 import { useAsyncData } from '@/composables/useAsyncData'
 
@@ -29,6 +30,7 @@ const imageFileInput = ref<HTMLInputElement>()
 const attachmentFileInput = ref<HTMLInputElement>()
 const assetPreviewUrls = ref<Record<string, string>>({})
 const aiAssistantOpen = ref(false)
+const chatOpen = ref(false)
 const revisions = ref<ContentRevision[]>([])
 const revisionsLoading = ref(false)
 const selectedRevision = ref<ContentRevision | null>(null)
@@ -449,7 +451,7 @@ onBeforeUnmount(() => {
       <el-button @click="goBack">返回内容管理</el-button>
     </template>
   </el-result>
-  <section v-else class="content-editor-page">
+  <section v-else class="content-editor-page" :class="{ 'with-chat': chatOpen }">
     <header class="content-editor-header">
       <div class="content-editor-heading">
         <el-button text class="editor-back-button" @click="goBack">
@@ -596,6 +598,8 @@ onBeforeUnmount(() => {
       </div>
     </el-dialog>
 
+    <el-button class="chat-toggle" :aria-expanded="chatOpen" @click="chatOpen = !chatOpen">{{ chatOpen ? '收起 AI 咨询' : 'AI 咨询' }}</el-button>
+    <AIChatPanel v-if="chatOpen" :key="String(route.params.id || 'new')" sidebar :article="form.title + '\n\n' + form.body" :allow-insert="!readOnly" @close="chatOpen = false" @insert="(text) => { if (!readOnly) form.body += '\n\n' + text }" />
     <AIContentAssistant
       v-model="aiAssistantOpen"
       :current-title="form.title"
@@ -612,6 +616,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.chat-toggle { position: fixed; right: 24px; bottom: 24px; z-index: 90; }
+@media (min-width: 1400px) { .content-editor-page.with-chat { padding-right: 440px; } }
 .content-editor-page {
   width: 100%;
 }

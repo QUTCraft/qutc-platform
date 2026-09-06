@@ -161,6 +161,10 @@ func main() {
 	auth.PATCH("/me", middleware.RequireAuth(authService), authHandler.UpdateMe)
 	auth.GET("/organizations", middleware.RequireAuth(authService), authHandler.Organizations)
 	auth.POST("/switch-organization", authRateLimiter.Middleware(), middleware.RequireAuth(authService), authHandler.SwitchOrganization)
+	auth.GET("/me/ai-config", middleware.RequireAuth(authService), aiHandler.GetPersonalConfiguration)
+	auth.PATCH("/me/ai-config", sensitiveRateLimiter.Middleware(), middleware.RequireAuth(authService), aiHandler.SavePersonalConfiguration)
+	auth.DELETE("/me/ai-config", sensitiveRateLimiter.Middleware(), middleware.RequireAuth(authService), aiHandler.DeletePersonalConfiguration)
+	auth.POST("/me/ai-chat", sensitiveRateLimiter.Middleware(), middleware.RequireAuth(authService), aiHandler.EditorChat)
 
 	invitations := v1.Group("/invitations")
 	invitations.GET("/:token", authRateLimiter.Middleware(), invitationHandler.Preview)

@@ -6,6 +6,7 @@ const router = createRouter({
   history: createWebHistory(),
   scrollBehavior: () => ({ top: 0 }),
   routes: [
+    { path: '/admin/assistant', name: 'admin-assistant', component: () => import('@/views/admin/AdminAssistantView.vue'), meta: { layout: 'admin', requiresAuth: true } },
     { path: '/', name: 'home', component: () => import('@/views/HomeView.vue') },
     { path: '/posts', name: 'posts', component: () => import('@/views/PostsView.vue') },
     { path: '/posts/:id', name: 'post-detail', component: () => import('@/views/ContentDetailView.vue'), props: { contentType: 'news' } },

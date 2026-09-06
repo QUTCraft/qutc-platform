@@ -440,6 +440,89 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+  /api/v1/auth/me/ai-config:
+    get:
+      tags: [AI]
+      operationId: getPersonalAIConfiguration
+      summary: 获取当前账户的个人 AI 配置状态
+      description: |
+        任何已登录成员都可以读取自己的个人 AI 配置。响应只返回接口根地址、模型名和是否已配置密钥，
+        永远不会返回 API Key 原文；organization_available 表示当前组织 AI 是否同时允许该成员使用。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      responses:
+        '200':
+          description: 当前账户的个人 AI 配置状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonalAIConfigurationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [AI]
+      operationId: updatePersonalAIConfiguration
+      summary: 保存当前账户的个人 AI 接口
+      description: |
+        个人配置按账户隔离，密钥在服务端使用 AES-GCM 加密保存，不进入浏览器存储、日志或响应。
+        只接受公开 HTTPS 的 OpenAI Chat Completions 兼容根地址；更换地址时必须重新填写 API Key。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PersonalAIConfigurationWriteRequest' }
+      responses:
+        '200':
+          description: 个人 AI 配置已保存
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonalAIConfigurationResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+    delete:
+      tags: [AI]
+      operationId: deletePersonalAIConfiguration
+      summary: 删除当前账户的个人 AI 配置
+      description: 删除当前账户保存的接口地址、模型和加密密钥，不影响组织级配置。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      responses:
+        '200':
+          description: 个人 AI 配置已删除
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonalAIConfigurationDeleteResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /api/v1/auth/me/ai-chat:
+    post:
+      tags: [AI]
+      operationId: chatWithPersonalOrOrganizationAI
+      summary: 使用个人或组织 AI 进行当前页面咨询
+      description: |
+        咨询接口只在用户主动发送时调用，不保存对话、不自动修改或发布 CMS 内容。personal 使用当前账户的
+        加密配置；organization 需要当前组织的 ai:use 权限。每次最多 20 条交替消息、40000 字对话和 30000 字文章，
+        文章只有在前端显式勾选后才会传入。响应包含可追踪的 Request ID，便于审计和排障。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EditorAIChatRequest' }
+      responses:
+        '200':
+          description: AI 咨询结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EditorAIChatResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502':
+          description: 上游 AI 请求失败或返回了无效响应
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/membership/history:
     get:
       tags: [Auth]
@@ -2710,6 +2793,66 @@ components:
         provider_config: { $ref: '#/components/schemas/AIProviderConfiguration' }
         updated_by: { type: string, maxLength: 36 }
         updated_at: { type: string, format: date-time }
+    PersonalAIConfiguration:
+      type: object
+      required: [base_url, model, api_key_configured, organization_available]
+      properties:
+        base_url:
+          type: string
+          maxLength: 500
+          description: 当前账户保存的公开 HTTPS OpenAI 兼容 API 根地址；没有配置时为空字符串。
+        model: { type: string, maxLength: 120, description: 当前账户保存的模型标识。 }
+        api_key_configured: { type: boolean, description: 仅表示服务端是否保存了加密密钥，不代表密钥有效。 }
+        organization_available: { type: boolean, description: 当前组织是否允许当前成员使用组织级 AI。 }
+    PersonalAIConfigurationWriteRequest:
+      type: object
+      required: [base_url, model, api_key]
+      additionalProperties: false
+      properties:
+        base_url:
+          type: string
+          format: uri
+          pattern: '^https://'
+          minLength: 1
+          maxLength: 500
+          description: 公开 HTTPS 的 OpenAI Chat Completions 兼容接口根地址，不要包含 /chat/completions；禁止内网、回环和本地域名。
+        model: { type: string, minLength: 1, maxLength: 120 }
+        api_key:
+          type: string
+          writeOnly: true
+          maxLength: 4096
+          description: 首次配置或更换地址时必填；同一地址更新其他字段时可留空以保留原密钥。
+    EditorAIChatMessage:
+      type: object
+      required: [role, content]
+      additionalProperties: false
+      properties:
+        role: { type: string, enum: [user, assistant] }
+        content: { type: string, minLength: 1, maxLength: 12000 }
+    EditorAIChatRequest:
+      type: object
+      required: [source, messages]
+      additionalProperties: false
+      properties:
+        source: { type: string, enum: [personal, organization], description: 本次咨询使用的服务来源。 }
+        messages:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { $ref: '#/components/schemas/EditorAIChatMessage' }
+          description: 必须从 user 开始，以 user 结束，并按 user/assistant 交替排列。
+        article:
+          type: string
+          maxLength: 30000
+          description: 可选的当前未保存文章，只在用户明确勾选发送文章时提交。
+    EditorAIChatResult:
+      type: object
+      required: [markdown, source, model, request_id]
+      properties:
+        markdown: { type: string, description: 可供用户编辑的 Markdown 回答。 }
+        source: { type: string, enum: [personal, organization] }
+        model: { type: string, maxLength: 120 }
+        request_id: { type: string, maxLength: 64 }
     AIAgentDefinition:
       type: object
       required: [id, key, name, purpose, system_policy_version, allowed_tool_keys, model_profile, enabled]
@@ -3745,6 +3888,29 @@ components:
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/AIConfiguration' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    PersonalAIConfigurationResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/PersonalAIConfiguration' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    PersonalAIConfigurationDeleteResult:
+      type: object
+      required: [removed]
+      properties:
+        removed: { type: boolean, const: true }
+    PersonalAIConfigurationDeleteResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/PersonalAIConfigurationDeleteResult' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    EditorAIChatResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/EditorAIChatResult' }
         meta: { $ref: '#/components/schemas/Meta' }
     AIKnowledgeSearchResponse:
       type: object

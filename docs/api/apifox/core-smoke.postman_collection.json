@@ -848,6 +848,81 @@
           ]
         }
       }]
+    },
+    {
+      "name": "27 - Read personal AI configuration",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/me/ai-config",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "me", "ai-config"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('personal AI configuration is readable', () => pm.response.to.have.status(200));",
+            "const configuration = pm.response.json().data;",
+            "pm.expect(configuration).not.to.have.property('api_key');"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "28 - Personal AI chat contract",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"source\": \"organization\",\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"请给我三条写作建议。\" }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/me/ai-chat",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "me", "ai-chat"]
+        },
+        "description": "需要当前组织启用真实 AI；不会保存对话，也不会自动修改或发布内容。"
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('personal AI chat returns a traceable result', () => pm.expect([200, 403, 503]).to.include(pm.response.code));",
+            "if (pm.response.code === 200) { pm.expect(pm.response.json().data.request_id).to.be.a('string').and.not.empty; }"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "29 - Delete personal AI configuration",
+      "request": {
+        "method": "DELETE",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/me/ai-config",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "me", "ai-config"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('personal AI configuration can be deleted', () => pm.response.to.have.status(200));",
+            "pm.expect(pm.response.json().data.removed).to.eql(true);"
+          ]
+        }
+      }]
     }
   ],
   "variable": []
