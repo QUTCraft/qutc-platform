@@ -357,6 +357,19 @@ func (h *AIHandler) ApproveActivityPlan(c *gin.Context) {
 	respond(c, http.StatusOK, result)
 }
 
+func (h *AIHandler) DeleteActivityPlan(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	if err := h.agents.DeleteActivityPlan(principal, strings.TrimSpace(c.Param("plan_id")), ensureRequestID(c)); err != nil {
+		h.failActivityPlan(c, err)
+		return
+	}
+	respond(c, http.StatusOK, gin.H{"removed": true, "id": strings.TrimSpace(c.Param("plan_id"))})
+}
+
 // optionalRFC3339 将可选的 RFC3339 字符串转换为 UTC 时间；空字符串表示未设置。
 func optionalRFC3339(value string) (*time.Time, error) {
 	value = strings.TrimSpace(value)

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import AsyncState from '@/components/AsyncState.vue'
 import { adminApi } from '@/api/admin'
 import type { AdminApplication, AdminApplicationFilters } from '@/api/types'
@@ -28,6 +28,7 @@ const pendingCount = computed(() => applications.value.filter((item) => item.sta
 const decidedCount = computed(() => applications.value.length - pendingCount.value)
 const decisionDialogOpen = ref(false)
 const decisionSubmitting = ref(false)
+const deletingApplicationId = ref('')
 const pendingDecision = ref<{ id: string; decision: 'approve' | 'reject' } | null>(null)
 const decisionForm = reactive({ reason: '', skinInviteCode: '' })
 
@@ -79,6 +80,28 @@ async function submitDecision() {
     ElMessage.error(error instanceof Error ? error.message : '申请暂时无法处理。')
   } finally {
     decisionSubmitting.value = false
+  }
+}
+
+async function removeApplication(item: AdminApplication) {
+  try {
+    await ElMessageBox.confirm(
+      `确定永久删除“${item.applicant}”的申请？审核备注和关联通知记录会一并删除，此操作无法恢复。`,
+      '删除申请',
+      { confirmButtonText: '永久删除', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  deletingApplicationId.value = item.id
+  try {
+    await adminApi.deleteApplication(item.id)
+    ElMessage.success('申请已删除。')
+    await refresh()
+  } catch (cause) {
+    ElMessage.error(cause instanceof Error ? cause.message : '申请删除失败。')
+  } finally {
+    deletingApplicationId.value = ''
   }
 }
 </script>
@@ -141,9 +164,22 @@ async function submitDecision() {
                   <span>{{ item.decision_reason }}</span>
                 </div>
               </div>
-              <div v-if="item.status === 'pending'" class="app-item-actions">
-                <el-button @click="requestDecision(item.id, 'reject')">拒绝</el-button>
-                <el-button type="primary" @click="requestDecision(item.id, 'approve')">通过</el-button>
+              <div class="app-item-actions">
+                <template v-if="item.status === 'pending'">
+                  <el-button @click="requestDecision(item.id, 'reject')">拒绝</el-button>
+                  <el-button type="primary" @click="requestDecision(item.id, 'approve')">通过</el-button>
+                </template>
+                <el-popconfirm
+                  title="确定永久删除该申请？"
+                  confirm-button-text="永久删除"
+                  cancel-button-text="取消"
+                  width="260"
+                  @confirm="removeApplication(item)"
+                >
+                  <template #reference>
+                    <el-button text type="danger" :loading="deletingApplicationId === item.id">删除</el-button>
+                  </template>
+                </el-popconfirm>
               </div>
             </article>
 

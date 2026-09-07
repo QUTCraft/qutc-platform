@@ -14,6 +14,7 @@ const approving = ref(false)
 const historyLoading = ref(false)
 const historyDrawer = ref(false)
 const historyFilter = ref<'pending' | 'all'>('all')
+const deletingPlanId = ref('')
 const evaluationLoading = ref(false)
 const evaluationSaving = ref(false)
 const qualitySummaryLoading = ref(false)
@@ -130,6 +131,34 @@ async function openHistoricalPlan(id: string) {
   } catch (error) {
     window.sessionStorage.removeItem(selectedPlanStorageKey)
     ElMessage.error(error instanceof Error ? error.message : '活动方案加载失败。')
+  }
+}
+
+async function removeActivityPlan(item: ActivityPlanSummary) {
+  if (item.status === 'generating') {
+    ElMessage.warning('方案仍在生成中，不能删除；请等待生成结束或稍后重试。')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定永久删除活动方案“${item.title}”？其运行结果、引用和评分会一并删除；已创建的项目、里程碑和内容草稿不会被删除。`,
+      '删除活动方案',
+      { confirmButtonText: '永久删除', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  deletingPlanId.value = item.id
+  try {
+    await adminApi.deleteActivityPlan(item.id)
+    if (plan.value?.id === item.id) resetPlanner()
+    await loadHistory()
+    await loadQualitySummary()
+    ElMessage.success('活动方案已删除。')
+  } catch (cause) {
+    ElMessage.error(cause instanceof Error ? cause.message : '活动方案删除失败。')
+  } finally {
+    deletingPlanId.value = ''
   }
 }
 
@@ -519,18 +548,33 @@ function statusType(status: ActivityPlanSummary['status']) {
         <el-radio-button value="all">全部 {{ historyPlans.length }}</el-radio-button>
       </el-radio-group>
       <div v-if="visibleHistoryPlans.length" class="history-list" v-loading="historyLoading">
-        <button v-for="item in visibleHistoryPlans" :key="item.id" type="button" class="history-card" :class="{ active: plan?.id === item.id }" @click="openHistoricalPlan(item.id)">
+        <div v-for="item in visibleHistoryPlans" :key="item.id" class="history-card" :class="{ active: plan?.id === item.id }" @click="openHistoricalPlan(item.id)">
           <span class="history-card-top">
             <strong>{{ item.title }}</strong>
-            <span class="history-card-tags">
-              <el-tag v-if="item.has_my_evaluation" type="success" size="small" effect="plain">我的评分 {{ item.my_evaluation_score?.toFixed(1) }}</el-tag>
-              <el-tag v-else-if="item.status === 'ready' || item.status === 'applied'" type="warning" size="small" effect="plain">待我评分</el-tag>
-              <el-tag :type="statusType(item.status)" size="small" effect="plain">{{ statusLabel(item.status) }}</el-tag>
+            <span class="history-card-end">
+              <span class="history-card-tags">
+                <el-tag v-if="item.has_my_evaluation" type="success" size="small" effect="plain">我的评分 {{ item.my_evaluation_score?.toFixed(1) }}</el-tag>
+                <el-tag v-else-if="item.status === 'ready' || item.status === 'applied'" type="warning" size="small" effect="plain">待我评分</el-tag>
+                <el-tag :type="statusType(item.status)" size="small" effect="plain">{{ statusLabel(item.status) }}</el-tag>
+              </span>
+              <span v-if="item.status !== 'generating'" class="history-card-delete" @click.stop>
+                <el-popconfirm
+                  title="确定永久删除该活动方案？已创建的项目、里程碑和内容草稿不会被删除。"
+                  confirm-button-text="永久删除"
+                  cancel-button-text="取消"
+                  width="260"
+                  @confirm="removeActivityPlan(item)"
+                >
+                  <template #reference>
+                    <el-button text type="danger" size="small" :loading="deletingPlanId === item.id">删除</el-button>
+                  </template>
+                </el-popconfirm>
+              </span>
             </span>
           </span>
           <span>{{ item.mode === 'real' ? '真实模型' : '非生产记录' }} · {{ item.model || '模型未记录' }}</span>
           <small>{{ formatDate(item.created_at) }}<template v-if="item.starts_at"> · 活动 {{ formatDate(item.starts_at) }}</template></small>
-        </button>
+        </div>
       </div>
       <el-empty v-else :description="historyFilter === 'pending' ? '当前没有待评分方案' : '尚无活动策划记录'" />
     </el-drawer>
@@ -604,6 +648,8 @@ function statusType(status: ActivityPlanSummary['status']) {
 .history-card { display: grid; gap: 8px; width: 100%; padding: 16px; color: inherit; text-align: left; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 18px; background: var(--md-sys-color-surface-container-low); cursor: pointer; transition: border-color .2s ease, background .2s ease; }
 .history-card:hover, .history-card.active { border-color: var(--md-sys-color-primary); background: var(--md-sys-color-primary-container); }
 .history-card-top strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-card-end { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+.history-card-delete { display: inline-flex; align-items: center; }
 .history-card > span:not(.history-card-top), .history-card small { color: var(--md-sys-color-on-surface-variant); font-size: .82rem; }
 .citation-item { padding: 12px; border-radius: 14px; background: var(--md-sys-color-surface-container-high); }
 .citation-item p { margin: 6px 0; color: var(--md-sys-color-on-surface-variant); font-size: .88rem; }

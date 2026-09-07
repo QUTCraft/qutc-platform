@@ -236,6 +236,26 @@ func TestMembershipRoleProtection(t *testing.T) {
 	}
 }
 
+func TestMembershipDeleteProtection(t *testing.T) {
+	tests := []struct {
+		name        string
+		actorIsSelf bool
+		currentRole string
+		wantCode    string
+	}{
+		{name: "owner cannot be removed", currentRole: "owner", wantCode: "membership.owner_protected"},
+		{name: "self cannot be removed", actorIsSelf: true, currentRole: "administrator", wantCode: "membership.self_delete_forbidden"},
+		{name: "regular member can be removed", currentRole: "member", wantCode: ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := membershipDeleteError(test.actorIsSelf, test.currentRole); got != test.wantCode {
+				t.Fatalf("membershipDeleteError(%v, %q) = %q, want %q", test.actorIsSelf, test.currentRole, got, test.wantCode)
+			}
+		})
+	}
+}
+
 // TestMembershipWriteStateAndEventReason 验证成员状态写入是否合法，以及审计原因文本是否准确。
 func TestMembershipWriteStateAndEventReason(t *testing.T) {
 	if !validMemberWriteState("active") || !validMemberWriteState("disabled") {
