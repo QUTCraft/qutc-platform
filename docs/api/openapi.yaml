@@ -678,6 +678,27 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Admin]
+      operationId: deleteAdminKnowledgeDirectory
+      summary: 删除知识库目录
+      description: 仅允许删除没有子目录和知识文章的叶子目录；删除操作会记录审计事件。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      parameters:
+        - name: directory_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: 知识库目录已删除
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentDeleteResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/admin/content/{content_id}:
     get:
       tags: [Admin]
@@ -1068,6 +1089,27 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AdminUserResponse' }
         '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Admin]
+      operationId: deleteAdminUser
+      summary: 将成员移出当前组织
+      description: 不能删除组织所有者或当前登录用户；成员名下仍有项目时必须先转移或删除项目。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: 成员已移出组织并记录审计事件
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentDeleteResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1535,6 +1577,27 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [AI]
+      operationId: deleteAdminAIActivityPlan
+      summary: 删除活动策划历史
+      description: 只能删除已完成、失败或取消的活动策划；运行中的方案必须等待完成或取消后再删除。关联评分、引用和智能体运行记录会一并删除，并记录审计事件。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 36 }
+      responses:
+        '200':
+          description: 活动策划已删除
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentDeleteResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/admin/ai/activity-plans/{plan_id}/evaluation:
     get:
       tags: [AI]
@@ -1761,6 +1824,27 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Admin]
+      operationId: deleteAdminProject
+      summary: 删除项目
+      description: 删除项目及其里程碑、项目成员关系，并解除活动方案对该项目的关联；操作会记录审计事件。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: 项目已删除
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentDeleteResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/admin/projects/{project_id}/members:
     get:
       tags: [Admin]
@@ -2013,6 +2097,25 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/applications/{application_id}:
+    delete:
+      tags: [Admin]
+      operationId: deleteAdminApplication
+      summary: 删除加入申请
+      description: 永久删除当前组织的申请及其关联的通知队列记录，并写入审计事件；不会改变已经创建的用户或成员关系。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        '200':
+          description: 申请已删除
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentDeleteResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
   /api/v1/admin/applications/{application_id}/reject:
     post:
       tags: [Admin]
@@ -2293,6 +2396,11 @@ components:
         X-RateLimit-Reset:
           description: 当前窗口结束的 Unix 时间戳
           schema: { type: integer, format: int64 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ServerError:
+      description: 服务端处理请求时发生未预期错误
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
