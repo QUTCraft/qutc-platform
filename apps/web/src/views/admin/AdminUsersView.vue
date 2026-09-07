@@ -6,6 +6,7 @@ import { adminApi } from '@/api/admin'
 import type { AdminInvitation, AdminInvitationSummary, AdminMembershipWriteState, AdminUser, BatchInvitationResponse, InvitationRole } from '@/api/types'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDate } from '@/utils/format'
+import { session } from '@/stores/session'
 
 const page = ref(1)
 const { data, error, loading, refresh } = useAsyncData(() => adminApi.getUsers({ page: page.value }))
@@ -26,6 +27,7 @@ const inviteDialogOpen = ref(false)
 const inviting = ref(false)
 const retryingEmail = ref(false)
 const revokingInvitationID = ref('')
+const removingUserID = ref('')
 const inviteResult = ref<AdminInvitation | null>(null)
 const inviteForm = reactive<{ email: string; role: InvitationRole; expires_in_hours: number }>({ email: '', role: 'member', expires_in_hours: 168 })
 const inviteRules: FormRules = {
@@ -210,6 +212,37 @@ async function saveUser() {
     saving.value = false
   }
 }
+
+function canDeleteMember(user: AdminUser) {
+  return user.state !== 'invited' && user.role !== 'owner' && user.id !== session.user?.id
+}
+
+async function removeUser(user: AdminUser) {
+  if (!canDeleteMember(user)) {
+    ElMessage.warning(user.role === 'owner' ? '所有者不能被移出组织。' : '不能通过成员管理删除自己。')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定将 ${user.name}（${user.email}）移出当前组织？该成员的项目成员关系也会一并移除，此操作无法恢复。`,
+      '移出成员',
+      { confirmButtonText: '确认移出', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  removingUserID.value = user.id
+  try {
+    await adminApi.deleteUser(user.id)
+    ElMessage.success('成员已移出组织。')
+    await refresh()
+    await refreshInvitations()
+  } catch (cause) {
+    ElMessage.error(cause instanceof Error ? cause.message : '成员移出失败。')
+  } finally {
+    removingUserID.value = ''
+  }
+}
 </script>
 
 <template>
@@ -258,10 +291,22 @@ async function saveUser() {
             <template #default="scope">{{ formatDate(scope.row.joined_at) }}</template>
           </el-table-column>
 
-          <el-table-column width="110" align="right">
+          <el-table-column width="190" align="right">
             <template #default="scope">
               <el-button v-if="scope.row.state !== 'invited'" text type="primary" size="small" @click="openEditor(scope.row)">编辑</el-button>
               <span v-else class="form-help">等待接受</span>
+              <el-popconfirm
+                v-if="canDeleteMember(scope.row)"
+                title="确认将该成员移出当前组织？"
+                confirm-button-text="移出"
+                cancel-button-text="取消"
+                width="260"
+                @confirm="removeUser(scope.row)"
+              >
+                <template #reference>
+                  <el-button text type="danger" size="small" :loading="removingUserID === scope.row.id">移出</el-button>
+                </template>
+              </el-popconfirm>
             </template>
           </el-table-column>
         </el-table>

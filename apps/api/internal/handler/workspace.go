@@ -617,6 +617,52 @@ func (h *WorkspaceHandler) AdminUpdateKnowledgeDirectory(c *gin.Context) {
 	respond(c, http.StatusOK, knowledgeDirectoryItem(directory))
 }
 
+func (h *WorkspaceHandler) AdminDeleteKnowledgeDirectory(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var directory model.KnowledgeDirectory
+	if err := h.db.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&directory).Error; err != nil {
+		fail(c, http.StatusNotFound, "knowledge_directory.not_found", "知识库目录不存在。")
+		return
+	}
+	var childCount int64
+	if err := h.db.Model(&model.KnowledgeDirectory{}).
+		Where("organization_id = ? AND parent_id = ?", principal.OrganizationID, directory.ID).
+		Count(&childCount).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "knowledge_directory.delete_failed", "知识库目录暂时无法删除。")
+		return
+	}
+	if childCount > 0 {
+		fail(c, http.StatusConflict, "knowledge_directory.has_children", "该目录下仍有子目录，请先删除或移动子目录。")
+		return
+	}
+	var articleCount int64
+	if err := h.db.Model(&model.Content{}).
+		Where("organization_id = ? AND knowledge_directory_id = ?", principal.OrganizationID, directory.ID).
+		Count(&articleCount).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "knowledge_directory.delete_failed", "知识库目录暂时无法删除。")
+		return
+	}
+	if articleCount > 0 {
+		fail(c, http.StatusConflict, "knowledge_directory.has_content", "该目录下仍有知识文章，请先删除或移动文章。")
+		return
+	}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&directory).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "knowledge_directory.delete", "knowledge_directory", directory.ID)
+	}); err != nil {
+		fail(c, http.StatusInternalServerError, "knowledge_directory.delete_failed", "知识库目录删除失败。")
+		return
+	}
+	h.invalidatePortalCache(principal.OrganizationID)
+	respond(c, http.StatusOK, gin.H{"removed": true, "id": directory.ID})
+}
+
 func knowledgeDirectoryItem(directory model.KnowledgeDirectory) gin.H {
 	return gin.H{"id": directory.ID, "parent_id": directory.ParentID, "name": directory.Name, "slug": directory.Slug, "description": directory.Description, "sort_order": directory.SortOrder, "is_public": directory.IsPublic, "updated_at": directory.UpdatedAt}
 }
@@ -1385,6 +1431,88 @@ func (h *WorkspaceHandler) AdminUpdateUser(c *gin.Context) {
 	respond(c, http.StatusOK, gin.H{"id": user.ID, "name": user.DisplayName, "email": user.Email, "role": body.Role, "state": body.State, "joined_at": membership.CreatedAt})
 }
 
+func membershipDeleteError(actorIsSelf bool, currentRole string) string {
+	if currentRole == "owner" {
+		return "membership.owner_protected"
+	}
+	if actorIsSelf {
+		return "membership.self_delete_forbidden"
+	}
+	return ""
+}
+
+func (h *WorkspaceHandler) AdminDeleteUser(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var membership model.Membership
+	if err := h.db.Where("organization_id = ? AND user_id = ?", principal.OrganizationID, c.Param("id")).First(&membership).Error; err != nil {
+		fail(c, http.StatusNotFound, "membership.not_found", "成员不存在。")
+		return
+	}
+	currentRole := membershipRole(h.db, membership.ID)
+	if code := membershipDeleteError(c.Param("id") == principal.UserID, currentRole); code != "" {
+		status := http.StatusConflict
+		message := "成员移除不符合保护规则。"
+		if code == "membership.owner_protected" {
+			status = http.StatusForbidden
+			message = "所有者不能被移出组织。"
+		} else if code == "membership.self_delete_forbidden" {
+			message = "不能通过成员管理删除自己，请使用退出组织功能。"
+		}
+		fail(c, status, code, message)
+		return
+	}
+	var ownedProjects int64
+	if err := h.db.Model(&model.Project{}).
+		Where("organization_id = ? AND owner_user_id = ?", principal.OrganizationID, c.Param("id")).
+		Count(&ownedProjects).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "membership.delete_failed", "成员移除暂时无法完成。")
+		return
+	}
+	if ownedProjects > 0 {
+		fail(c, http.StatusConflict, "membership.owns_projects", "该成员仍是项目负责人，请先删除或转移名下项目。")
+		return
+	}
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("membership_id = ?", membership.ID).Delete(&model.MembershipRole{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("membership_id = ?", membership.ID).Delete(&model.MembershipEvent{}).Error; err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		if err := tx.Model(&model.RefreshToken{}).
+			Where("organization_id = ? AND user_id = ? AND revoked_at IS NULL", principal.OrganizationID, c.Param("id")).
+			Update("revoked_at", now).Error; err != nil {
+			return err
+		}
+		var projectIDs []string
+		if err := tx.Model(&model.Project{}).
+			Where("organization_id = ?", principal.OrganizationID).
+			Pluck("id", &projectIDs).Error; err != nil {
+			return err
+		}
+		if len(projectIDs) > 0 {
+			if err := tx.Where("project_id IN ? AND user_id = ?", projectIDs, c.Param("id")).
+				Delete(&model.ProjectMember{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Delete(&membership).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "membership.delete", "membership", membership.ID)
+	})
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "membership.delete_failed", "成员移除失败。")
+		return
+	}
+	respond(c, http.StatusOK, gin.H{"removed": true, "id": membership.ID, "user_id": c.Param("id")})
+}
+
 func validMemberWriteState(value string) bool {
 	return value == "active" || value == "disabled"
 }
@@ -1497,6 +1625,41 @@ func (h *WorkspaceHandler) AdminUpdateProject(c *gin.Context) {
 	}
 	h.invalidatePortalCache(principal.OrganizationID)
 	respond(c, http.StatusOK, projectAdminItem(project, h.db))
+}
+
+func (h *WorkspaceHandler) AdminDeleteProject(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var project model.Project
+	if err := h.db.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&project).Error; err != nil {
+		fail(c, http.StatusNotFound, "project.not_found", "项目不存在。")
+		return
+	}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("project_id = ?", project.ID).Delete(&model.ProjectMilestone{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ?", project.ID).Delete(&model.ProjectMember{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.ActivityPlan{}).
+			Where("organization_id = ? AND project_id = ?", principal.OrganizationID, project.ID).
+			Update("project_id", nil).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&project).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "project.delete", "project", project.ID)
+	}); err != nil {
+		fail(c, http.StatusInternalServerError, "project.delete_failed", "项目删除失败。")
+		return
+	}
+	h.invalidatePortalCache(principal.OrganizationID)
+	respond(c, http.StatusOK, gin.H{"removed": true, "id": project.ID})
 }
 
 func (h *WorkspaceHandler) projectForPrincipal(c *gin.Context) (model.Project, service.Principal, bool) {
@@ -2067,6 +2230,32 @@ func (h *WorkspaceHandler) AdminApplicationDecision(c *gin.Context) {
 		return
 	}
 	respond(c, http.StatusOK, h.applicationAdminItem(application))
+}
+
+func (h *WorkspaceHandler) AdminDeleteApplication(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var application model.Application
+	if err := h.db.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&application).Error; err != nil {
+		fail(c, http.StatusNotFound, "application.not_found", "申请不存在。")
+		return
+	}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("organization_id = ? AND target_type = ? AND target_id = ?", principal.OrganizationID, "application", application.ID).Delete(&model.NotificationOutbox{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&application).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "application.delete", "application", application.ID)
+	}); err != nil {
+		fail(c, http.StatusInternalServerError, "application.delete_failed", "申请删除失败。")
+		return
+	}
+	respond(c, http.StatusOK, gin.H{"removed": true, "id": application.ID})
 }
 
 func (h *WorkspaceHandler) applicationAdminItem(application model.Application) gin.H {

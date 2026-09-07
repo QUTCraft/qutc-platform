@@ -299,6 +299,42 @@ func (s *AgentService) ListActivityPlans(principal Principal, page, pageSize int
 	return items, total, nil
 }
 
+func (s *AgentService) DeleteActivityPlan(principal Principal, planID, requestID string) error {
+	planID = strings.TrimSpace(planID)
+	var plan model.ActivityPlan
+	if err := s.db.Where("id = ? AND organization_id = ?", planID, principal.OrganizationID).First(&plan).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrActivityPlanNotFound
+		}
+		return err
+	}
+	var run model.AgentRun
+	runErr := s.db.Where("id = ? AND organization_id = ?", plan.AgentRunID, principal.OrganizationID).First(&run).Error
+	if runErr != nil && !errors.Is(runErr, gorm.ErrRecordNotFound) {
+		return runErr
+	}
+	if runErr == nil && (run.Status == AgentRunQueued || run.Status == AgentRunRunning) {
+		return ErrActivityPlanNotReady
+	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("organization_id = ? AND plan_id = ?", principal.OrganizationID, plan.ID).Delete(&model.ActivityPlanEvaluation{}).Error; err != nil {
+			return err
+		}
+		if runErr == nil {
+			if err := tx.Where("organization_id = ? AND run_id = ?", principal.OrganizationID, run.ID).Delete(&model.AgentCitation{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("organization_id = ? AND id = ?", principal.OrganizationID, run.ID).Delete(&model.AgentRun{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Delete(&plan).Error; err != nil {
+			return err
+		}
+		return createActivityAudit(tx, principal, requestID, "ai.activity_plan_delete", "activity_plan", plan.ID)
+	})
+}
+
 func (s *AgentService) GetActivityPlanEvaluation(principal Principal, planID string) (*ActivityPlanEvaluationView, error) {
 	if _, err := s.GetActivityPlan(principal.OrganizationID, planID); err != nil {
 		return nil, err

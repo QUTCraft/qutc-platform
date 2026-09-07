@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import AsyncState from '@/components/AsyncState.vue'
 import { adminApi } from '@/api/admin'
 import type { AdminProject, AdminProjectMember, AdminProjectMilestone, AdminUser } from '@/api/types'
@@ -12,6 +12,7 @@ const { data, error, loading, refresh } = useAsyncData(() => adminApi.getProject
 const dialogOpen = ref(false)
 const submitting = ref(false)
 const editingId = ref<string | null>(null)
+const deletingProjectId = ref('')
 const form = reactive({ title: '', summary: '', status: 'research' as AdminProject['status'], tags: '', is_public: true })
 const statusLabel: Record<AdminProject['status'], string> = { active: '进行中', research: '研究中', completed: '已完成' }
 
@@ -67,6 +68,32 @@ async function submit() {
     ElMessage.error(cause instanceof Error ? cause.message : '项目保存失败。')
   } finally {
     submitting.value = false
+  }
+}
+
+async function removeProject(project: AdminProject) {
+  try {
+    await ElMessageBox.confirm(
+      `确定永久删除项目“${project.title}”？项目成员和里程碑会一并删除，此操作无法恢复。`,
+      '删除项目',
+      { confirmButtonText: '永久删除', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  deletingProjectId.value = project.id
+  try {
+    await adminApi.deleteProject(project.id)
+    ElMessage.success('项目已删除。')
+    if (selectedProject.value?.id === project.id) {
+      workspaceOpen.value = false
+      selectedProject.value = null
+    }
+    await refresh()
+  } catch (cause) {
+    ElMessage.error(cause instanceof Error ? cause.message : '项目删除失败。')
+  } finally {
+    deletingProjectId.value = ''
   }
 }
 
@@ -208,11 +235,22 @@ async function removeMilestone(milestone: AdminProjectMilestone) {
           <el-table-column label="更新时间" width="150">
             <template #default="scope">{{ formatDate(scope.row.updated_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="230" fixed="right">
+          <el-table-column label="操作" width="300" fixed="right">
             <template #default="scope">
               <el-button text type="primary" @click="editProject(scope.row)">编辑</el-button>
               <el-button text type="primary" @click="openProjectWorkspace(scope.row, 'members')">成员</el-button>
               <el-button text type="primary" @click="openProjectWorkspace(scope.row, 'milestones')">里程碑</el-button>
+              <el-popconfirm
+                title="确定永久删除该项目？"
+                confirm-button-text="永久删除"
+                cancel-button-text="取消"
+                width="260"
+                @confirm="removeProject(scope.row)"
+              >
+                <template #reference>
+                  <el-button text type="danger" :loading="deletingProjectId === scope.row.id">删除</el-button>
+                </template>
+              </el-popconfirm>
             </template>
           </el-table-column>
         </el-table>

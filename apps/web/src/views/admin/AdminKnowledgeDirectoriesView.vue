@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
-import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+import { computed, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import AsyncState from '@/components/AsyncState.vue'
 import { adminApi } from '@/api/admin'
-import type { AdminKnowledgeDirectory } from '@/api/types'
+import type { AdminContent, AdminKnowledgeDirectory } from '@/api/types'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDate } from '@/utils/format'
 
@@ -17,12 +17,30 @@ const { data, error, loading, refresh } = useAsyncData(async () => {
 const dialogOpen = ref(false)
 const submitting = ref(false)
 const editingId = ref<string | null>(null)
+const deletingArticleId = ref('')
+const deletingDirectoryId = ref('')
 const formRef = ref<FormInstance>()
 const form = reactive<Omit<AdminKnowledgeDirectory, 'id' | 'updated_at'>>({ parent_id: '', name: '', slug: '', description: '', sort_order: 10, is_public: true })
 const rules: FormRules = {
   name: [{ required: true, message: '请填写目录名称', trigger: 'blur' }],
   slug: [{ required: true, message: '请填写目录标识', trigger: 'blur' }],
 }
+const articleCountByDirectory = computed(() => {
+  const counts = new Map<string, number>()
+  for (const article of data.value?.articles ?? []) {
+    if (!article.knowledge_directory_id) continue
+    counts.set(article.knowledge_directory_id, (counts.get(article.knowledge_directory_id) ?? 0) + 1)
+  }
+  return counts
+})
+const childCountByDirectory = computed(() => {
+  const counts = new Map<string, number>()
+  for (const directory of data.value?.directories.items ?? []) {
+    if (!directory.parent_id) continue
+    counts.set(directory.parent_id, (counts.get(directory.parent_id) ?? 0) + 1)
+  }
+  return counts
+})
 
 function resetForm() {
   editingId.value = null
@@ -48,6 +66,68 @@ function editDirectory(item: AdminKnowledgeDirectory) {
   editingId.value = item.id
   Object.assign(form, { parent_id: item.parent_id, name: item.name, slug: item.slug, description: item.description, sort_order: item.sort_order, is_public: item.is_public })
   dialogOpen.value = true
+}
+
+function directoryDeleteBlockReason(item: AdminKnowledgeDirectory) {
+  const articleCount = articleCountByDirectory.value.get(item.id) ?? 0
+  const childCount = childCountByDirectory.value.get(item.id) ?? 0
+  if (articleCount > 0 && childCount > 0) return '该目录下仍有知识文章和子目录，请先移动或删除。'
+  if (articleCount > 0) return '该目录下仍有知识文章，请先移动或删除。'
+  if (childCount > 0) return '该目录下仍有子目录，请先移动或删除。'
+  return ''
+}
+
+async function removeArticle(item: AdminContent) {
+  if (!item.can_delete) {
+    ElMessage.warning('已发布文章需要先下线后才能删除。')
+    return
+  }
+  try {
+    await ElMessageBox.confirm('确定永久删除这篇知识文章？修订与审核记录会一并清除，且无法恢复。', '删除知识文章', {
+      confirmButtonText: '永久删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  deletingArticleId.value = item.id
+  try {
+    await adminApi.deleteContent(item.id)
+    ElMessage.success('知识文章已删除。')
+    await refresh()
+  } catch (cause) {
+    ElMessage.error(cause instanceof Error ? cause.message : '知识文章删除失败。')
+  } finally {
+    deletingArticleId.value = ''
+  }
+}
+
+async function removeDirectory(item: AdminKnowledgeDirectory) {
+  const reason = directoryDeleteBlockReason(item)
+  if (reason) {
+    ElMessage.warning(reason)
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确定删除知识库目录“${item.name}”？仅空目录可以删除，此操作无法恢复。`, '删除知识库目录', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  deletingDirectoryId.value = item.id
+  try {
+    await adminApi.deleteKnowledgeDirectory(item.id)
+    ElMessage.success('知识库目录已删除。')
+    await refresh()
+  } catch (cause) {
+    ElMessage.error(cause instanceof Error ? cause.message : '知识库目录删除失败。')
+  } finally {
+    deletingDirectoryId.value = ''
+  }
 }
 
 async function submit() {
@@ -92,7 +172,27 @@ async function submit() {
           <el-table-column prop="category" label="分类" min-width="130" />
           <el-table-column label="状态" width="110"><template #default="scope"><el-tag :type="contentStatusType(scope.row.status)" effect="plain">{{ contentStatusLabel(scope.row.status) }}</el-tag></template></el-table-column>
           <el-table-column label="更新时间" width="150"><template #default="scope">{{ formatDate(scope.row.updated_at) }}</template></el-table-column>
-          <el-table-column label="操作" width="100" fixed="right"><template #default="scope"><RouterLink :to="`/admin/content/${scope.row.id}/edit`"><el-button text type="primary">编辑</el-button></RouterLink></template></el-table-column>
+          <el-table-column label="操作" width="190" fixed="right">
+            <template #default="scope">
+              <RouterLink :to="`/admin/content/${scope.row.id}/edit`"><el-button text type="primary">编辑</el-button></RouterLink>
+              <el-tooltip :content="scope.row.status === 'published' ? '已发布文章请先下线后再删除' : '永久删除知识文章及其修订与审核记录'" :disabled="Boolean(scope.row.can_delete)" placement="top">
+                <span>
+                  <el-popconfirm
+                    title="确定永久删除这篇知识文章？"
+                    confirm-button-text="永久删除"
+                    cancel-button-text="取消"
+                    width="280"
+                    :disabled="!scope.row.can_delete"
+                    @confirm="removeArticle(scope.row)"
+                  >
+                    <template #reference>
+                      <el-button text type="danger" :disabled="!scope.row.can_delete || deletingArticleId === scope.row.id" :loading="deletingArticleId === scope.row.id">删除</el-button>
+                    </template>
+                  </el-popconfirm>
+                </span>
+              </el-tooltip>
+            </template>
+          </el-table-column>
         </el-table>
         <el-empty v-else description="还没有知识文章">
           <RouterLink to="/admin/content/new?type=knowledge"><el-button type="primary" round>新建第一篇知识文章</el-button></RouterLink>
@@ -117,8 +217,26 @@ async function submit() {
           <el-table-column label="更新时间" width="150">
             <template #default="scope">{{ formatDate(scope.row.updated_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="100" fixed="right">
-            <template #default="scope"><el-button text type="primary" @click="editDirectory(scope.row)">编辑</el-button></template>
+          <el-table-column label="操作" width="190" fixed="right">
+            <template #default="scope">
+              <el-button text type="primary" @click="editDirectory(scope.row)">编辑</el-button>
+              <el-tooltip :content="directoryDeleteBlockReason(scope.row)" :disabled="!directoryDeleteBlockReason(scope.row)" placement="top">
+                <span>
+                  <el-popconfirm
+                    title="确定删除该知识库目录？仅空目录可以删除，且无法恢复。"
+                    confirm-button-text="删除"
+                    cancel-button-text="取消"
+                    width="280"
+                    :disabled="Boolean(directoryDeleteBlockReason(scope.row))"
+                    @confirm="removeDirectory(scope.row)"
+                  >
+                    <template #reference>
+                      <el-button text type="danger" :disabled="Boolean(directoryDeleteBlockReason(scope.row)) || deletingDirectoryId === scope.row.id" :loading="deletingDirectoryId === scope.row.id">删除</el-button>
+                    </template>
+                  </el-popconfirm>
+                </span>
+              </el-tooltip>
+            </template>
           </el-table-column>
         </el-table>
         <el-empty v-else description="暂无知识库目录"><el-button type="primary" round @click="resetForm">新建第一个目录</el-button></el-empty>
