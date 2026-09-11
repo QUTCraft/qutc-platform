@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { Menu, UserFilled } from '@element-plus/icons-vue'
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { resolveApiUrl } from '@/api/client'
 import { organizationSlug } from '@/api/portal'
 import { useApplyTransition } from '@/composables/useApplyTransition'
 import { usePortalIdentity } from '@/composables/usePortalIdentity'
+import { session, signOut } from '@/stores/session'
 
+const route = useRoute()
 const router = useRouter()
 const { navigateToApply } = useApplyTransition()
+const signedIn = computed(() => Boolean(session.user))
 const mobileOpen = ref(false)
 const { organization, loadPortalOrganization } = usePortalIdentity()
 const isQutcraftPortal = organizationSlug === 'qutcraft'
@@ -21,8 +24,13 @@ watch(organizationLogo, () => {
   logoLoadFailed.value = false
 })
 
-const goToLogin = () => router.push({ name: 'login' })
+const goToLogin = () => router.push({ name: 'login', query: { redirect: route.fullPath } })
 const goToRegister = () => router.push({ name: 'register' })
+const goToWorkspace = () => router.push({ name: 'admin-dashboard' })
+async function logout() {
+  await signOut()
+  if (route.path.startsWith('/admin')) await router.replace('/')
+}
 const skinSiteUrl = 'https://skin.qutcraft.cn/'
 const runPrimaryAction = (event: MouseEvent) => {
   if (isQutcraftPortal) {
@@ -74,9 +82,16 @@ onMounted(() => {
         <span>QUTC Skin</span>
         <span class="header-external-mark" aria-hidden="true">↗</span>
       </a>
-      <el-button class="header-login-btn" text :icon="UserFilled" aria-label="成员登录" @click="goToLogin">成员登录</el-button>
-      <el-button class="header-register-btn" text aria-label="注册成员账户" @click="goToRegister">注册</el-button>
-      <el-button class="header-join-btn" type="primary" round @click="(event: MouseEvent) => runPrimaryAction(event)">{{ isQutcraftPortal ? '加入我们' : '公开项目' }}</el-button>
+      <template v-if="signedIn">
+        <span class="header-session-name">{{ session.user?.display_name }}</span>
+        <el-button class="header-workspace-btn" text @click="goToWorkspace">工作台</el-button>
+        <el-button class="header-login-btn" text @click="logout">退出</el-button>
+      </template>
+      <template v-else>
+        <el-button class="header-login-btn" text :icon="UserFilled" aria-label="成员登录" @click="goToLogin">成员登录</el-button>
+        <el-button class="header-register-btn" text aria-label="注册成员账户" @click="goToRegister">注册</el-button>
+        <el-button class="header-join-btn" type="primary" round @click="(event: MouseEvent) => runPrimaryAction(event)">{{ isQutcraftPortal ? '加入我们' : '公开项目' }}</el-button>
+      </template>
       <el-button class="menu-button" text circle :icon="Menu" aria-label="打开导航" @click="mobileOpen = true" />
     </div>
   </header>
@@ -95,8 +110,14 @@ onMounted(() => {
         <span>QUTC Skin 皮肤站</span>
         <span aria-hidden="true">↗</span>
       </a>
-      <RouterLink to="/login" @click="mobileOpen = false">成员登录</RouterLink>
-      <RouterLink to="/register" @click="mobileOpen = false">注册成员账户</RouterLink>
+      <template v-if="signedIn">
+        <RouterLink to="/admin" @click="mobileOpen = false">工作台</RouterLink>
+        <button type="button" class="mobile-logout" @click="mobileOpen = false; logout()">退出登录</button>
+      </template>
+      <template v-else>
+        <RouterLink :to="{ name: 'login', query: { redirect: route.fullPath } }" @click="mobileOpen = false">成员登录</RouterLink>
+        <RouterLink to="/register" @click="mobileOpen = false">注册成员账户</RouterLink>
+      </template>
     </nav>
   </el-drawer>
 </template>

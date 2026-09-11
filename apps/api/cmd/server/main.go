@@ -257,8 +257,8 @@ func main() {
 	admin.PUT("/ai/activity-plans/:plan_id/evaluation", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "ai:use"), aiHandler.SaveActivityPlanEvaluation)
 	admin.POST("/ai/activity-plans/:plan_id/approve", sensitiveRateLimiter.Middleware(), middleware.RequirePermission(authService, "ai:use"), middleware.RequirePermission(authService, "project:manage"), middleware.RequirePermission(authService, "content:create"), aiHandler.ApproveActivityPlan)
 
-	// 门户接口保持匿名可读。写入申请仍必须经过独立限流，防止公开端点被滥用。
-	portal := v1.Group("/portal/organizations/:slug")
+	// 门户接口默认匿名可读；可选会话用于向当前组织成员展示“仅登录可见”的已发布内容。
+	portal := v1.Group("/portal/organizations/:slug", middleware.OptionalAuth(authService))
 	portal.GET("", workspaceHandler.Organization)
 	portal.GET("/configuration", portalConfigHandler.Public)
 	portal.GET("/content/:id", workspaceHandler.PortalContentDetail)

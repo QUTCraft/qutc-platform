@@ -32,8 +32,9 @@ async function submit() {
   submitting.value = true
   try {
     await signIn(form.email, form.password)
-    ElMessage.success('登录成功，欢迎回到管理工作台！')
-    await router.replace(typeof route.query.redirect === 'string' ? route.query.redirect : '/admin')
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/admin'
+    ElMessage.success(redirect.startsWith('/admin') ? '登录成功，欢迎回到管理工作台！' : '登录成功，已返回门户。仅登录成员可见的内容现在会显示。')
+    await router.replace(redirect)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '登录失败，请检查凭证后再试。')
   } finally {

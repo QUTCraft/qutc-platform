@@ -76,6 +76,22 @@ func RequirePermission(auth *service.AuthService, permission string) gin.Handler
 	}
 }
 
+// OptionalAuth 在门户等匿名可读接口上尝试解析会话，失败时继续按未登录处理。
+func OptionalAuth(auth *service.AuthService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		rawToken := accessTokenFromRequest(c.Request)
+		if rawToken == "" {
+			c.Next()
+			return
+		}
+		principal, err := auth.AuthenticateAccessToken(rawToken)
+		if err == nil {
+			c.Set(principalKey, principal)
+		}
+		c.Next()
+	}
+}
+
 // PrincipalFromContext 读取 RequireAuth 缓存到当前请求的认证主体。
 // 第二个返回值表示该上下文是否含有类型正确的主体。
 func PrincipalFromContext(c *gin.Context) (service.Principal, bool) {

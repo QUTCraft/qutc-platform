@@ -72,12 +72,12 @@ func TestS1ContentLifecycleAndCacheInvalidation(t *testing.T) {
 	t.Cleanup(func() { _ = redisClient.Close() })
 
 	accessToken := loginAsOwner(t, client, cfg)
-	postsCacheKey := fmt.Sprintf("qutc:%s:portal:%s:posts:default", cfg.cacheNamespace, cfg.organizationSlug)
+	postsCacheKey := fmt.Sprintf("qutc:%s:portal:%s:posts:anon:default", cfg.cacheNamespace, cfg.organizationSlug)
 
 	for iteration := 1; iteration <= 3; iteration++ {
 		t.Run(fmt.Sprintf("round_%d", iteration), func(t *testing.T) {
 			content := createDraft(t, client, cfg, accessToken, iteration)
-			detailCacheKey := fmt.Sprintf("qutc:%s:portal:%s:content:%s", cfg.cacheNamespace, cfg.organizationSlug, content.ID)
+			detailCacheKey := fmt.Sprintf("qutc:%s:portal:%s:content:%s:anon", cfg.cacheNamespace, cfg.organizationSlug, content.ID)
 			t.Cleanup(func() {
 				cleanupContentFixture(t, db, content.ID)
 				_ = redisClient.Del(context.Background(), postsCacheKey, detailCacheKey).Err()
@@ -154,8 +154,8 @@ func TestS1ContentVisibilityAndStatusFilter(t *testing.T) {
 
 	accessToken := loginAsOwner(t, client, cfg)
 	content := createDraft(t, client, cfg, accessToken, 90)
-	postsCacheKey := fmt.Sprintf("qutc:%s:portal:%s:posts:default", cfg.cacheNamespace, cfg.organizationSlug)
-	detailCacheKey := fmt.Sprintf("qutc:%s:portal:%s:content:%s", cfg.cacheNamespace, cfg.organizationSlug, content.ID)
+	postsCacheKey := fmt.Sprintf("qutc:%s:portal:%s:posts:anon:default", cfg.cacheNamespace, cfg.organizationSlug)
+	detailCacheKey := fmt.Sprintf("qutc:%s:portal:%s:content:%s:anon", cfg.cacheNamespace, cfg.organizationSlug, content.ID)
 	t.Cleanup(func() {
 		cleanupContentFixture(t, db, content.ID)
 		_ = redisClient.Del(context.Background(), postsCacheKey, detailCacheKey).Err()
@@ -190,9 +190,13 @@ func TestS1ContentVisibilityAndStatusFilter(t *testing.T) {
 	}
 	requireCacheKey(t, redisClient, postsCacheKey, false)
 	if containsPost(getPublicPosts(t, client, cfg), content.ID) {
-		t.Fatalf("internal published content %s leaked into Portal posts", content.ID)
+		t.Fatalf("members-only published content %s leaked into anonymous Portal posts", content.ID)
 	}
 	requireStatus(t, client, http.MethodGet, portalContentURL(cfg, content.ID), "", nil, http.StatusNotFound)
+	if !containsPost(getPortalPosts(t, client, cfg, accessToken), content.ID) {
+		t.Fatalf("members-only published content %s missing from authenticated Portal posts", content.ID)
+	}
+	requireStatus(t, client, http.MethodGet, portalContentURL(cfg, content.ID), accessToken, nil, http.StatusOK)
 
 	visible := setContentVisibility(t, client, cfg, accessToken, content.ID, true)
 	if !visible.IsPublic {
@@ -532,7 +536,12 @@ func changeContentStatus(t *testing.T, client *http.Client, cfg integrationConfi
 
 func getPublicPosts(t *testing.T, client *http.Client, cfg integrationConfig) []publicPostDTO {
 	t.Helper()
-	responseBody := request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/portal/organizations/"+cfg.organizationSlug+"/posts", "", nil, http.StatusOK)
+	return getPortalPosts(t, client, cfg, "")
+}
+
+func getPortalPosts(t *testing.T, client *http.Client, cfg integrationConfig, token string) []publicPostDTO {
+	t.Helper()
+	responseBody := request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/portal/organizations/"+cfg.organizationSlug+"/posts", token, nil, http.StatusOK)
 	var envelope apiEnvelope[[]publicPostDTO]
 	decodeJSON(t, responseBody, &envelope)
 	return envelope.Data

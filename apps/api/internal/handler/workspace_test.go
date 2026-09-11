@@ -193,6 +193,7 @@ func TestContentPublicItemsExcludeInternalFields(t *testing.T) {
 		Type:           "news",
 		Category:       "公告",
 		Status:         "published",
+		IsPublic:       true,
 		Excerpt:        "公开摘要",
 		Body:           "公开正文",
 		PublishedAt:    &publishedAt,
@@ -212,6 +213,9 @@ func TestContentPublicItemsExcludeInternalFields(t *testing.T) {
 	}
 	if detailItem["body"] != "公开正文" {
 		t.Fatal("detail response should include the published body")
+	}
+	if listItem["members_only"] != false || detailItem["members_only"] != false {
+		t.Fatal("public content should not be marked members_only")
 	}
 }
 

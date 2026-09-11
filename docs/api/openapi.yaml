@@ -105,7 +105,7 @@ paths:
       tags: [Portal]
       operationId: getPortalContentDetail
       summary: 获取一篇已发布内容的完整正文
-      description: 只返回当前组织中已发布的公开内容；草稿、下线内容和管理字段不会被公开。body 使用标准 Markdown，正文内由 CMS 上传的媒体会通过组织门户地址加载。
+      description: 匿名访客只看到门户公开的已发布内容。当前组织的登录成员还可以阅读“仅登录可见”的已发布内容。草稿、下线内容和管理字段不会被公开。body 使用标准 Markdown，正文内由 CMS 上传的媒体会通过组织门户地址加载。
       parameters:
         - $ref: '#/components/parameters/OrganizationSlug'
         - name: content_id
@@ -775,8 +775,8 @@ paths:
     patch:
       tags: [Admin]
       operationId: updateAdminContentVisibility
-      summary: 设置已发布内容是否公开
-      description: 仅作者或具有内容审核权限的管理员可修改；内容必须处于已发布状态。关闭公开后门户不再展示该内容，后台仍可查看。
+      summary: 设置已发布内容是否对未登录访客公开
+      description: 仅作者或具有内容审核权限的管理员可修改；内容必须处于已发布状态。关闭后未登录访客从公开门户隐藏，当前组织的登录成员仍可阅读。下线才会让内容对所有门户访客不可见。
       security: [{ BearerAuth: [] }, { AccessCookie: [] }]
       parameters:
         - name: content_id
@@ -2557,6 +2557,7 @@ components:
         category: { type: string, maxLength: 64 }
         published_at: { type: string, format: date-time }
         reading_minutes: { type: integer, minimum: 1 }
+        members_only: { type: boolean, description: 'true 表示仅当前组织登录成员可见。' }
     PortalContentType:
       type: string
       enum: [news, resource, knowledge]
@@ -2581,6 +2582,7 @@ components:
         published_at: { type: [string, 'null'], format: date-time }
         updated_at: { type: string, format: date-time }
         reading_minutes: { type: integer, minimum: 1 }
+        members_only: { type: boolean, description: 'true 表示仅当前组织登录成员可见。' }
         asset:
           anyOf:
             - $ref: '#/components/schemas/PortalContentAsset'
@@ -2617,6 +2619,7 @@ components:
           type: [string, 'null']
           format: uri-reference
           description: 有关联文件时返回受控下载地址；没有文件时为 null，前端不得自行拼接对象存储 URL。
+        members_only: { type: boolean, description: 'true 表示仅当前组织登录成员可见。' }
     KnowledgeArticle:
       type: object
       required: [id, title, summary, category, updated_at, reading_minutes]
@@ -2627,6 +2630,7 @@ components:
         category: { type: string, maxLength: 64 }
         updated_at: { type: string, format: date-time }
         reading_minutes: { type: integer, minimum: 1 }
+        members_only: { type: boolean, description: 'true 表示仅当前组织登录成员可见。' }
     KnowledgeDirectory:
       type: object
       required: [id, name, slug, description, article_count, updated_at]
@@ -2764,7 +2768,7 @@ components:
       type: object
       required: [is_public]
       properties:
-        is_public: { type: boolean, description: 'true 时在门户公开展示，false 时仅后台可见。' }
+        is_public: { type: boolean, description: 'true 时未登录访客可见；false 时仅当前组织登录成员可在门户阅读。' }
     CreateAdminContentRequest:
       type: object
       required: [title, type]

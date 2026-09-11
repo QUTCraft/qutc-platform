@@ -8,6 +8,7 @@ import type { AdminContent, ContentRevision } from '@/api/types'
 import AIContentAssistant from '@/components/admin/AIContentAssistant.vue'
 import AIChatPanel from '@/components/admin/AIChatPanel.vue'
 import MarkdownContent from '@/components/MarkdownContent.vue'
+import MdSwitch from '@/components/MdSwitch.vue'
 import { useAsyncData } from '@/composables/useAsyncData'
 
 type ContentType = AdminContent['type']
@@ -239,7 +240,7 @@ async function setVisibility(isPublic: boolean) {
   visibilitySaving.value = true
   try {
     loadItem(await adminApi.updateContentVisibility(contentId.value, { is_public: isPublic }))
-    ElMessage.success(isPublic ? '内容已公开到门户。' : '内容已从门户隐藏，后台仍可查看。')
+    ElMessage.success(isPublic ? '内容已对未登录访客公开。' : '内容改为仅登录成员可见，未登录访客从门户隐藏。')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '公开状态更新失败。')
   } finally {
@@ -476,18 +477,17 @@ onBeforeUnmount(() => {
         <div class="editor-title-row">
           <h2>{{ isNew ? '新建内容' : '编辑内容' }}</h2>
           <el-tag :type="status === 'published' ? 'success' : status === 'archived' ? 'info' : 'warning'" effect="plain">{{ statusLabel }}</el-tag>
-          <el-switch
+          <MdSwitch
             v-if="status === 'published'"
             :model-value="currentContent?.is_public !== false"
             :disabled="!canSetVisibility || visibilitySaving"
             :loading="visibilitySaving"
-            inline-prompt
-            active-text="门户公开"
-            inactive-text="仅内部"
-            @change="(value: string | number | boolean) => setVisibility(Boolean(value))"
+            on-label="公开"
+            off-label="成员可见"
+            @change="setVisibility"
           />
         </div>
-		<p>{{ readOnly ? (status === 'review' ? '当前版本正在等待审核，退回后可继续修改。' : status === 'published' ? '当前以只读方式查看内容，可单独设置是否公开到门户。' : '当前以只读方式查看内容。') : '使用标准 Markdown 编写正文，右侧预览会随输入即时更新。' }}</p>
+		<p>{{ readOnly ? (status === 'review' ? '当前版本正在等待审核，退回后可继续修改。' : status === 'published' ? '已发布内容可设为门户公开或仅登录成员可见；下线后才会从门户移除。' : '当前以只读方式查看内容。') : '使用标准 Markdown 编写正文，右侧预览会随输入即时更新。' }}</p>
       </div>
       <div class="content-editor-actions">
 		<el-button v-if="canEdit" class="editor-ai-button" :icon="MagicStick" @click="aiAssistantOpen = true">从知识生成</el-button>

@@ -327,9 +327,9 @@ test('admin content workspace filters by status and toggles portal visibility', 
   const publishedRow = page.getByRole('row').filter({ hasText: 'QUTCraft CMS 项目正式启动' })
   await expect(publishedRow).toBeVisible()
   await expect(page.getByRole('row').filter({ hasText: '自定义门户接入约定' })).toHaveCount(0)
-  await publishedRow.locator('.el-switch').click()
-  await expect(page.getByText('内容已从门户隐藏，后台仍可查看。')).toBeVisible()
-  await expect(publishedRow.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
+  await publishedRow.locator('.md-switch').click()
+  await expect(page.getByText('内容改为仅登录成员可见，未登录访客从门户隐藏。')).toBeVisible()
+  await expect(publishedRow.locator('.md-switch-input')).toHaveAttribute('aria-checked', 'false')
 })
 
 test('content editor keeps the full-page markdown workspace scrollable', async ({ page }) => {

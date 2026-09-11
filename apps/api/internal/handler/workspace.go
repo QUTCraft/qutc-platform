@@ -111,9 +111,38 @@ func (h *WorkspaceHandler) storageFor(ctx context.Context, organizationID, drive
 	return h.mediaStorage, nil
 }
 
+// portalSeesMembersOnly 判断当前请求是否属于该组织的已登录成员，从而可阅读仅成员可见的已发布内容。
+func (h *WorkspaceHandler) portalSeesMembersOnly(c *gin.Context, organizationID string) bool {
+	principal, ok := middleware.PrincipalFromContext(c)
+	return ok && principal.OrganizationID == organizationID
+}
+
+func (h *WorkspaceHandler) portalAudience(c *gin.Context, organizationID string) string {
+	if h.portalSeesMembersOnly(c, organizationID) {
+		return "member"
+	}
+	return "anon"
+}
+
+func (h *WorkspaceHandler) restrictPublishedContent(query *gorm.DB, tablePrefix string, includeMembersOnly bool) *gorm.DB {
+	statusColumn, publicColumn := "status", "is_public"
+	if tablePrefix != "" {
+		statusColumn = tablePrefix + ".status"
+		publicColumn = tablePrefix + ".is_public"
+	}
+	query = query.Where(statusColumn+" = ?", service.ContentStatusPublished)
+	if !includeMembersOnly {
+		query = query.Where(publicColumn+" = ?", true)
+	}
+	return query
+}
+
 // cachedPortalPage 读取或写入公开门户列表缓存，缓存失败不影响数据库查询结果返回。
-func (h *WorkspaceHandler) cachedPortalPage(c *gin.Context, slug, resource string, loader func() ([]gin.H, error)) {
-	key := "qutc:" + h.cacheNamespace + ":portal:" + slug + ":" + resource + ":" + cache.NormalizeQuery(c.Request.URL.RawQuery)
+func (h *WorkspaceHandler) cachedPortalPage(c *gin.Context, slug, resource, audience string, loader func() ([]gin.H, error)) {
+	if audience == "" {
+		audience = "anon"
+	}
+	key := "qutc:" + h.cacheNamespace + ":portal:" + slug + ":" + resource + ":" + audience + ":" + cache.NormalizeQuery(c.Request.URL.RawQuery)
 	var items []gin.H
 	if h.cache != nil && h.cache.Get(context.Background(), key, &items) {
 		pageOf(c, items)
@@ -131,8 +160,11 @@ func (h *WorkspaceHandler) cachedPortalPage(c *gin.Context, slug, resource strin
 }
 
 // cachedPortalItem 读取或写入公开门户单项缓存，并保持与列表缓存相同的容错策略。
-func (h *WorkspaceHandler) cachedPortalItem(c *gin.Context, slug, resource string, loader func() (gin.H, error)) {
-	key := "qutc:" + h.cacheNamespace + ":portal:" + slug + ":" + resource
+func (h *WorkspaceHandler) cachedPortalItem(c *gin.Context, slug, resource, audience string, loader func() (gin.H, error)) {
+	if audience == "" {
+		audience = "anon"
+	}
+	key := "qutc:" + h.cacheNamespace + ":portal:" + slug + ":" + resource + ":" + audience
 	var item gin.H
 	if h.cache != nil && h.cache.Get(context.Background(), key, &item) {
 		respond(c, http.StatusOK, item)
@@ -230,9 +262,11 @@ func (h *WorkspaceHandler) PortalContentDetail(c *gin.Context) {
 		return
 	}
 	contentID := c.Param("id")
-	h.cachedPortalItem(c, c.Param("slug"), "content:"+contentID, func() (gin.H, error) {
+	h.cachedPortalItem(c, c.Param("slug"), "content:"+contentID, h.portalAudience(c, organization.ID), func() (gin.H, error) {
 		var content model.Content
-		if err := h.db.Where("id = ? AND organization_id = ? AND status = ? AND is_public = ?", contentID, organization.ID, service.ContentStatusPublished, true).Where("(type <> ? OR knowledge_directory_id IS NULL OR knowledge_directory_id = '' OR EXISTS (SELECT 1 FROM knowledge_directories AS directory WHERE directory.id = contents.knowledge_directory_id AND directory.organization_id = contents.organization_id AND directory.is_public = ?))", service.ContentTypeKnowledge, true).First(&content).Error; err != nil {
+		query := h.db.Where("id = ? AND organization_id = ?", contentID, organization.ID)
+		query = h.restrictPublishedContent(query, "", h.portalSeesMembersOnly(c, organization.ID))
+		if err := query.Where("(type <> ? OR knowledge_directory_id IS NULL OR knowledge_directory_id = '' OR EXISTS (SELECT 1 FROM knowledge_directories AS directory WHERE directory.id = contents.knowledge_directory_id AND directory.organization_id = contents.organization_id AND directory.is_public = ?))", service.ContentTypeKnowledge, true).First(&content).Error; err != nil {
 			return nil, gorm.ErrRecordNotFound
 		}
 		return h.contentPublicDetailItem(c.Param("slug"), content), nil
@@ -250,11 +284,12 @@ func (h *WorkspaceHandler) PortalPosts(c *gin.Context) {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
-	query := h.db.Where("organization_id = ? AND type = ? AND status = ? AND is_public = ?", organization.ID, "news", "published", true).Order("published_at DESC")
+	query := h.db.Where("organization_id = ? AND type = ?", organization.ID, "news").Order("published_at DESC")
+	query = h.restrictPublishedContent(query, "", h.portalSeesMembersOnly(c, organization.ID))
 	if category != "" {
 		query = query.Where("category = ?", category)
 	}
-	h.cachedPortalPage(c, c.Param("slug"), "posts", func() ([]gin.H, error) {
+	h.cachedPortalPage(c, c.Param("slug"), "posts", h.portalAudience(c, organization.ID), func() ([]gin.H, error) {
 		var contents []model.Content
 		if err := query.Find(&contents).Error; err != nil {
 			return nil, err
@@ -282,7 +317,7 @@ func (h *WorkspaceHandler) PortalProjects(c *gin.Context) {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
-	h.cachedPortalPage(c, c.Param("slug"), "projects", func() ([]gin.H, error) {
+	h.cachedPortalPage(c, c.Param("slug"), "projects", "anon", func() ([]gin.H, error) {
 		query := h.db.Where("organization_id = ? AND is_public = ?", organization.ID, true).Order("updated_at DESC")
 		if status != "" {
 			query = query.Where("status = ?", status)
@@ -318,11 +353,12 @@ func (h *WorkspaceHandler) PortalResources(c *gin.Context) {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
-	query := h.db.Where("organization_id = ? AND type = ? AND status = ? AND is_public = ?", organization.ID, "resource", "published", true).Order("updated_at DESC")
+	query := h.db.Where("organization_id = ? AND type = ?", organization.ID, "resource").Order("updated_at DESC")
+	query = h.restrictPublishedContent(query, "", h.portalSeesMembersOnly(c, organization.ID))
 	if q != "" {
 		query = query.Where("title LIKE ? OR excerpt LIKE ? OR body LIKE ?", "%"+q+"%", "%"+q+"%", "%"+q+"%")
 	}
-	h.cachedPortalPage(c, c.Param("slug"), "resources", func() ([]gin.H, error) {
+	h.cachedPortalPage(c, c.Param("slug"), "resources", h.portalAudience(c, organization.ID), func() ([]gin.H, error) {
 		var contents []model.Content
 		if err := query.Find(&contents).Error; err != nil {
 			return nil, err
@@ -353,14 +389,15 @@ func (h *WorkspaceHandler) PortalKnowledge(c *gin.Context) {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
-	query := h.db.Table("contents AS content").Select("content.*").Joins("LEFT JOIN knowledge_directories AS directory ON directory.id = content.knowledge_directory_id AND directory.organization_id = content.organization_id").Where("content.organization_id = ? AND content.type = ? AND content.status = ? AND content.is_public = ?", organization.ID, service.ContentTypeKnowledge, service.ContentStatusPublished, true).Where("(content.knowledge_directory_id IS NULL OR content.knowledge_directory_id = '' OR directory.is_public = ?)", true).Order("content.updated_at DESC")
+	query := h.db.Table("contents AS content").Select("content.*").Joins("LEFT JOIN knowledge_directories AS directory ON directory.id = content.knowledge_directory_id AND directory.organization_id = content.organization_id").Where("content.organization_id = ? AND content.type = ?", organization.ID, service.ContentTypeKnowledge).Where("(content.knowledge_directory_id IS NULL OR content.knowledge_directory_id = '' OR directory.is_public = ?)", true).Order("content.updated_at DESC")
+	query = h.restrictPublishedContent(query, "content", h.portalSeesMembersOnly(c, organization.ID))
 	if category != "" {
 		query = query.Where("(content.category = ? OR directory.name = ? OR directory.slug = ? OR content.title LIKE ? OR content.excerpt LIKE ?)", category, category, category, "%"+category+"%", "%"+category+"%")
 	}
 	if q != "" {
 		query = query.Where("(content.title LIKE ? OR content.excerpt LIKE ? OR content.body LIKE ?)", "%"+q+"%", "%"+q+"%", "%"+q+"%")
 	}
-	h.cachedPortalPage(c, c.Param("slug"), "knowledge", func() ([]gin.H, error) {
+	h.cachedPortalPage(c, c.Param("slug"), "knowledge", h.portalAudience(c, organization.ID), func() ([]gin.H, error) {
 		var contents []model.Content
 		if err := query.Find(&contents).Error; err != nil {
 			return nil, err
@@ -377,7 +414,7 @@ func (h *WorkspaceHandler) PortalKnowledge(c *gin.Context) {
 			if categoryName == "" {
 				categoryName = "知识库"
 			}
-			items = append(items, gin.H{"id": content.ID, "title": content.Title, "summary": content.Excerpt, "category": categoryName, "updated_at": content.UpdatedAt, "reading_minutes": maxInt(1, len([]rune(content.Body))/900+1)})
+			items = append(items, gin.H{"id": content.ID, "title": content.Title, "summary": content.Excerpt, "category": categoryName, "updated_at": content.UpdatedAt, "reading_minutes": maxInt(1, len([]rune(content.Body))/900+1), "members_only": !content.IsPublic})
 		}
 		return items, nil
 	})
@@ -390,7 +427,7 @@ func (h *WorkspaceHandler) PortalKnowledgeDirectories(c *gin.Context) {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
-	h.cachedPortalPage(c, c.Param("slug"), "knowledge-directories", func() ([]gin.H, error) {
+	h.cachedPortalPage(c, c.Param("slug"), "knowledge-directories", h.portalAudience(c, organization.ID), func() ([]gin.H, error) {
 		var directories []model.KnowledgeDirectory
 		if err := h.db.Where("organization_id = ? AND is_public = ?", organization.ID, true).Order("sort_order ASC, name ASC").Find(&directories).Error; err != nil {
 			return nil, err
@@ -398,7 +435,9 @@ func (h *WorkspaceHandler) PortalKnowledgeDirectories(c *gin.Context) {
 		items := make([]gin.H, 0, len(directories))
 		for _, directory := range directories {
 			var articleCount int64
-			h.db.Model(&model.Content{}).Where("organization_id = ? AND type = ? AND status = ? AND is_public = ? AND (knowledge_directory_id = ? OR ((knowledge_directory_id IS NULL OR knowledge_directory_id = '') AND category = ?))", organization.ID, service.ContentTypeKnowledge, service.ContentStatusPublished, true, directory.ID, directory.Name).Count(&articleCount)
+			countQuery := h.db.Model(&model.Content{}).Where("organization_id = ? AND type = ? AND (knowledge_directory_id = ? OR ((knowledge_directory_id IS NULL OR knowledge_directory_id = '') AND category = ?))", organization.ID, service.ContentTypeKnowledge, directory.ID, directory.Name)
+			countQuery = h.restrictPublishedContent(countQuery, "", h.portalSeesMembersOnly(c, organization.ID))
+			countQuery.Count(&articleCount)
 			items = append(items, gin.H{"id": directory.ID, "name": directory.Name, "slug": directory.Slug, "description": directory.Description, "article_count": articleCount, "updated_at": directory.UpdatedAt})
 		}
 		return items, nil
@@ -898,7 +937,7 @@ type contentVisibilityRequest struct {
 	IsPublic *bool `json:"is_public"`
 }
 
-// AdminUpdateContentVisibility 仅允许已发布内容切换门户公开状态，不改动正文或生命周期。
+// AdminUpdateContentVisibility 仅允许已发布内容切换门户公开或仅登录成员可见，不改动生命周期。
 func (h *WorkspaceHandler) AdminUpdateContentVisibility(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
@@ -907,7 +946,7 @@ func (h *WorkspaceHandler) AdminUpdateContentVisibility(c *gin.Context) {
 	}
 	var body contentVisibilityRequest
 	if err := c.ShouldBindJSON(&body); err != nil || body.IsPublic == nil {
-		fail(c, http.StatusBadRequest, "content.visibility_invalid", "请指定内容是否公开。")
+		fail(c, http.StatusBadRequest, "content.visibility_invalid", "请指定内容是否对未登录访客公开。")
 		return
 	}
 	var content model.Content
@@ -928,7 +967,7 @@ func (h *WorkspaceHandler) AdminUpdateContentVisibility(c *gin.Context) {
 		return
 	}
 	if content.Status != service.ContentStatusPublished {
-		fail(c, http.StatusConflict, "content.visibility_requires_published", "只有已发布内容可以设置是否公开。")
+		fail(c, http.StatusConflict, "content.visibility_requires_published", "只有已发布内容可以设置门户公开或仅登录成员可见。")
 		return
 	}
 	if content.IsPublic == *body.IsPublic {
@@ -1326,7 +1365,7 @@ func contentPublicItem(content model.Content) gin.H {
 	if category == "" {
 		category = content.Type
 	}
-	return gin.H{"id": content.ID, "title": content.Title, "excerpt": content.Excerpt, "category": category, "published_at": publishedAt, "reading_minutes": maxInt(1, len([]rune(content.Body))/900+1)}
+	return gin.H{"id": content.ID, "title": content.Title, "excerpt": content.Excerpt, "category": category, "published_at": publishedAt, "reading_minutes": maxInt(1, len([]rune(content.Body))/900+1), "members_only": !content.IsPublic}
 }
 
 // contentPublicDetailItem 生成公开内容详情 DTO，并将正文资产路径改写为门户下载路径。
@@ -1348,6 +1387,7 @@ func (h *WorkspaceHandler) contentPublicDetailItem(slug string, content model.Co
 		"published_at":    content.PublishedAt,
 		"updated_at":      content.UpdatedAt,
 		"reading_minutes": maxInt(1, len([]rune(content.Body))/900+1),
+		"members_only":    !content.IsPublic,
 	}
 	if content.Type == "resource" {
 		var asset model.MediaAsset
@@ -1374,7 +1414,7 @@ func (h *WorkspaceHandler) resourcePublicItem(slug string, content model.Content
 	if kind != "document" && kind != "template" && kind != "package" && kind != "video" {
 		kind = "document"
 	}
-	item := gin.H{"id": content.ID, "title": content.Title, "description": content.Excerpt, "kind": kind, "size_bytes": int64(0), "updated_at": content.UpdatedAt, "download_url": nil}
+	item := gin.H{"id": content.ID, "title": content.Title, "description": content.Excerpt, "kind": kind, "size_bytes": int64(0), "updated_at": content.UpdatedAt, "download_url": nil, "members_only": !content.IsPublic}
 	var asset model.MediaAsset
 	if h.db.Where("content_id = ? AND organization_id = ?", content.ID, content.OrganizationID).Order("created_at ASC").First(&asset).Error == nil {
 		item["size_bytes"] = asset.SizeBytes

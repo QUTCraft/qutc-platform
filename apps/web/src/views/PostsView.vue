@@ -53,13 +53,13 @@ async function changePage(value: number) {
           <ContentCard
             v-for="post in data.items"
             :key="post.id"
-            :eyebrow="post.category"
+            :eyebrow="post.members_only ? `成员可见 · ${post.category}` : post.category"
             :title="post.title"
             :body="post.excerpt"
             :meta="`${formatDate(post.published_at)} · ${post.reading_minutes} 分钟阅读`"
             :to="`/posts/${post.id}`"
           />
-          <el-empty v-if="data.items.length === 0" description="该分类下暂无公开动态。" />
+          <el-empty v-if="data.items.length === 0" description="该分类下暂无动态。登录后可查看仅成员可见的内容。" />
           <el-pagination
             v-if="data.total > data.page_size"
             class="application-pagination"

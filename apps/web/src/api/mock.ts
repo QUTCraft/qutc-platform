@@ -649,13 +649,30 @@ export async function mockGet<T>(path: string): Promise<T> {
   }
   const contentMatch = path.match(/\/organizations\/[^/]+\/content\/([^/]+)$/)
   if (contentMatch) {
+    const adminItem = adminContent.find((item) => item.id === contentMatch[1])
+    if (adminItem?.status === 'published' && adminItem.is_public === false && !mockUser) throw new Error('公开内容不存在或尚未发布。')
     const detail = contentDetails[contentMatch[1]]
     if (!detail) throw new Error('公开内容不存在或尚未发布。')
-    return detail as T
+    return { ...detail, members_only: adminItem?.is_public === false } as T
   }
   const organizationMatch = requestUrl.pathname.match(/\/organizations\/([^/]+)$/)
   if (organizationMatch) return structuredClone(organizationMatch[1] === campusOrganization.slug ? campusOrganization : organization) as T
-  if (requestUrl.pathname.endsWith('/posts')) return page(posts) as T
+  if (requestUrl.pathname.endsWith('/posts')) {
+    const extra = adminContent
+      .filter((item) => item.type === 'news' && item.status === 'published' && (item.is_public !== false || Boolean(mockUser)))
+      .filter((item) => !posts.some((post) => post.id === item.id))
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        excerpt: item.excerpt ?? '',
+        category: item.category ?? '动态',
+        published_at: item.published_at ?? item.updated_at,
+        reading_minutes: 1,
+        members_only: item.is_public === false,
+      }))
+    const visiblePosts = mockUser ? posts : posts.filter((post) => post.members_only !== true)
+    return page([...visiblePosts, ...extra]) as T
+  }
   if (requestUrl.pathname.endsWith('/projects')) return page(projects) as T
   if (requestUrl.pathname.endsWith('/resources')) return page(resources) as T
   if (requestUrl.pathname.endsWith('/knowledge/articles')) return page(knowledge) as T

@@ -31,7 +31,7 @@ watch(() => route.params.id, () => refresh())
       <article class="content-detail-page">
         <RouterLink :to="backPath" class="detail-back">← 返回{{ typeLabels[props.contentType] }}</RouterLink>
         <header class="content-detail-header">
-          <div class="eyebrow">{{ content.category }} · {{ typeLabels[content.type] }}</div>
+          <div class="eyebrow">{{ content.members_only ? '成员可见 · ' : '' }}{{ content.category }} · {{ typeLabels[content.type] }}</div>
           <h1>{{ content.title }}</h1>
           <p class="content-detail-excerpt">{{ content.excerpt }}</p>
           <small>{{ formatDate(content.published_at ?? content.updated_at) }} · {{ content.reading_minutes }} 分钟阅读</small>

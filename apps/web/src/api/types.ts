@@ -41,6 +41,7 @@ export interface PublicPost {
   category: string
   published_at: string
   reading_minutes: number
+  members_only?: boolean
 }
 
 export interface PublicContentDetail {
@@ -53,6 +54,7 @@ export interface PublicContentDetail {
   published_at?: string | null
   updated_at: string
   reading_minutes: number
+  members_only?: boolean
   asset?: { id: string; original_name: string; mime_type: string; size_bytes: number } | null
   download_url?: string | null
 }
@@ -75,6 +77,7 @@ export interface Resource {
   size_bytes: number
   updated_at: string
   download_url: string | null
+  members_only?: boolean
 }
 
 export interface MediaAsset {
@@ -104,6 +107,7 @@ export interface KnowledgeArticle {
   category: string
   updated_at: string
   reading_minutes: number
+  members_only?: boolean
 }
 
 export interface KnowledgeDirectory {

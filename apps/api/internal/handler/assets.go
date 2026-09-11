@@ -338,7 +338,11 @@ func (h *WorkspaceHandler) DownloadAsset(c *gin.Context) {
 		}
 		if organization.LogoAssetID != asset.ID {
 			var content model.Content
-			if asset.ContentID == "" || h.db.Where("id = ? AND organization_id = ? AND status = ? AND is_public = ?", asset.ContentID, asset.OrganizationID, "published", true).First(&content).Error != nil {
+			query := h.db.Where("id = ? AND organization_id = ? AND status = ?", asset.ContentID, asset.OrganizationID, "published")
+			if !h.portalSeesMembersOnly(c, organization.ID) {
+				query = query.Where("is_public = ?", true)
+			}
+			if asset.ContentID == "" || query.First(&content).Error != nil {
 				fail(c, http.StatusNotFound, "asset.not_public", "媒体资源尚未公开。")
 				return
 			}

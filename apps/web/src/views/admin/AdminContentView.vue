@@ -5,6 +5,7 @@ import AsyncState from '@/components/AsyncState.vue'
 import { adminApi } from '@/api/admin'
 import type { AdminContent } from '@/api/types'
 import { useAsyncData } from '@/composables/useAsyncData'
+import MdSwitch from '@/components/MdSwitch.vue'
 import { formatDate } from '@/utils/format'
 
 const page = ref(1)
@@ -60,7 +61,7 @@ async function setVisibility(item: AdminContent, isPublic: boolean) {
   togglingId.value = item.id
   try {
     await adminApi.updateContentVisibility(item.id, { is_public: isPublic })
-    ElMessage.success(isPublic ? '内容已公开到门户。' : '内容已从门户隐藏，后台仍可查看。')
+    ElMessage.success(isPublic ? '内容已对未登录访客公开。' : '内容改为仅登录成员可见，未登录访客从门户隐藏。')
     await refresh()
   } catch (cause) {
     ElMessage.error(cause instanceof Error ? cause.message : '公开状态更新失败。')
@@ -76,7 +77,7 @@ async function setVisibility(item: AdminContent, isPublic: boolean) {
       <section class="admin-page-heading">
         <div>
           <h2>内容工作区</h2>
-          <p>统一管理门户动态、资源与知识库条目；正文使用标准 Markdown 编写。</p>
+          <p>统一管理门户动态、资源与知识库条目。下线会完全移出门户；关闭公开后未登录访客看不到，登录成员仍可阅读。</p>
         </div>
         <div class="content-heading-actions">
           <RouterLink to="/admin/assets">
@@ -112,17 +113,16 @@ async function setVisibility(item: AdminContent, isPublic: boolean) {
 			  </div>
             </template>
           </el-table-column>
-          <el-table-column label="门户公开" width="150">
+          <el-table-column label="门户可见范围" min-width="168">
             <template #default="scope">
-              <el-switch
+              <MdSwitch
                 v-if="scope.row.status === 'published'"
                 :model-value="scope.row.is_public !== false"
                 :disabled="!scope.row.can_set_visibility || togglingId === scope.row.id"
                 :loading="togglingId === scope.row.id"
-                inline-prompt
-                active-text="公开"
-                inactive-text="内部"
-                @change="(value: string | number | boolean) => setVisibility(scope.row, Boolean(value))"
+                on-label="公开"
+                off-label="成员可见"
+                @change="(value: boolean) => setVisibility(scope.row, value)"
               />
               <small v-else>发布后可设置</small>
             </template>

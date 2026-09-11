@@ -54,7 +54,7 @@ async function changePage(value: number) {
           <ContentCard
             v-for="article in data.items"
             :key="article.id"
-            :eyebrow="article.category"
+            :eyebrow="article.members_only ? `成员可见 · ${article.category}` : article.category"
             :title="article.title"
             :body="article.summary"
             :meta="`${formatDate(article.updated_at)} · ${article.reading_minutes} 分钟阅读`"

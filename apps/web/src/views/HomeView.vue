@@ -242,7 +242,7 @@ const isQutcraftPortal = computed(() => data.value?.organization.slug === 'qutcr
         <div class="news-layout">
           <RouterLink v-if="heroNews" :to="{ name: 'post-detail', params: { id: heroNews.id } }" class="lead-news news-link">
             <div class="lead-news-top">
-              <span class="category-badge">{{ heroNews.category }}</span>
+              <span class="category-badge">{{ heroNews.members_only ? '成员可见' : heroNews.category }}</span>
               <small>{{ formatDate(heroNews.published_at) }} · {{ heroNews.reading_minutes }} 分钟阅读</small>
             </div>
             <h2>{{ heroNews.title }}</h2>
