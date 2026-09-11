@@ -17,14 +17,35 @@ async function clickPublicNavigation(page: Page, label: string) {
 }
 
 async function enterAdminFromPortal(page: Page) {
-  const desktopLogin = page.getByRole('button', { name: '成员登录' })
-  if (await desktopLogin.isVisible()) {
-    await desktopLogin.click()
-  } else {
-    await page.getByRole('button', { name: '打开导航' }).click()
-    await page.locator('.mobile-nav').getByRole('link', { name: '成员登录', exact: true }).click()
+  const desktopWorkspace = page.getByRole('button', { name: '工作台' })
+  if (await desktopWorkspace.isVisible()) {
+    await desktopWorkspace.click()
+    await expect(page).toHaveURL(/\/admin/)
+    return
   }
-  await expect(page).toHaveURL(/\/admin$/)
+  const menuButton = page.getByRole('button', { name: '打开导航' })
+  if (await menuButton.isVisible()) {
+    await menuButton.click()
+    const workspaceLink = page.locator('.mobile-nav').getByRole('link', { name: '工作台', exact: true })
+    if (await workspaceLink.count()) {
+      await workspaceLink.click()
+      await expect(page).toHaveURL(/\/admin/)
+      return
+    }
+    await page.locator('.mobile-nav').getByRole('link', { name: '成员登录', exact: true }).click()
+  } else {
+    await page.getByRole('button', { name: '成员登录' }).click()
+  }
+  if (/\/login/.test(page.url())) {
+    await page.getByRole('button', { name: /登录工作台/ }).click()
+  }
+  if (!/\/admin/.test(page.url())) {
+    const workspaceAfterLogin = page.getByRole('button', { name: '工作台' })
+    if (await workspaceAfterLogin.isVisible()) {
+      await workspaceAfterLogin.click()
+    }
+  }
+  await expect(page).toHaveURL(/\/admin/)
 }
 
 test('stale dynamic imports trigger one controlled reload', async ({ page }) => {
