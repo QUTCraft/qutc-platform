@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/QUTCraft/qutc-platform/apps/api/internal/model"
+	"github.com/QUTCraft/qutc-platform/apps/api/internal/service"
 )
 
 // TestDetectAssetTypeUsesFileSignature 确认资产类型来自文件签名而非文件名或客户端扩展名。
@@ -126,6 +127,19 @@ func TestNormalizeOrganizationProfile(t *testing.T) {
 	}
 }
 
+func TestPrincipalCanViewOwnReviewContentWithoutModeratorRole(t *testing.T) {
+	allowed, err := principalCanViewAdminContent(nil, service.Principal{UserID: "author-1"}, model.Content{
+		AuthorUserID: "author-1",
+		Status:       "review",
+	})
+	if err != nil {
+		t.Fatalf("principalCanViewAdminContent() error = %v", err)
+	}
+	if !allowed {
+		t.Fatal("authors must still see their own pending review content")
+	}
+}
+
 // TestContentStatusTransitions 覆盖内容草稿、审核、发布和归档之间允许与禁止的状态迁移。
 func TestContentStatusTransitions(t *testing.T) {
 	tests := []struct {
@@ -187,7 +201,7 @@ func TestContentPublicItemsExcludeInternalFields(t *testing.T) {
 	listItem := contentPublicItem(content)
 	detailItem := (&WorkspaceHandler{}).contentPublicDetailItem("qutcraft", content)
 	for name, item := range map[string]map[string]interface{}{"list": listItem, "detail": detailItem} {
-		for _, privateField := range []string{"organization_id", "author_user_id", "status"} {
+		for _, privateField := range []string{"organization_id", "author_user_id", "status", "is_public"} {
 			if _, exists := item[privateField]; exists {
 				t.Fatalf("%s response leaked private field %q", name, privateField)
 			}

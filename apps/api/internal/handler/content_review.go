@@ -81,6 +81,33 @@ func principalCanEditContent(db *gorm.DB, principal service.Principal, content m
 	return principalCanModerateContent(db, principal)
 }
 
+// principalCanViewAdminContent 限制未发布、待审核内容只对作者和审核管理员可见。
+func principalCanViewAdminContent(db *gorm.DB, principal service.Principal, content model.Content) (bool, error) {
+	if content.AuthorUserID == principal.UserID {
+		return true, nil
+	}
+	canModerate, err := principalCanModerateContent(db, principal)
+	if err != nil || canModerate {
+		return canModerate, err
+	}
+	if content.Status != service.ContentStatusPublished {
+		return false, nil
+	}
+	return principalHasPermission(db, principal, "content:read")
+}
+
+// scopeAdminContentQuery 将列表查询限制在当前主体可见的内容范围内。
+func scopeAdminContentQuery(db *gorm.DB, query *gorm.DB, principal service.Principal) (*gorm.DB, error) {
+	canModerate, err := principalCanModerateContent(db, principal)
+	if err != nil {
+		return query, err
+	}
+	if canModerate {
+		return query, nil
+	}
+	return query.Where("author_user_id = ? OR status = ?", principal.UserID, service.ContentStatusPublished), nil
+}
+
 // requireContentEdit 将编辑权限检查压缩为可直接用于处理器的 error 结果。
 func requireContentEdit(db *gorm.DB, principal service.Principal, content model.Content) error {
 	allowed, err := principalCanEditContent(db, principal, content)

@@ -308,6 +308,30 @@ test('account can switch organization and keep the selected session context', as
   await expect(page.locator('body')).not.toContainText('Minecraft')
 })
 
+test('admin content workspace filters by status and toggles portal visibility', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByRole('button', { name: /登录工作台/ }).click()
+  await expect(page).toHaveURL(/\/admin$/)
+  await page.goto('/admin/content')
+  await expect(page.getByRole('heading', { name: '内容工作区' })).toBeVisible()
+  await expect(page.getByRole('radiogroup', { name: '按文章状态筛选' })).toBeVisible()
+  await expect(page.getByRole('row').filter({ hasText: 'QUTCraft CMS 项目正式启动' })).toBeVisible()
+  await expect(page.getByRole('row').filter({ hasText: '自定义门户接入约定' })).toBeVisible()
+
+  const statusFilter = page.getByRole('radiogroup', { name: '按文章状态筛选' })
+  await statusFilter.getByText('草稿', { exact: true }).click()
+  await expect(page.getByRole('row').filter({ hasText: '自定义门户接入约定' })).toBeVisible()
+  await expect(page.getByRole('row').filter({ hasText: 'QUTCraft CMS 项目正式启动' })).toHaveCount(0)
+
+  await statusFilter.getByText('已发布', { exact: true }).click()
+  const publishedRow = page.getByRole('row').filter({ hasText: 'QUTCraft CMS 项目正式启动' })
+  await expect(publishedRow).toBeVisible()
+  await expect(page.getByRole('row').filter({ hasText: '自定义门户接入约定' })).toHaveCount(0)
+  await publishedRow.locator('.el-switch').click()
+  await expect(page.getByText('内容已从门户隐藏，后台仍可查看。')).toBeVisible()
+  await expect(publishedRow.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
+})
+
 test('content editor keeps the full-page markdown workspace scrollable', async ({ page }) => {
   await page.goto('/login')
   await page.getByRole('button', { name: /登录工作台/ }).click()

@@ -53,7 +53,9 @@ const canPublish = computed(() => currentContent.value?.can_publish === true)
 const canArchive = computed(() => currentContent.value?.can_archive === true)
 const canRequestArchive = computed(() => currentContent.value?.can_request_archive === true)
 const canReview = computed(() => currentContent.value?.can_review === true)
+const canSetVisibility = computed(() => currentContent.value?.can_set_visibility === true)
 const canDelete = computed(() => !isNew.value && currentContent.value?.can_delete === true)
+const visibilitySaving = ref(false)
 const pendingReview = computed(() => currentContent.value?.pending_review ?? null)
 const readOnly = computed(() => !canEdit.value)
 const statusLabel = computed(() => ({ draft: '草稿', review: '待审核', published: '已发布', archived: '已下线' })[status.value])
@@ -229,6 +231,19 @@ async function publish() {
     ElMessage.error(error instanceof Error ? error.message : '内容发布失败。')
   } finally {
     publishing.value = false
+  }
+}
+
+async function setVisibility(isPublic: boolean) {
+  if (!contentId.value || !canSetVisibility.value || currentContent.value?.is_public === isPublic) return
+  visibilitySaving.value = true
+  try {
+    loadItem(await adminApi.updateContentVisibility(contentId.value, { is_public: isPublic }))
+    ElMessage.success(isPublic ? '内容已公开到门户。' : '内容已从门户隐藏，后台仍可查看。')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '公开状态更新失败。')
+  } finally {
+    visibilitySaving.value = false
   }
 }
 
@@ -461,8 +476,18 @@ onBeforeUnmount(() => {
         <div class="editor-title-row">
           <h2>{{ isNew ? '新建内容' : '编辑内容' }}</h2>
           <el-tag :type="status === 'published' ? 'success' : status === 'archived' ? 'info' : 'warning'" effect="plain">{{ statusLabel }}</el-tag>
+          <el-switch
+            v-if="status === 'published'"
+            :model-value="currentContent?.is_public !== false"
+            :disabled="!canSetVisibility || visibilitySaving"
+            :loading="visibilitySaving"
+            inline-prompt
+            active-text="门户公开"
+            inactive-text="仅内部"
+            @change="(value: string | number | boolean) => setVisibility(Boolean(value))"
+          />
         </div>
-		<p>{{ readOnly ? (status === 'review' ? '当前版本正在等待审核，退回后可继续修改。' : '当前以只读方式查看内容。') : '使用标准 Markdown 编写正文，右侧预览会随输入即时更新。' }}</p>
+		<p>{{ readOnly ? (status === 'review' ? '当前版本正在等待审核，退回后可继续修改。' : status === 'published' ? '当前以只读方式查看内容，可单独设置是否公开到门户。' : '当前以只读方式查看内容。') : '使用标准 Markdown 编写正文，右侧预览会随输入即时更新。' }}</p>
       </div>
       <div class="content-editor-actions">
 		<el-button v-if="canEdit" class="editor-ai-button" :icon="MagicStick" @click="aiAssistantOpen = true">从知识生成</el-button>

@@ -587,12 +587,17 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          description: 按内容生命周期状态筛选；省略时返回全部状态。
+          schema: { $ref: '#/components/schemas/AdminContentStatus' }
       responses:
         '200':
           description: 管理范围内的内容（含草稿）
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AdminContentListResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
@@ -762,6 +767,34 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ContentDeleteResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/content/{content_id}/visibility:
+    patch:
+      tags: [Admin]
+      operationId: updateAdminContentVisibility
+      summary: 设置已发布内容是否公开
+      description: 仅作者或具有内容审核权限的管理员可修改；内容必须处于已发布状态。关闭公开后门户不再展示该内容，后台仍可查看。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      parameters:
+        - name: content_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateAdminContentVisibilityRequest' }
+      responses:
+        '200':
+          description: 公开状态已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminContentResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -2694,7 +2727,7 @@ components:
         reviewed_at: { type: [string, 'null'], format: date-time }
     AdminContent:
       type: object
-      required: [id, title, type, status, author_user_id, author, is_author, updated_at, pending_review, can_edit, can_submit, can_publish, can_archive, can_request_archive, can_review, can_delete]
+      required: [id, title, type, status, is_public, author_user_id, author, is_author, updated_at, pending_review, can_edit, can_submit, can_publish, can_archive, can_request_archive, can_review, can_set_visibility, can_delete]
       properties:
         id: { type: string }
         title: { type: string, maxLength: 160 }
@@ -2702,6 +2735,7 @@ components:
         category: { type: [string, 'null'], maxLength: 64 }
         knowledge_directory_id: { type: [string, 'null'], maxLength: 64, description: '知识库文章所属目录；type=knowledge 时必填，且必须属于当前组织。' }
         status: { $ref: '#/components/schemas/AdminContentStatus' }
+        is_public: { type: boolean, description: '已发布内容是否出现在公开门户；草稿与审核中的值仅在发布后生效。' }
         author_user_id: { type: string }
         author: { type: string, maxLength: 80 }
         is_author: { type: boolean }
@@ -2724,7 +2758,13 @@ components:
         can_archive: { type: boolean, description: '当前会话是否可直接下线已发布内容。' }
         can_request_archive: { type: boolean, description: '当前会话是否为原作者且可申请下线。' }
         can_review: { type: boolean, description: '当前会话是否可处理 pending_review。' }
+        can_set_visibility: { type: boolean, description: '当前会话是否可在内容已发布后设置门户公开状态。' }
         can_delete: { type: boolean, description: '当前会话是否可永久删除该内容；已发布内容永远不可删除，需先下线。' }
+    UpdateAdminContentVisibilityRequest:
+      type: object
+      required: [is_public]
+      properties:
+        is_public: { type: boolean, description: 'true 时在门户公开展示，false 时仅后台可见。' }
     CreateAdminContentRequest:
       type: object
       required: [title, type]
@@ -3709,7 +3749,7 @@ components:
       enum: [owner, administrator, editor, member]
     AuthUser:
       type: object
-      required: [id, email, display_name, organization_id, default_organization_id, roles]
+      required: [id, email, display_name, organization_id, default_organization_id, roles, permissions]
       properties:
         id: { type: string }
         email: { type: string, format: email }
@@ -3721,6 +3761,10 @@ components:
         roles:
           type: array
           items: { $ref: '#/components/schemas/AuthRole' }
+        permissions:
+          type: array
+          items: { type: string }
+          description: 当前组织会话实际授予的权限键；前端导航仅作提示，授权仍以服务端为准。
     OrganizationMembership:
       type: object
       required: [id, slug, name, short_name, roles, current]

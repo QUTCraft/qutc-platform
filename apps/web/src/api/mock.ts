@@ -111,6 +111,21 @@ const mockOrganizations: OrganizationMembership[] = [
   { id: 'org_campus_commons', slug: 'campus-commons', name: '校园社团协作中心', short_name: '校园协作中心', roles: ['administrator'], current: false },
 ]
 
+const rolePermissionMap: Record<AuthUser['roles'][number], string[]> = {
+  member: ['organization:read'],
+  editor: ['organization:read', 'content:read', 'content:create', 'content:update', 'content:submit', 'asset:read', 'asset:upload', 'project:read', 'knowledge:read', 'ai:use'],
+  administrator: ['organization:read', 'content:read', 'content:create', 'content:update', 'content:submit', 'content:publish', 'content:archive', 'asset:read', 'asset:upload', 'asset:manage', 'membership:read', 'membership:manage', 'project:read', 'project:manage', 'knowledge:read', 'knowledge:manage', 'application:read', 'application:approve', 'audit:read', 'ai:use'],
+  owner: ['organization:read', 'content:read', 'content:create', 'content:update', 'content:submit', 'content:publish', 'content:archive', 'asset:read', 'asset:upload', 'asset:manage', 'membership:read', 'membership:manage', 'project:read', 'project:manage', 'knowledge:read', 'knowledge:manage', 'application:read', 'application:approve', 'organization:configure', 'audit:read', 'ai:use'],
+}
+
+function permissionsForRoles(roles: AuthUser['roles'] = []): string[] {
+  return [...new Set(roles.flatMap((role) => rolePermissionMap[role] ?? []))]
+}
+
+function mockUserHasPermission(permission: string): boolean {
+  return permissionsForRoles(mockUser?.roles ?? []).includes(permission)
+}
+
 const posts: PublicPost[] = [
   { id: 'post_cms', title: 'QUTCraft CMS 项目正式启动', excerpt: '从官网、资源分发到组织协作，我们开始把社团长期积累的内容整理成可持续的公共入口。', category: '社团动态', published_at: '2026-07-14T12:00:00Z', reading_minutes: 4 },
   { id: 'post_build', title: '主城公共区域设计征集', excerpt: '建筑组开放第一轮概念征集：请用一张草图、一段说明，提出你想在主城里留下的公共空间。', category: '活动', published_at: '2026-07-12T08:00:00Z', reading_minutes: 3 },
@@ -265,14 +280,16 @@ function mockContentView(content: AdminContent): AdminContent {
 	const editableState = content.status === 'draft' || content.status === 'archived'
 	return {
 		...structuredClone(content),
+		is_public: content.is_public !== false,
 		is_author: isAuthor,
-		pending_review: pending ? structuredClone(pending) : null,
+		pending_review: pending && (isAuthor || canModerate) ? structuredClone(pending) : null,
 		can_edit: editableState && (isAuthor || canModerate),
 		can_submit: editableState && (isAuthor || canModerate),
 		can_publish: canModerate && ['draft', 'review', 'archived'].includes(content.status),
 		can_archive: canModerate && content.status === 'published',
 		can_request_archive: isAuthor && content.status === 'published' && !pending,
 		can_review: canModerate && Boolean(pending),
+		can_set_visibility: content.status === 'published' && (isAuthor || canModerate),
 	}
 }
 
@@ -393,6 +410,9 @@ let portalConfiguration: PortalConfiguration = {
 const mockUserKey = 'qutc.mock_user'
 const savedMockUser = () => { try { return JSON.parse(window.localStorage.getItem(mockUserKey) ?? 'null') as AuthUser | null } catch { return null } }
 let mockUser: AuthUser | null = savedMockUser()
+if (mockUser && (!mockUser.permissions || mockUser.permissions.length === 0)) {
+  mockUser.permissions = permissionsForRoles(mockUser.roles)
+}
 let personalAIConfiguration: PersonalAIConfiguration = {
   base_url: '',
   model: '',
@@ -400,7 +420,7 @@ let personalAIConfiguration: PersonalAIConfiguration = {
   organization_available: true,
 }
 const saveMockUser = (user: AuthUser | null) => { mockUser = user; if (user) window.localStorage.setItem(mockUserKey, JSON.stringify(user)); else window.localStorage.removeItem(mockUserKey) }
-const authPair = (user: AuthUser): TokenPair => ({ access_token: 'mock-access-token', token_type: 'Bearer', expires_in: 900, session_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), user })
+const authPair = (user: AuthUser): TokenPair => ({ access_token: 'mock-access-token', token_type: 'Bearer', expires_in: 900, session_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), user: { ...user, permissions: user.permissions ?? permissionsForRoles(user.roles) } })
 const requireMockAdmin = () => { if (!mockUser) throw new Error('请先登录后再访问管理工作台。') }
 
 const page = <T>(items: T[]): Page<T> => ({ items, page: 1, page_size: 20, total: items.length })
@@ -430,8 +450,8 @@ export async function mockGet<T>(path: string): Promise<T> {
         { label: '待处理申请', value: applications.filter((item) => item.status === 'pending').length, change: '需要你的处理', tone: 'warning' },
         { label: '进行中项目', value: adminProjects.filter((item) => item.status === 'active').length, change: '当前组织项目', tone: 'neutral' },
       ],
-      pending_applications: applications.filter((item) => item.status === 'pending'),
-      recent_content: adminContent,
+      pending_applications: mockUserHasPermission('application:read') ? applications.filter((item) => item.status === 'pending') : [],
+      recent_content: mockUserHasPermission('content:read') ? adminContent.filter((item) => mockUserHasPermission('content:publish') || item.author_user_id === mockUser?.id || item.status === 'published') : [],
     }
     return dashboard as T
   }
@@ -459,10 +479,18 @@ export async function mockGet<T>(path: string): Promise<T> {
   if (contentDetailMatch) {
     const content = adminContent.find((item) => item.id === contentDetailMatch[1])
     if (!content) throw new Error('内容不存在。')
+    if (!mockUserHasPermission('content:publish') && content.author_user_id !== mockUser?.id && content.status !== 'published') throw new Error('内容不存在。')
     ensureContentRevisions(content)
 		return mockContentView(content) as T
   }
-	if (requestUrl.pathname.endsWith('/admin/content')) return page(adminContent.map(mockContentView)) as T
+	if (requestUrl.pathname.endsWith('/admin/content')) {
+		const status = requestUrl.searchParams.get('status')
+		const visible = mockUserHasPermission('content:publish')
+			? adminContent
+			: adminContent.filter((item) => item.author_user_id === mockUser?.id || item.status === 'published')
+		const items = status ? visible.filter((item) => item.status === status) : visible
+		return page(items.map(mockContentView)) as T
+	}
 	if (requestUrl.pathname.endsWith('/admin/assets')) {
 		const search = requestUrl.searchParams.get('query')?.trim().toLowerCase() ?? ''
 		const pageNumber = Math.max(1, Number(requestUrl.searchParams.get('page') ?? 1))
@@ -640,7 +668,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
   if (path.endsWith('/auth/login')) {
     const payload = body as { email: string; password: string }
     if (payload.email !== 'admin@qutcraft.local' || payload.password !== 'demo-admin-pass') throw new Error('演示账号或密码错误。')
-    const user: AuthUser = { id: 'user_bk', email: payload.email, display_name: 'BBKarasu', organization_id: 'org_qutcraft', roles: ['owner'] }
+    const user: AuthUser = { id: 'user_bk', email: payload.email, display_name: 'BBKarasu', organization_id: 'org_qutcraft', roles: ['owner'], permissions: permissionsForRoles(['owner']) }
     saveMockUser(user)
     return authPair(user) as T
   }
@@ -659,7 +687,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
       Object.assign(member, { name: payload.display_name, role: invitation?.role ?? member.role, state: 'active' })
     }
     if (invitation) invitation.status = 'accepted'
-    const user: AuthUser = { id: member.id, email, display_name: payload.display_name, organization_id: invitation?.organization_id ?? 'org_qutcraft', roles: [member.role] }
+    const user: AuthUser = { id: member.id, email, display_name: payload.display_name, organization_id: invitation?.organization_id ?? 'org_qutcraft', roles: [member.role], permissions: permissionsForRoles([member.role]) }
     saveMockUser(user)
     return authPair(user) as T
   }
@@ -670,7 +698,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
     const payload = body as { organization_id?: string }
     const target = mockOrganizations.find((item) => item.id === payload.organization_id)
     if (!target || !mockUser) throw new Error('当前账户不是该组织的有效成员。')
-    const user: AuthUser = { ...mockUser, organization_id: target.id, roles: [...target.roles] }
+    const user: AuthUser = { ...mockUser, organization_id: target.id, roles: [...target.roles], permissions: permissionsForRoles(target.roles) }
     saveMockUser(user)
     return authPair(user) as T
   }
@@ -949,7 +977,7 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
 		const payload = body as Pick<AdminContent, 'title' | 'type' | 'category' | 'knowledge_directory_id' | 'excerpt' | 'body'>
 		if (payload.type === 'knowledge' && !payload.knowledge_directory_id) throw new Error('知识库文章必须关联目录。')
 		if (payload.knowledge_directory_id && !adminKnowledgeDirectories.some((directory) => directory.id === payload.knowledge_directory_id)) throw new Error('知识库目录不存在。')
-		const content: AdminContent = { id: `content_${Date.now()}`, title: payload.title, type: payload.type, category: payload.category, knowledge_directory_id: payload.knowledge_directory_id ?? null, excerpt: payload.excerpt, body: payload.body, status: 'draft', author_user_id: mockUser?.id, author: mockUser?.display_name ?? 'BBKarasu', updated_at: new Date().toISOString() }
+		const content: AdminContent = { id: `content_${Date.now()}`, title: payload.title, type: payload.type, category: payload.category, knowledge_directory_id: payload.knowledge_directory_id ?? null, excerpt: payload.excerpt, body: payload.body, status: 'draft', is_public: true, author_user_id: mockUser?.id, author: mockUser?.display_name ?? 'BBKarasu', updated_at: new Date().toISOString() }
     adminContent = [content, ...adminContent]
 		recordContentRevision(content, 'create')
     return content as T
@@ -1334,6 +1362,17 @@ export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
     if (!directory) throw new Error('知识库目录不存在。')
     Object.assign(directory, body, { updated_at: new Date().toISOString() })
     return directory as T
+  }
+  const visibilityMatch = path.match(/\/admin\/content\/([^/]+)\/visibility$/)
+  if (visibilityMatch) {
+    const content = adminContent.find((item) => item.id === visibilityMatch[1])
+    if (!content) throw new Error('内容不存在。')
+    if (!mockContentView(content).can_set_visibility) throw new Error('只有已发布内容的作者或管理员可以设置是否公开。')
+    const payload = body as { is_public?: boolean }
+    if (typeof payload.is_public !== 'boolean') throw new Error('请指定内容是否公开。')
+    content.is_public = payload.is_public
+    content.updated_at = new Date().toISOString()
+    return mockContentView(content) as T
   }
   const match = path.match(/\/admin\/content\/([^/]+)$/)
   if (!match) throw new Error(`Mock endpoint not implemented: ${path}`)

@@ -150,7 +150,7 @@ func (h *AIHandler) SearchKnowledge(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "ai.validation_failed", "请提供有效的知识检索条件。")
 		return
 	}
-	results, err := h.agents.SearchKnowledge(principal.OrganizationID, request.Query, request.Limit)
+	results, err := h.agents.SearchKnowledge(principal, request.Query, request.Limit)
 	if err != nil {
 		if errors.Is(err, service.ErrAgentValidation) {
 			fail(c, http.StatusBadRequest, "ai.validation_failed", "query 最多为 80 个字符，limit 必须在 1 到 20 之间。")

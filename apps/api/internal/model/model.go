@@ -136,6 +136,7 @@ type Content struct {
 	Category             string     `gorm:"size:64;not null;default:''"`
 	KnowledgeDirectoryID *string    `gorm:"index;type:char(36)"`
 	Status               string     `gorm:"index;size:24;not null;default:draft"`
+	IsPublic             bool       `gorm:"index;not null;default:true"`
 	Excerpt              string     `gorm:"size:500"`
 	Body                 string     `gorm:"type:longtext"`
 	PublishedAt          *time.Time `gorm:"index"`

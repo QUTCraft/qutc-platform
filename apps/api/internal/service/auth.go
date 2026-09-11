@@ -42,6 +42,7 @@ type Profile struct {
 	OrganizationID        string   `json:"organization_id"`
 	DefaultOrganizationID string   `json:"default_organization_id"`
 	Roles                 []string `json:"roles"`
+	Permissions           []string `json:"permissions"`
 }
 
 type OrganizationMembershipView struct {
@@ -407,7 +408,11 @@ func (s *AuthService) ProfileFor(principal Principal) (Profile, error) {
 	if err != nil {
 		return Profile{}, err
 	}
-	return Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Bio: user.Bio, AvatarURL: user.AvatarURL, OrganizationID: principal.OrganizationID, DefaultOrganizationID: user.DefaultOrganizationID, Roles: roles}, nil
+	permissions, err := s.permissionsFor(s.db, user.ID, principal.OrganizationID)
+	if err != nil {
+		return Profile{}, err
+	}
+	return Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Bio: user.Bio, AvatarURL: user.AvatarURL, OrganizationID: principal.OrganizationID, DefaultOrganizationID: user.DefaultOrganizationID, Roles: roles, Permissions: permissions}, nil
 }
 
 // UpdateProfile 更新当前用户允许自行修改的资料字段，并返回持久化后的资料。
@@ -462,7 +467,11 @@ func (s *AuthService) issueTokenPair(db *gorm.DB, user model.User, organizationI
 	if err != nil {
 		return TokenPair{}, err
 	}
-	return TokenPair{AccessToken: accessToken, RefreshToken: refreshToken, TokenType: "Bearer", ExpiresIn: int64(s.cfg.JWTAccessTTL.Seconds()), SessionExpiresAt: now.Add(s.cfg.JWTRefreshTTL), User: Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Bio: user.Bio, AvatarURL: user.AvatarURL, OrganizationID: organizationID, DefaultOrganizationID: user.DefaultOrganizationID, Roles: roles}}, nil
+	permissions, err := s.permissionsFor(db, user.ID, organizationID)
+	if err != nil {
+		return TokenPair{}, err
+	}
+	return TokenPair{AccessToken: accessToken, RefreshToken: refreshToken, TokenType: "Bearer", ExpiresIn: int64(s.cfg.JWTAccessTTL.Seconds()), SessionExpiresAt: now.Add(s.cfg.JWTRefreshTTL), User: Profile{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Bio: user.Bio, AvatarURL: user.AvatarURL, OrganizationID: organizationID, DefaultOrganizationID: user.DefaultOrganizationID, Roles: roles, Permissions: permissions}}, nil
 }
 
 // hasActiveMembership 检查 userID 在 organizationID 中是否存在有效成员关系。
@@ -514,6 +523,22 @@ func (s *AuthService) rolesFor(db *gorm.DB, userID, organizationID string) ([]st
 		Where("memberships.user_id = ? AND memberships.organization_id = ? AND memberships.state = ?", userID, organizationID, "active").
 		Order("roles.key ASC").Scan(&roles).Error
 	return roles, err
+}
+
+func (s *AuthService) permissionsFor(db *gorm.DB, userID, organizationID string) ([]string, error) {
+	var permissions []string
+	err := db.Table("permissions").
+		Distinct("permissions.`key`").
+		Joins("JOIN role_permissions ON role_permissions.permission_id = permissions.id").
+		Joins("JOIN membership_roles ON membership_roles.role_id = role_permissions.role_id").
+		Joins("JOIN memberships ON memberships.id = membership_roles.membership_id").
+		Where("memberships.user_id = ? AND memberships.organization_id = ? AND memberships.state = ?", userID, organizationID, "active").
+		Order("permissions.`key` ASC").
+		Pluck("permissions.`key`", &permissions).Error
+	if permissions == nil {
+		permissions = []string{}
+	}
+	return permissions, err
 }
 
 // randomToken 生成可安全公开传递的随机令牌原文；数据库只保存其哈希。

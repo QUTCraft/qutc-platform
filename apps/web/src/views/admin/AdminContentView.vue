@@ -8,11 +8,29 @@ import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDate } from '@/utils/format'
 
 const page = ref(1)
-const { data, error, loading, refresh } = useAsyncData(() => adminApi.getContent({ page: page.value }))
+const statusFilter = ref<AdminContent['status'] | 'all'>('all')
+const { data, error, loading, refresh } = useAsyncData(() => adminApi.getContent({
+  page: page.value,
+  status: statusFilter.value === 'all' ? '' : statusFilter.value,
+}))
 const deletingId = ref('')
+const togglingId = ref('')
+
+const statusOptions: Array<{ label: string; value: AdminContent['status'] | 'all' }> = [
+  { label: '全部状态', value: 'all' },
+  { label: '草稿', value: 'draft' },
+  { label: '待审核', value: 'review' },
+  { label: '已发布', value: 'published' },
+  { label: '已下线', value: 'archived' },
+]
 
 async function changePage(value: number) {
   page.value = value
+  await refresh()
+}
+
+async function applyStatusFilter() {
+  page.value = 1
   await refresh()
 }
 
@@ -36,6 +54,20 @@ function typeLabel(type: AdminContent['type']) {
 function statusLabel(status: AdminContent['status']) {
   return { draft: '草稿', review: '待审核', published: '已发布', archived: '已下线' }[status]
 }
+
+async function setVisibility(item: AdminContent, isPublic: boolean) {
+  if (!item.can_set_visibility || item.is_public === isPublic) return
+  togglingId.value = item.id
+  try {
+    await adminApi.updateContentVisibility(item.id, { is_public: isPublic })
+    ElMessage.success(isPublic ? '内容已公开到门户。' : '内容已从门户隐藏，后台仍可查看。')
+    await refresh()
+  } catch (cause) {
+    ElMessage.error(cause instanceof Error ? cause.message : '公开状态更新失败。')
+  } finally {
+    togglingId.value = ''
+  }
+}
 </script>
 
 <template>
@@ -57,6 +89,11 @@ function statusLabel(status: AdminContent['status']) {
       </section>
 
       <section class="admin-panel">
+        <div class="application-filters content-filters" aria-label="内容筛选">
+          <el-radio-group v-model="statusFilter" aria-label="按文章状态筛选" @change="applyStatusFilter">
+            <el-radio-button v-for="option in statusOptions" :key="option.label" :value="option.value">{{ option.label }}</el-radio-button>
+          </el-radio-group>
+        </div>
         <el-table :data="data.items" class="admin-table">
           <el-table-column prop="title" label="标题" min-width="260" />
           <el-table-column label="类型" width="120">
@@ -73,6 +110,21 @@ function statusLabel(status: AdminContent['status']) {
 				</el-tag>
 				<small v-if="scope.row.pending_review">{{ scope.row.pending_review.type === 'publish' ? '发布审核中' : '申请下线中' }}</small>
 			  </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="门户公开" width="150">
+            <template #default="scope">
+              <el-switch
+                v-if="scope.row.status === 'published'"
+                :model-value="scope.row.is_public !== false"
+                :disabled="!scope.row.can_set_visibility || togglingId === scope.row.id"
+                :loading="togglingId === scope.row.id"
+                inline-prompt
+                active-text="公开"
+                inactive-text="内部"
+                @change="(value: string | number | boolean) => setVisibility(scope.row, Boolean(value))"
+              />
+              <small v-else>发布后可设置</small>
             </template>
           </el-table-column>
           <el-table-column label="最后修改" width="150">
@@ -133,6 +185,11 @@ function statusLabel(status: AdminContent['status']) {
 
 .content-status-cell small {
 	color: var(--md-sys-color-on-surface-variant);
+}
+
+.content-filters {
+  grid-template-columns: 1fr;
+  margin-bottom: 16px;
 }
 
 @media (max-width: 640px) {

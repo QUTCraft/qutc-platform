@@ -5,7 +5,7 @@ import { ArrowLeft, Collection, DataAnalysis, Document, DocumentChecked, Files, 
 import { ElMessage } from 'element-plus'
 import { authApi } from '@/api/auth'
 import type { OrganizationMembership } from '@/api/types'
-import { session, signOut, switchSessionOrganization } from '@/stores/session'
+import { hasPermission, session, signOut, switchSessionOrganization } from '@/stores/session'
 
 const route = useRoute()
 const router = useRouter()
@@ -15,24 +15,25 @@ const selectedOrganizationId = ref(session.user?.organization_id ?? '')
 const organizationLoading = ref(false)
 const organizationSwitching = ref(false)
 
-const navigation = [
-  { label: '概览', to: '/admin', icon: DataAnalysis },
-  { label: '内容管理', to: '/admin/content', icon: Document },
-  { label: '资源文件', to: '/admin/assets', icon: Files },
-  { label: '知识库', to: '/admin/knowledge', icon: Collection },
-  { label: '项目管理', to: '/admin/projects', icon: Folder },
-  { label: '成员管理', to: '/admin/users', icon: UserFilled },
-  { label: '申请审核', to: '/admin/reviews', icon: DocumentChecked },
-  { label: '审计记录', to: '/admin/audit', icon: Tickets },
-  { label: '活动策划', to: '/admin/activity-planner', icon: Promotion },
-  { label: 'AI 咨询', to: '/admin/assistant', icon: MagicStick },
-  { label: '智能体配置', to: '/admin/ai', icon: MagicStick },
-  { label: '系统设置', to: '/admin/settings', icon: Setting },
+const navigationItems = [
+  { label: '概览', to: '/admin', icon: DataAnalysis, permission: 'organization:read' },
+  { label: '内容管理', to: '/admin/content', icon: Document, permission: 'content:read' },
+  { label: '资源文件', to: '/admin/assets', icon: Files, permission: 'asset:read' },
+  { label: '知识库', to: '/admin/knowledge', icon: Collection, permission: 'knowledge:read' },
+  { label: '项目管理', to: '/admin/projects', icon: Folder, permission: 'project:read' },
+  { label: '成员管理', to: '/admin/users', icon: UserFilled, permission: 'membership:read' },
+  { label: '申请审核', to: '/admin/reviews', icon: DocumentChecked, permission: 'application:read' },
+  { label: '审计记录', to: '/admin/audit', icon: Tickets, permission: 'audit:read' },
+  { label: '活动策划', to: '/admin/activity-planner', icon: Promotion, permission: 'ai:use' },
+  { label: 'AI 咨询', to: '/admin/assistant', icon: MagicStick, permission: 'ai:use' },
+  { label: '智能体配置', to: '/admin/ai', icon: MagicStick, permission: 'ai:use' },
+  { label: '系统设置', to: '/admin/settings', icon: Setting, permission: 'organization:configure' },
 ]
+const navigation = computed(() => navigationItems.filter((item) => hasPermission(item.permission)))
 
 const currentOrganization = computed(() => organizations.value.find((item) => item.id === session.user?.organization_id || item.current))
 const adminBrandName = computed(() => currentOrganization.value?.short_name || currentOrganization.value?.name || 'Commons')
-const title = computed(() => route.path.startsWith('/admin/content/') ? '内容编辑器' : navigation.find((item) => item.to === route.path)?.label ?? '后台管理')
+const title = computed(() => route.path.startsWith('/admin/content/') ? '内容编辑器' : navigation.value.find((item) => item.to === route.path)?.label ?? '后台管理')
 const roleLabel = computed(() => session.user?.roles.includes('owner') ? '所有者' : session.user?.roles.includes('administrator') ? '管理员' : '成员')
 const portalPreviewHref = computed(() => `/?organization=${encodeURIComponent(currentOrganization.value?.slug ?? 'qutcraft')}`)
 

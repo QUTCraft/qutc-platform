@@ -49,13 +49,15 @@ type apiEnvelope[T any] struct {
 }
 
 type contentDTO struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Type      string `json:"type"`
-	Status    string `json:"status"`
-	Body      string `json:"body"`
-	Category  string `json:"category"`
-	CanDelete bool   `json:"can_delete"`
+	ID               string `json:"id"`
+	Title            string `json:"title"`
+	Type             string `json:"type"`
+	Status           string `json:"status"`
+	IsPublic         bool   `json:"is_public"`
+	Body             string `json:"body"`
+	Category         string `json:"category"`
+	CanDelete        bool   `json:"can_delete"`
+	CanSetVisibility bool   `json:"can_set_visibility"`
 }
 
 type publicPostDTO struct {
@@ -103,6 +105,9 @@ func TestS1ContentLifecycleAndCacheInvalidation(t *testing.T) {
 			if published.Status != "published" {
 				t.Fatalf("publish status = %q, want published", published.Status)
 			}
+			if !published.IsPublic {
+				t.Fatalf("publish is_public = false, want default true")
+			}
 			requireCacheKey(t, redisClient, postsCacheKey, false)
 
 			posts = getPublicPosts(t, client, cfg)
@@ -138,6 +143,65 @@ func TestS1ContentLifecycleAndCacheInvalidation(t *testing.T) {
 			requireStatus(t, client, http.MethodPost, adminContentActionURL(cfg, content.ID, "archive"), accessToken, nil, http.StatusConflict)
 		})
 	}
+}
+
+func TestS1ContentVisibilityAndStatusFilter(t *testing.T) {
+	cfg := loadIntegrationConfig(t)
+	client := &http.Client{Timeout: 10 * time.Second}
+	db := openIntegrationDB(t, cfg.mysqlDSN)
+	redisClient := redis.NewClient(&redis.Options{Addr: cfg.redisAddr})
+	t.Cleanup(func() { _ = redisClient.Close() })
+
+	accessToken := loginAsOwner(t, client, cfg)
+	content := createDraft(t, client, cfg, accessToken, 90)
+	postsCacheKey := fmt.Sprintf("qutc:%s:portal:%s:posts:default", cfg.cacheNamespace, cfg.organizationSlug)
+	detailCacheKey := fmt.Sprintf("qutc:%s:portal:%s:content:%s", cfg.cacheNamespace, cfg.organizationSlug, content.ID)
+	t.Cleanup(func() {
+		cleanupContentFixture(t, db, content.ID)
+		_ = redisClient.Del(context.Background(), postsCacheKey, detailCacheKey).Err()
+	})
+
+	drafts := listAdminContent(t, client, cfg, accessToken, "draft")
+	if !containsAdminContent(drafts, content.ID) {
+		t.Fatalf("draft list missing %s", content.ID)
+	}
+	publishedList := listAdminContent(t, client, cfg, accessToken, "published")
+	if containsAdminContent(publishedList, content.ID) {
+		t.Fatalf("unpublished content %s appeared in published list", content.ID)
+	}
+	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/content?status=deleted", accessToken, nil, http.StatusBadRequest)
+	requireStatus(t, client, http.MethodPatch, adminContentActionURL(cfg, content.ID, "visibility"), accessToken, map[string]any{"is_public": false}, http.StatusConflict)
+
+	submitted := submitContentReview(t, client, cfg, accessToken, content.ID)
+	if submitted.Status != "review" {
+		t.Fatalf("submit status = %q, want review", submitted.Status)
+	}
+	published := changeContentStatus(t, client, cfg, accessToken, content.ID, "publish")
+	if published.Status != "published" || !published.IsPublic || !published.CanSetVisibility {
+		t.Fatalf("published content = %+v, want public published with visibility control", published)
+	}
+	if !containsPost(getPublicPosts(t, client, cfg), content.ID) {
+		t.Fatalf("public published content %s missing from Portal posts", content.ID)
+	}
+
+	hidden := setContentVisibility(t, client, cfg, accessToken, content.ID, false)
+	if hidden.IsPublic {
+		t.Fatalf("hidden content is_public = true, want false")
+	}
+	requireCacheKey(t, redisClient, postsCacheKey, false)
+	if containsPost(getPublicPosts(t, client, cfg), content.ID) {
+		t.Fatalf("internal published content %s leaked into Portal posts", content.ID)
+	}
+	requireStatus(t, client, http.MethodGet, portalContentURL(cfg, content.ID), "", nil, http.StatusNotFound)
+
+	visible := setContentVisibility(t, client, cfg, accessToken, content.ID, true)
+	if !visible.IsPublic {
+		t.Fatalf("restored content is_public = false, want true")
+	}
+	if !containsPost(getPublicPosts(t, client, cfg), content.ID) {
+		t.Fatalf("restored public content %s missing from Portal posts", content.ID)
+	}
+	requireStatus(t, client, http.MethodGet, portalContentURL(cfg, content.ID), "", nil, http.StatusOK)
 }
 
 func TestS1ContentOwnershipAndReviewWorkflow(t *testing.T) {
@@ -204,6 +268,14 @@ func TestS1ContentOwnershipAndReviewWorkflow(t *testing.T) {
 	if submitted.Status != "review" {
 		t.Fatalf("author submit status = %q, want review", submitted.Status)
 	}
+	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/content/"+content.ID, otherToken, nil, http.StatusNotFound)
+	if containsAdminContent(listAdminContent(t, client, cfg, otherToken, "review"), content.ID) {
+		t.Fatalf("peer editor listed unpublished review content %s", content.ID)
+	}
+	authorView := getAdminContent(t, client, cfg, authorToken, content.ID)
+	if authorView.Status != "review" {
+		t.Fatalf("author cannot load own review content: %+v", authorView)
+	}
 	requireStatus(t, client, http.MethodPatch, cfg.apiURL+"/api/v1/admin/content/"+content.ID, authorToken, updatePayload, http.StatusConflict)
 	published := changeContentStatus(t, client, cfg, ownerToken, content.ID, "publish")
 	if published.Status != "published" {
@@ -214,6 +286,56 @@ func TestS1ContentOwnershipAndReviewWorkflow(t *testing.T) {
 	archived := changeContentStatus(t, client, cfg, ownerToken, content.ID, "archive")
 	if archived.Status != "archived" {
 		t.Fatalf("archive approval status = %q, want archived", archived.Status)
+	}
+}
+
+func TestS1MemberCannotSeeApprovals(t *testing.T) {
+	cfg := loadIntegrationConfig(t)
+	client := &http.Client{Timeout: 10 * time.Second}
+	db := openIntegrationDB(t, cfg.mysqlDSN)
+
+	var organization model.Organization
+	if err := db.Where("slug = ?", cfg.organizationSlug).First(&organization).Error; err != nil {
+		t.Fatalf("load organization: %v", err)
+	}
+	var memberRole model.Role
+	if err := db.Where("`key` = ?", "member").First(&memberRole).Error; err != nil {
+		t.Fatalf("load member role: %v", err)
+	}
+	password := "S1-Member-Password-2026!"
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash member password: %v", err)
+	}
+	user := model.User{ID: uuid.NewString(), Email: "s1-member-" + uuid.NewString() + "@example.test", DisplayName: "S1 Member", PasswordHash: string(hash), State: "active", DefaultOrganizationID: organization.ID}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("create member: %v", err)
+	}
+	membership := model.Membership{ID: uuid.NewString(), OrganizationID: organization.ID, UserID: user.ID, State: "active"}
+	if err := db.Create(&membership).Error; err != nil {
+		t.Fatalf("create member membership: %v", err)
+	}
+	if err := db.Create(&model.MembershipRole{MembershipID: membership.ID, RoleID: memberRole.ID}).Error; err != nil {
+		t.Fatalf("assign member role: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Where("user_id = ?", user.ID).Delete(&model.RefreshToken{}).Error
+		_ = db.Where("membership_id = ?", membership.ID).Delete(&model.MembershipRole{}).Error
+		_ = db.Where("id = ?", membership.ID).Delete(&model.Membership{}).Error
+		_ = db.Where("id = ?", user.ID).Delete(&model.User{}).Error
+	})
+
+	memberToken := loginWithCredentials(t, client, cfg, user.Email, password)
+	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/applications", memberToken, nil, http.StatusForbidden)
+	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/content", memberToken, nil, http.StatusForbidden)
+	responseBody := request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/dashboard", memberToken, nil, http.StatusOK)
+	var envelope apiEnvelope[map[string]any]
+	decodeJSON(t, responseBody, &envelope)
+	if apps, _ := envelope.Data["pending_applications"].([]any); len(apps) != 0 {
+		t.Fatalf("member dashboard leaked %d pending applications", len(apps))
+	}
+	if recent, _ := envelope.Data["recent_content"].([]any); len(recent) != 0 {
+		t.Fatalf("member dashboard leaked %d unpublished content items", len(recent))
 	}
 }
 
@@ -251,6 +373,7 @@ func TestS1PublishedAssetDownloadBoundary(t *testing.T) {
 		Type:           "resource",
 		Category:       "document",
 		Status:         "draft",
+		IsPublic:       true,
 		Body:           "仅用于自动化测试。",
 	}
 	asset := model.MediaAsset{
@@ -413,6 +536,35 @@ func getPublicPosts(t *testing.T, client *http.Client, cfg integrationConfig) []
 	var envelope apiEnvelope[[]publicPostDTO]
 	decodeJSON(t, responseBody, &envelope)
 	return envelope.Data
+}
+
+func listAdminContent(t *testing.T, client *http.Client, cfg integrationConfig, token, status string) []contentDTO {
+	t.Helper()
+	url := cfg.apiURL + "/api/v1/admin/content"
+	if status != "" {
+		url += "?status=" + status
+	}
+	responseBody := request(t, client, http.MethodGet, url, token, nil, http.StatusOK)
+	var envelope apiEnvelope[[]contentDTO]
+	decodeJSON(t, responseBody, &envelope)
+	return envelope.Data
+}
+
+func setContentVisibility(t *testing.T, client *http.Client, cfg integrationConfig, token, contentID string, isPublic bool) contentDTO {
+	t.Helper()
+	responseBody := request(t, client, http.MethodPatch, adminContentActionURL(cfg, contentID, "visibility"), token, map[string]any{"is_public": isPublic}, http.StatusOK)
+	var envelope apiEnvelope[contentDTO]
+	decodeJSON(t, responseBody, &envelope)
+	return envelope.Data
+}
+
+func containsAdminContent(items []contentDTO, contentID string) bool {
+	for _, item := range items {
+		if item.ID == contentID {
+			return true
+		}
+	}
+	return false
 }
 
 func getAdminContent(t *testing.T, client *http.Client, cfg integrationConfig, token, contentID string) contentDTO {

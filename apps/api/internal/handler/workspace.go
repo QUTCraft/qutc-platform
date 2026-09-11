@@ -232,7 +232,7 @@ func (h *WorkspaceHandler) PortalContentDetail(c *gin.Context) {
 	contentID := c.Param("id")
 	h.cachedPortalItem(c, c.Param("slug"), "content:"+contentID, func() (gin.H, error) {
 		var content model.Content
-		if err := h.db.Where("id = ? AND organization_id = ? AND status = ?", contentID, organization.ID, service.ContentStatusPublished).Where("(type <> ? OR knowledge_directory_id IS NULL OR knowledge_directory_id = '' OR EXISTS (SELECT 1 FROM knowledge_directories AS directory WHERE directory.id = contents.knowledge_directory_id AND directory.organization_id = contents.organization_id AND directory.is_public = ?))", service.ContentTypeKnowledge, true).First(&content).Error; err != nil {
+		if err := h.db.Where("id = ? AND organization_id = ? AND status = ? AND is_public = ?", contentID, organization.ID, service.ContentStatusPublished, true).Where("(type <> ? OR knowledge_directory_id IS NULL OR knowledge_directory_id = '' OR EXISTS (SELECT 1 FROM knowledge_directories AS directory WHERE directory.id = contents.knowledge_directory_id AND directory.organization_id = contents.organization_id AND directory.is_public = ?))", service.ContentTypeKnowledge, true).First(&content).Error; err != nil {
 			return nil, gorm.ErrRecordNotFound
 		}
 		return h.contentPublicDetailItem(c.Param("slug"), content), nil
@@ -250,7 +250,7 @@ func (h *WorkspaceHandler) PortalPosts(c *gin.Context) {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
-	query := h.db.Where("organization_id = ? AND type = ? AND status = ?", organization.ID, "news", "published").Order("published_at DESC")
+	query := h.db.Where("organization_id = ? AND type = ? AND status = ? AND is_public = ?", organization.ID, "news", "published", true).Order("published_at DESC")
 	if category != "" {
 		query = query.Where("category = ?", category)
 	}
@@ -318,7 +318,7 @@ func (h *WorkspaceHandler) PortalResources(c *gin.Context) {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
-	query := h.db.Where("organization_id = ? AND type = ? AND status = ?", organization.ID, "resource", "published").Order("updated_at DESC")
+	query := h.db.Where("organization_id = ? AND type = ? AND status = ? AND is_public = ?", organization.ID, "resource", "published", true).Order("updated_at DESC")
 	if q != "" {
 		query = query.Where("title LIKE ? OR excerpt LIKE ? OR body LIKE ?", "%"+q+"%", "%"+q+"%", "%"+q+"%")
 	}
@@ -353,7 +353,7 @@ func (h *WorkspaceHandler) PortalKnowledge(c *gin.Context) {
 		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
 		return
 	}
-	query := h.db.Table("contents AS content").Select("content.*").Joins("LEFT JOIN knowledge_directories AS directory ON directory.id = content.knowledge_directory_id AND directory.organization_id = content.organization_id").Where("content.organization_id = ? AND content.type = ? AND content.status = ?", organization.ID, service.ContentTypeKnowledge, service.ContentStatusPublished).Where("(content.knowledge_directory_id IS NULL OR content.knowledge_directory_id = '' OR directory.is_public = ?)", true).Order("content.updated_at DESC")
+	query := h.db.Table("contents AS content").Select("content.*").Joins("LEFT JOIN knowledge_directories AS directory ON directory.id = content.knowledge_directory_id AND directory.organization_id = content.organization_id").Where("content.organization_id = ? AND content.type = ? AND content.status = ? AND content.is_public = ?", organization.ID, service.ContentTypeKnowledge, service.ContentStatusPublished, true).Where("(content.knowledge_directory_id IS NULL OR content.knowledge_directory_id = '' OR directory.is_public = ?)", true).Order("content.updated_at DESC")
 	if category != "" {
 		query = query.Where("(content.category = ? OR directory.name = ? OR directory.slug = ? OR content.title LIKE ? OR content.excerpt LIKE ?)", category, category, category, "%"+category+"%", "%"+category+"%")
 	}
@@ -398,7 +398,7 @@ func (h *WorkspaceHandler) PortalKnowledgeDirectories(c *gin.Context) {
 		items := make([]gin.H, 0, len(directories))
 		for _, directory := range directories {
 			var articleCount int64
-			h.db.Model(&model.Content{}).Where("organization_id = ? AND type = ? AND status = ? AND (knowledge_directory_id = ? OR ((knowledge_directory_id IS NULL OR knowledge_directory_id = '') AND category = ?))", organization.ID, service.ContentTypeKnowledge, service.ContentStatusPublished, directory.ID, directory.Name).Count(&articleCount)
+			h.db.Model(&model.Content{}).Where("organization_id = ? AND type = ? AND status = ? AND is_public = ? AND (knowledge_directory_id = ? OR ((knowledge_directory_id IS NULL OR knowledge_directory_id = '') AND category = ?))", organization.ID, service.ContentTypeKnowledge, service.ContentStatusPublished, true, directory.ID, directory.Name).Count(&articleCount)
 			items = append(items, gin.H{"id": directory.ID, "name": directory.Name, "slug": directory.Slug, "description": directory.Description, "article_count": articleCount, "updated_at": directory.UpdatedAt})
 		}
 		return items, nil
@@ -445,22 +445,43 @@ func (h *WorkspaceHandler) AdminDashboard(c *gin.Context) {
 		fail(c, http.StatusNotFound, "organization.not_found", "组织不存在。")
 		return
 	}
+	canReadApplications, _ := principalHasPermission(h.db, principal, "application:read")
+	canReadContent, _ := principalHasPermission(h.db, principal, "content:read")
+	canReadProjects, _ := principalHasPermission(h.db, principal, "project:read")
+	canReadMembers, _ := principalHasPermission(h.db, principal, "membership:read")
+
 	var published, total, activeMembers, activeProjects int64
-	h.db.Model(&model.Content{}).Where("organization_id = ? AND status = ?", principal.OrganizationID, "published").Count(&published)
-	h.db.Model(&model.Content{}).Where("organization_id = ?", principal.OrganizationID).Count(&total)
-	h.db.Model(&model.Membership{}).Where("organization_id = ? AND state = ?", principal.OrganizationID, "active").Count(&activeMembers)
-	h.db.Model(&model.Project{}).Where("organization_id = ? AND status = ?", principal.OrganizationID, "active").Count(&activeProjects)
-	var recent []model.Content
-	h.db.Where("organization_id = ?", principal.OrganizationID).Order("updated_at DESC").Limit(12).Find(&recent)
-	recentItems := make([]gin.H, 0, len(recent))
-	for _, item := range recent {
-		recentItems = append(recentItems, h.contentAdminItem(item, principal))
+	h.db.Model(&model.Content{}).Where("organization_id = ? AND status = ? AND is_public = ?", principal.OrganizationID, "published", true).Count(&published)
+	if canReadContent {
+		contentTotalQuery := h.db.Model(&model.Content{}).Where("organization_id = ?", principal.OrganizationID)
+		contentTotalQuery, _ = scopeAdminContentQuery(h.db, contentTotalQuery, principal)
+		contentTotalQuery.Count(&total)
+	} else {
+		total = published
 	}
-	var pendingApplications []model.Application
-	h.db.Where("organization_id = ? AND status = ?", principal.OrganizationID, "pending").Order("created_at DESC").Limit(12).Find(&pendingApplications)
-	pendingItems := make([]gin.H, 0, len(pendingApplications))
-	for _, item := range pendingApplications {
-		pendingItems = append(pendingItems, h.applicationAdminItem(item))
+	if canReadMembers {
+		h.db.Model(&model.Membership{}).Where("organization_id = ? AND state = ?", principal.OrganizationID, "active").Count(&activeMembers)
+	}
+	if canReadProjects {
+		h.db.Model(&model.Project{}).Where("organization_id = ? AND status = ?", principal.OrganizationID, "active").Count(&activeProjects)
+	}
+	recentItems := make([]gin.H, 0)
+	if canReadContent {
+		recentQuery := h.db.Where("organization_id = ?", principal.OrganizationID)
+		recentQuery, _ = scopeAdminContentQuery(h.db, recentQuery, principal)
+		var recent []model.Content
+		recentQuery.Order("updated_at DESC").Limit(12).Find(&recent)
+		for _, item := range recent {
+			recentItems = append(recentItems, h.contentAdminItem(item, principal))
+		}
+	}
+	pendingItems := make([]gin.H, 0)
+	if canReadApplications {
+		var pendingApplications []model.Application
+		h.db.Where("organization_id = ? AND status = ?", principal.OrganizationID, "pending").Order("created_at DESC").Limit(12).Find(&pendingApplications)
+		for _, item := range pendingApplications {
+			pendingItems = append(pendingItems, h.applicationAdminItem(item))
+		}
 	}
 	lastMetric := gin.H{"label": "进行中项目", "value": activeProjects, "change": "当前组织项目", "tone": "neutral"}
 	respond(c, http.StatusOK, gin.H{"organization_name": organization.Name, "updated_at": time.Now().UTC(), "metrics": []gin.H{{"label": "活跃成员", "value": activeMembers, "change": "当前组织成员", "tone": "primary"}, {"label": "已发布内容", "value": published, "change": "当前公开内容", "tone": "secondary"}, {"label": "内容总数", "value": total, "change": "含草稿", "tone": "neutral"}, lastMetric}, "pending_applications": pendingItems, "recent_content": recentItems})
@@ -478,8 +499,25 @@ func (h *WorkspaceHandler) AdminContent(c *gin.Context) {
 		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
 		return
 	}
+	status, ok := queryMax(c, "status", 24)
+	if !ok {
+		return
+	}
+	if status != "" && !service.IsContentStatus(status) {
+		fail(c, http.StatusBadRequest, "query.invalid_status", "status 不是受支持的内容状态。")
+		return
+	}
+	query := h.db.Where("organization_id = ?", principal.OrganizationID)
+	query, err := scopeAdminContentQuery(h.db, query, principal)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "content.list_failed", "内容列表暂时无法加载。")
+		return
+	}
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
 	var contents []model.Content
-	if err := h.db.Where("organization_id = ?", principal.OrganizationID).Order("updated_at DESC").Find(&contents).Error; err != nil {
+	if err := query.Order("updated_at DESC").Find(&contents).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "content.list_failed", "内容列表暂时无法加载。")
 		return
 	}
@@ -497,16 +535,34 @@ func (h *WorkspaceHandler) AdminContentDetail(c *gin.Context) {
 		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
 		return
 	}
-	var content model.Content
-	if err := h.db.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&content).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			fail(c, http.StatusNotFound, "content.not_found", "内容不存在或不属于当前组织。")
-			return
-		}
-		fail(c, http.StatusInternalServerError, "content.detail_failed", "内容暂时无法加载。")
+	content, ok := h.loadVisibleAdminContent(c, principal, c.Param("id"))
+	if !ok {
 		return
 	}
 	respond(c, http.StatusOK, h.contentAdminItem(content, principal))
+}
+
+// loadVisibleAdminContent 读取当前组织中的内容，并对无权查看的未发布/待审核条目返回 404。
+func (h *WorkspaceHandler) loadVisibleAdminContent(c *gin.Context, principal service.Principal, contentID string) (model.Content, bool) {
+	var content model.Content
+	if err := h.db.Where("id = ? AND organization_id = ?", contentID, principal.OrganizationID).First(&content).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fail(c, http.StatusNotFound, "content.not_found", "内容不存在或不属于当前组织。")
+			return content, false
+		}
+		fail(c, http.StatusInternalServerError, "content.detail_failed", "内容暂时无法加载。")
+		return content, false
+	}
+	allowed, err := principalCanViewAdminContent(h.db, principal, content)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "content.permission_check_failed", "内容权限校验失败。")
+		return content, false
+	}
+	if !allowed {
+		fail(c, http.StatusNotFound, "content.not_found", "内容不存在或不属于当前组织。")
+		return content, false
+	}
+	return content, true
 }
 
 // AdminKnowledgeDirectories 列出管理端可维护的完整知识目录。
@@ -763,7 +819,7 @@ func (h *WorkspaceHandler) AdminCreateContent(c *gin.Context) {
 	if h.respondContentDirectoryError(c, directoryErr) {
 		return
 	}
-	content := model.Content{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, AuthorUserID: principal.UserID, Title: normalized.Title, Type: normalized.Type, Category: normalized.Category, KnowledgeDirectoryID: directoryID, Status: service.ContentStatusDraft, Excerpt: normalized.Excerpt, Body: normalized.Body}
+	content := model.Content{ID: uuid.NewString(), OrganizationID: principal.OrganizationID, AuthorUserID: principal.UserID, Title: normalized.Title, Type: normalized.Type, Category: normalized.Category, KnowledgeDirectoryID: directoryID, Status: service.ContentStatusDraft, IsPublic: true, Excerpt: normalized.Excerpt, Body: normalized.Body}
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&content).Error; err != nil {
 			return err
@@ -832,6 +888,62 @@ func (h *WorkspaceHandler) AdminUpdateContent(c *gin.Context) {
 		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "content.update", "content", content.ID)
 	}); err != nil {
 		fail(c, http.StatusInternalServerError, "content.update_failed", "内容保存失败。")
+		return
+	}
+	h.invalidatePortalCache(principal.OrganizationID)
+	respond(c, http.StatusOK, h.contentAdminItem(content, principal))
+}
+
+type contentVisibilityRequest struct {
+	IsPublic *bool `json:"is_public"`
+}
+
+// AdminUpdateContentVisibility 仅允许已发布内容切换门户公开状态，不改动正文或生命周期。
+func (h *WorkspaceHandler) AdminUpdateContentVisibility(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var body contentVisibilityRequest
+	if err := c.ShouldBindJSON(&body); err != nil || body.IsPublic == nil {
+		fail(c, http.StatusBadRequest, "content.visibility_invalid", "请指定内容是否公开。")
+		return
+	}
+	var content model.Content
+	if err := h.db.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&content).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fail(c, http.StatusNotFound, "content.not_found", "内容不存在或不属于当前组织。")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "content.visibility_failed", "内容公开状态暂时无法更新。")
+		return
+	}
+	if err := requireContentEdit(h.db, principal, content); err != nil {
+		if errors.Is(err, errContentEditForbidden) {
+			fail(c, http.StatusForbidden, "content.author_required", "普通编辑只能设置自己创建的内容是否公开。")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "content.permission_check_failed", "内容权限校验失败。")
+		return
+	}
+	if content.Status != service.ContentStatusPublished {
+		fail(c, http.StatusConflict, "content.visibility_requires_published", "只有已发布内容可以设置是否公开。")
+		return
+	}
+	if content.IsPublic == *body.IsPublic {
+		respond(c, http.StatusOK, h.contentAdminItem(content, principal))
+		return
+	}
+	content.IsPublic = *body.IsPublic
+	content.UpdatedAt = time.Now().UTC()
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&content).Updates(map[string]any{"is_public": content.IsPublic, "updated_at": content.UpdatedAt}).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, "content.visibility", "content", content.ID)
+	}); err != nil {
+		fail(c, http.StatusInternalServerError, "content.visibility_failed", "内容公开状态更新失败。")
 		return
 	}
 	h.invalidatePortalCache(principal.OrganizationID)
@@ -1022,6 +1134,9 @@ func (h *WorkspaceHandler) AdminContentRevisions(c *gin.Context) {
 		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
 		return
 	}
+	if _, visible := h.loadVisibleAdminContent(c, principal, c.Param("id")); !visible {
+		return
+	}
 	page, pageSize, ok := listMeta(c, 0)
 	if !ok {
 		return
@@ -1049,6 +1164,9 @@ func (h *WorkspaceHandler) AdminContentRevisionDetail(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)
 	if !ok {
 		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	if _, visible := h.loadVisibleAdminContent(c, principal, c.Param("id")); !visible {
 		return
 	}
 	var revision model.ContentRevision
@@ -1290,7 +1408,9 @@ func (h *WorkspaceHandler) contentAdminItem(content model.Content, principal ser
 	var pendingReview any
 	var review model.ContentReviewRequest
 	if h.db.Where("organization_id = ? AND content_id = ? AND status = ?", content.OrganizationID, content.ID, contentReviewPending).Order("created_at DESC").First(&review).Error == nil {
-		pendingReview = contentReviewItem(h.db, review)
+		if isAuthor || canModerate {
+			pendingReview = contentReviewItem(h.db, review)
+		}
 	}
 	canReview := false
 	if pendingReview != nil {
@@ -1298,7 +1418,7 @@ func (h *WorkspaceHandler) contentAdminItem(content model.Content, principal ser
 	}
 	return gin.H{
 		"id": content.ID, "title": content.Title, "type": content.Type, "category": content.Category,
-		"knowledge_directory_id": directoryID, "status": content.Status,
+		"knowledge_directory_id": directoryID, "status": content.Status, "is_public": content.IsPublic,
 		"author_user_id": content.AuthorUserID, "author": author.DisplayName, "is_author": isAuthor,
 		"excerpt": content.Excerpt, "body": content.Body, "published_at": content.PublishedAt,
 		"updated_at": content.UpdatedAt, "revision_count": revisionCount, "asset": assetItem,
@@ -1309,6 +1429,7 @@ func (h *WorkspaceHandler) contentAdminItem(content model.Content, principal ser
 		"can_archive":         canArchivePermission && content.Status == service.ContentStatusPublished,
 		"can_request_archive": isAuthor && content.Status == service.ContentStatusPublished && pendingReview == nil,
 		"can_review":          canReview,
+		"can_set_visibility":  content.Status == service.ContentStatusPublished && (isAuthor || canModerate),
 		"can_delete":          canDelete,
 	}
 }

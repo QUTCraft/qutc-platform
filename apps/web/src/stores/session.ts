@@ -10,6 +10,10 @@ let expiryTimer: number | undefined
 // 全局响应式会话状态。令牌由 HttpOnly Cookie 持有，前端状态只保存用户资料和到期时间。
 export const session = reactive<{ initialized: boolean; user: AuthUser | null; expiresAt: string | null }>({ initialized: false, user: null, expiresAt: null })
 
+export function hasPermission(permission: string): boolean {
+  return session.user?.permissions?.includes(permission) === true
+}
+
 /**
  * 按 expiresAt（若提供）或 sessionStorage 中的到期时间安排本地退出。
  * 到期时先尽力通知后端注销，再派发全局失效事件；网络失败不阻止本地清理。

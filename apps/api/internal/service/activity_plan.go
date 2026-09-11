@@ -512,7 +512,7 @@ func (s *AgentService) ApproveActivityPlan(principal Principal, planID string, a
 			content := model.Content{
 				ID: uuid.NewString(), OrganizationID: principal.OrganizationID, AuthorUserID: principal.UserID,
 				Title: boundedText("活动预告｜"+plan.Title, 160), Type: ContentTypeNews, Category: "校园活动",
-				Status: ContentStatusDraft, Excerpt: boundedText(plan.Objective, 500), Body: view.Run.OutputMarkdown,
+				Status: ContentStatusDraft, IsPublic: true, Excerpt: boundedText(plan.Objective, 500), Body: view.Run.OutputMarkdown,
 			}
 			if err := tx.Create(&content).Error; err != nil {
 				return err

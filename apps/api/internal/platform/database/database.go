@@ -438,6 +438,9 @@ func seedContent(db *gorm.DB, cfg config.Config, organization model.Organization
 			{ID: ids.contentKnowledgeArchive, OrganizationID: organization.ID, AuthorUserID: user.ID, Title: "活动复盘与公开资料归档规范", Type: "knowledge", Category: "项目协作", KnowledgeDirectoryID: stringPointer(ids.directoryCollaboration), Status: "published", Excerpt: "活动结束后沉淀事实、成果、预算和改进项，同时保护参与者隐私。", Body: "# 活动复盘与公开资料归档规范\n\n复盘需记录实际流程、参与人数、预算差异、风险事件、反馈和后续负责人。公开照片、作品与名单前须取得授权；联系方式、审批附件和内部评价只保留在受控工作区。", PublishedAt: &publishedAt},
 		}
 	}
+	for i := range items {
+		items[i].IsPublic = true
+	}
 	for _, item := range items {
 		var existing model.Content
 		err := db.Where("id = ?", item.ID).First(&existing).Error

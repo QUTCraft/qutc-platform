@@ -552,7 +552,25 @@ func (s *AgentService) ListAgents(organizationID string) ([]AgentDefinitionView,
 	return views, nil
 }
 
-func (s *AgentService) SearchKnowledge(organizationID, query string, limit int) ([]AgentKnowledgeResult, error) {
+func (s *AgentService) canModerateContent(principal Principal) (bool, error) {
+	var count int64
+	err := s.db.Table("permissions").
+		Joins("JOIN role_permissions ON role_permissions.permission_id = permissions.id").
+		Joins("JOIN membership_roles ON membership_roles.role_id = role_permissions.role_id").
+		Joins("JOIN memberships ON memberships.id = membership_roles.membership_id").
+		Where("memberships.user_id = ? AND memberships.organization_id = ? AND memberships.state = ? AND permissions.`key` IN ?", principal.UserID, principal.OrganizationID, "active", []string{"content:publish", "content:archive"}).
+		Count(&count).Error
+	return count > 0, err
+}
+
+func (s *AgentService) canUseUnpublishedKnowledge(principal Principal, content model.Content) (bool, error) {
+	if content.Status == "published" || content.AuthorUserID == principal.UserID {
+		return true, nil
+	}
+	return s.canModerateContent(principal)
+}
+
+func (s *AgentService) SearchKnowledge(principal Principal, query string, limit int) ([]AgentKnowledgeResult, error) {
 	query = strings.TrimSpace(query)
 	if len([]rune(query)) > 80 {
 		return nil, ErrAgentValidation
@@ -563,11 +581,18 @@ func (s *AgentService) SearchKnowledge(organizationID, query string, limit int) 
 	if limit < 1 || limit > 20 {
 		return nil, ErrAgentValidation
 	}
+	includeUnpublished, err := s.canModerateContent(principal)
+	if err != nil {
+		return nil, err
+	}
 	var contents []model.Content
-	dbQuery := s.db.Where(
-		"organization_id = ? AND type = ? AND status IN ?",
-		organizationID, "knowledge", []string{"draft", "review", "published"},
-	)
+	dbQuery := s.db.Where("organization_id = ? AND type = ?", principal.OrganizationID, "knowledge")
+	if includeUnpublished {
+		dbQuery = dbQuery.Where("status IN ?", []string{"draft", "review", "published"})
+	} else {
+		dbQuery = dbQuery.Where("status = ? OR author_user_id = ?", "published", principal.UserID)
+		dbQuery = dbQuery.Where("status <> ?", "archived")
+	}
 	if query != "" {
 		terms := strings.Fields(query)
 		fragments := make([]string, 0, len(terms))
@@ -670,6 +695,13 @@ func (s *AgentService) CreateRun(principal Principal, input AgentRunCreateInput,
 				return AgentRunView{}, ErrAgentSourceNotFound
 			}
 			return AgentRunView{}, err
+		}
+		visible, err := s.canUseUnpublishedKnowledge(principal, content)
+		if err != nil {
+			return AgentRunView{}, err
+		}
+		if !visible {
+			return AgentRunView{}, ErrAgentSourceNotFound
 		}
 		excerpt := sourceExcerpt(content)
 		bodyLimit := 12000

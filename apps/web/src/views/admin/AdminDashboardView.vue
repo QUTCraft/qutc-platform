@@ -2,8 +2,13 @@
 import { Bell, DocumentChecked, Folder, User } from '@element-plus/icons-vue'
 import AsyncState from '@/components/AsyncState.vue'
 import { adminApi } from '@/api/admin'
+import { hasPermission } from '@/stores/session'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDate } from '@/utils/format'
+
+const canReadApplications = hasPermission('application:read')
+const canReadContent = hasPermission('content:read')
+const canUseAI = hasPermission('ai:use')
 
 const { data, error, loading, refresh } = useAsyncData(adminApi.getDashboard)
 const metricIcons = [User, DocumentChecked, Bell, Folder]
@@ -30,7 +35,7 @@ const metricIcons = [User, DocumentChecked, Bell, Folder]
       </section>
 
       <section class="admin-two-column">
-        <article class="admin-panel">
+        <article v-if="canReadApplications" class="admin-panel">
           <div class="panel-heading">
             <div>
               <h2>待处理申请</h2>
@@ -52,7 +57,7 @@ const metricIcons = [User, DocumentChecked, Bell, Folder]
           </div>
         </article>
 
-        <article class="admin-panel activity-panel">
+        <article v-if="canUseAI" class="admin-panel activity-panel">
           <div class="activity-panel-top">
             <h2>AI 活动运营</h2>
             <span class="review-state online"><i /> 人工审批保护</span>
@@ -64,7 +69,7 @@ const metricIcons = [User, DocumentChecked, Bell, Folder]
         </article>
       </section>
 
-      <section class="admin-panel">
+      <section v-if="canReadContent" class="admin-panel">
         <div class="panel-heading">
           <div>
             <h2>最近编辑内容</h2>

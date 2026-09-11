@@ -130,6 +130,7 @@ export interface AdminContent {
   category?: string
   knowledge_directory_id?: string | null
   status: 'draft' | 'published' | 'review' | 'archived'
+  is_public?: boolean
 	author_user_id?: string
   author: string
 	is_author?: boolean
@@ -146,6 +147,7 @@ export interface AdminContent {
 	can_archive?: boolean
 	can_request_archive?: boolean
 	can_review?: boolean
+	can_set_visibility?: boolean
 	can_delete?: boolean
 }
 
@@ -686,6 +688,7 @@ export interface AuthUser {
   organization_id: string
   default_organization_id?: string
   roles: Array<'owner' | 'administrator' | 'editor' | 'member'>
+  permissions?: string[]
 }
 
 export interface OrganizationMembership {
