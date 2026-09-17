@@ -23,6 +23,9 @@ func TestDisabledSenderIsExplicit(t *testing.T) {
 	if !errors.Is(sender.SendInvitation(context.Background(), InvitationMessage{}), ErrDisabled) {
 		t.Fatal("disabled sender did not return ErrDisabled")
 	}
+	if !errors.Is(sender.SendFeedbackSubmitted(context.Background(), FeedbackSubmittedMessage{}), ErrDisabled) {
+		t.Fatal("disabled sender did not return ErrDisabled for feedback")
+	}
 }
 
 func TestSMTPSenderDeliversInvitation(t *testing.T) {

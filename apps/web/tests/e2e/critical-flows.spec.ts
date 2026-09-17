@@ -118,6 +118,27 @@ test('public portal routes remain navigable', async ({ page }) => {
   await expect(page.locator('body')).not.toContainText(/正在打开(?:管理)?页面/)
 })
 
+test('portal and admin report issue buttons share one feedback page', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('.app-footer-report').click()
+  await expect(page).toHaveURL(/\/report/)
+  await expect(page.getByRole('heading', { name: '报告问题' })).toBeVisible()
+  await page.getByText('功能建议', { exact: true }).click()
+  await page.getByPlaceholder('一句话说明问题或需求').fill('希望增加活动日历')
+  await page.getByPlaceholder('复现步骤、期望结果，或你希望增加的功能说明').fill('门户首页可以按月份查看即将开始的活动。')
+  await page.getByPlaceholder('方便我们称呼你').fill('林沐')
+  await page.getByPlaceholder('用于必要时回访').fill('linmu@example.com')
+  await page.getByRole('button', { name: '提交报告' }).click()
+  await expect(page.getByRole('heading', { name: '已经收到你的功能建议' })).toBeVisible()
+
+  await page.goto('/login')
+  await page.getByRole('button', { name: /登录工作台/ }).click()
+  await expect(page).toHaveURL(/\/admin$/)
+  await page.locator('.admin-report-link').click()
+  await expect(page).toHaveURL(/\/report/)
+  await expect(page.getByRole('heading', { name: '报告问题' })).toBeVisible()
+})
+
 test('home dynamic cards open their public detail pages', async ({ page }) => {
   await page.goto('/')
   const newsLinks = page.locator('.news-layout .news-link')

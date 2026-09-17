@@ -948,6 +948,11 @@ h1, h2, h3, h4, h5, h6, p {
   gap: 10px;
 }
 
+.header-report-btn {
+  color: var(--md-sys-color-on-surface-variant) !important;
+  font-weight: 700;
+}
+
 .header-session {
   display: inline-flex;
   align-items: center;
@@ -2311,6 +2316,12 @@ h1, h2, h3, h4, h5, h6, p {
   margin: 0;
 }
 
+.app-footer-report {
+  margin-left: 10px;
+  color: var(--md-sys-color-primary);
+  font-weight: 700;
+}
+
 .app-footer-filing {
   color: inherit;
   text-decoration-color: color-mix(in srgb, currentColor 48%, transparent);
@@ -2322,6 +2333,63 @@ h1, h2, h3, h4, h5, h6, p {
 .app-footer-filing:focus-visible {
   color: var(--md-sys-color-primary);
   text-decoration-color: currentColor;
+}
+
+.report-form-card,
+.report-success {
+  max-width: 720px;
+  padding: 28px;
+}
+
+.report-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+.report-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.report-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--md-sys-color-primary);
+  font-weight: 700;
+}
+
+.report-success {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.report-success-icon {
+  font-size: 36px;
+  color: var(--md-sys-color-secondary);
+}
+
+.report-success h2,
+.report-success p {
+  margin: 0;
+}
+
+.report-success-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+@media (max-width: 640px) {
+  .report-form-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Admin Workspace Overhaul Styles */
@@ -2543,6 +2611,11 @@ h1, h2, h3, h4, h5, h6, p {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.admin-report-link .el-button {
+  color: var(--md-sys-color-on-surface-variant);
+  font-weight: 700;
 }
 
 .organization-switcher {
@@ -4150,7 +4223,8 @@ body {
   .header-register-btn,
   .header-join-btn,
   .header-session-name,
-  .header-workspace-btn {
+  .header-workspace-btn,
+  .header-report-btn {
     display: none;
   }
 

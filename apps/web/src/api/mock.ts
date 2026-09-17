@@ -732,6 +732,13 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
 		return result as T
 	}
 	if (path.endsWith('/apply')) return { id: `application_${Date.now()}`, status: 'pending', submitted_at: new Date().toISOString() } as T
+	if (path.endsWith('/feedback')) {
+		const payload = body as { kind?: string; title?: string; description?: string; contact_name?: string; contact_email?: string; page_url?: string }
+		if (!payload?.kind || !payload.title?.trim() || !payload.description?.trim() || !payload.contact_name?.trim() || !payload.contact_email?.trim()) {
+			throw new Error('请完整填写报告类型、标题、描述和有效联系方式。')
+		}
+		return { id: `feedback_${Date.now()}`, status: 'open', submitted_at: new Date().toISOString() } as T
+	}
 	if (path.includes('/admin/')) requireMockAdmin()
 	const publishAssetMatch = path.match(/\/admin\/assets\/([^/]+)\/publish$/)
 	if (publishAssetMatch) {

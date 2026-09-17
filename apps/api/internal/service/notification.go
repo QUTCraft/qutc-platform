@@ -111,6 +111,35 @@ func (s *NotificationService) EnqueueApplicationSubmitted(tx *gorm.DB, applicati
 	return nil
 }
 
+func (s *NotificationService) EnqueueFeedbackSubmitted(tx *gorm.DB, feedback model.SiteFeedback, recipientEmails []string) error {
+	if s == nil || tx == nil || feedback.Status != FeedbackStatusOpen {
+		return nil
+	}
+	now := time.Now().UTC()
+	seen := make(map[string]bool, len(recipientEmails))
+	for _, rawEmail := range recipientEmails {
+		parsed, err := mail.ParseAddress(strings.TrimSpace(rawEmail))
+		if err != nil || parsed.Address == "" {
+			continue
+		}
+		email := strings.ToLower(parsed.Address)
+		if seen[email] {
+			continue
+		}
+		seen[email] = true
+		item := model.NotificationOutbox{
+			ID: uuid.NewString(), OrganizationID: feedback.OrganizationID,
+			EventType: "feedback.submitted", TargetType: "feedback", TargetID: feedback.ID,
+			RecipientEmail: email, Status: NotificationStatusPending, AvailableAt: now,
+			CreatedAt: now, UpdatedAt: now,
+		}
+		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "event_type"}, {Name: "target_type"}, {Name: "target_id"}, {Name: "recipient_email"}}, DoNothing: true}).Create(&item).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *NotificationService) EnqueueContentReview(tx *gorm.DB, request model.ContentReviewRequest, eventType string, recipientEmails []string) error {
 	if s == nil || tx == nil {
 		return nil
@@ -256,6 +285,19 @@ func (s *NotificationService) deliver(ctx context.Context, item model.Notificati
 			return s.finish(item, NotificationStatusFailed, "内容审核记录不存在", loadErr, time.Now().UTC().Add(24*time.Hour))
 		}
 		err = sender.SendContentReview(ctx, message)
+	case "feedback":
+		var feedback model.SiteFeedback
+		if loadErr := s.db.Where("id = ? AND organization_id = ?", item.TargetID, item.OrganizationID).First(&feedback).Error; loadErr != nil {
+			return s.finish(item, NotificationStatusFailed, "问题报告不存在", loadErr, time.Now().UTC().Add(24*time.Hour))
+		}
+		var recipient model.User
+		_ = s.db.Where("LOWER(email) = ?", strings.ToLower(item.RecipientEmail)).First(&recipient).Error
+		err = sender.SendFeedbackSubmitted(ctx, mailadapter.FeedbackSubmittedMessage{
+			RecipientEmail: item.RecipientEmail, RecipientName: recipient.DisplayName,
+			Organization: organization.Name, Kind: feedback.Kind, Title: feedback.Title,
+			Description: feedback.Description, ContactName: feedback.ContactName,
+			ContactEmail: feedback.ContactEmail, PageURL: feedback.PageURL, SubmittedAt: feedback.CreatedAt,
+		})
 	default:
 		return s.finish(item, NotificationStatusFailed, "未知通知类型", errors.New("unsupported notification target"), time.Now().UTC().Add(24*time.Hour))
 	}

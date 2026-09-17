@@ -16,6 +16,7 @@ const router = createRouter({
     { path: '/knowledge', name: 'knowledge', component: () => import('@/views/KnowledgeView.vue') },
     { path: '/knowledge/:id', name: 'knowledge-detail', component: () => import('@/views/ContentDetailView.vue'), props: { contentType: 'knowledge' } },
     { path: '/apply', name: 'apply', component: () => import('@/views/ApplyView.vue'), meta: { layout: 'full' } },
+    { path: '/report', name: 'report-issue', component: () => import('@/views/ReportIssueView.vue') },
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { layout: 'auth', guestOnly: true } },
     { path: '/register', name: 'register', component: () => import('@/views/RegisterView.vue'), meta: { layout: 'auth', guestOnly: true } },
     { path: '/invite/:token', name: 'invite', component: () => import('@/views/InviteView.vue') },

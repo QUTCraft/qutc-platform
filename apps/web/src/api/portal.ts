@@ -1,5 +1,5 @@
 import { get, getPage, post } from '@/api/client'
-import type { ApplicationPayload, KnowledgeArticle, KnowledgeDirectory, Organization, PortalRuntimeConfiguration, Project, PublicContentDetail, PublicPost, Resource } from '@/api/types'
+import type { ApplicationPayload, KnowledgeArticle, KnowledgeDirectory, Organization, PortalRuntimeConfiguration, Project, PublicContentDetail, PublicPost, Resource, SiteFeedbackPayload } from '@/api/types'
 
 // 组织标识的优先级为 URL 参数、当前标签页缓存、构建时默认值；仅允许规范 slug，
 // 避免用户输入进入 API 路径后造成跨组织误请求。
@@ -69,4 +69,5 @@ export const portalApi = {
   getKnowledgeArticles: (params: PortalPageQuery = {}) => getPage<KnowledgeArticle>(withQuery(`${portalBase}/knowledge/articles`, params)),
   getKnowledgeDirectories: (params: PortalPageQuery = {}) => getPage<KnowledgeDirectory>(withQuery(`${portalBase}/knowledge/directories`, params)),
   submitApplication: (payload: ApplicationPayload) => post<{ id: string; status: string }>(`${portalBase}/apply`, payload),
+  submitFeedback: (payload: SiteFeedbackPayload) => post<{ id: string; status: string; submitted_at: string }>(`${portalBase}/feedback`, payload),
 }

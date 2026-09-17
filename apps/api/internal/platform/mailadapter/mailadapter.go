@@ -80,12 +80,26 @@ type ContentReviewMessage struct {
 	Feedback       string
 }
 
+type FeedbackSubmittedMessage struct {
+	RecipientEmail string
+	RecipientName  string
+	Organization   string
+	Kind           string
+	Title          string
+	Description    string
+	ContactName    string
+	ContactEmail   string
+	PageURL        string
+	SubmittedAt    time.Time
+}
+
 type Sender interface {
 	Status() Status
 	SendInvitation(context.Context, InvitationMessage) error
 	SendApplicationSubmitted(context.Context, ApplicationSubmittedMessage) error
 	SendApplicationDecision(context.Context, ApplicationDecisionMessage) error
 	SendContentReview(context.Context, ContentReviewMessage) error
+	SendFeedbackSubmitted(context.Context, FeedbackSubmittedMessage) error
 }
 
 func New(cfg Config) (Sender, error) {
@@ -166,6 +180,10 @@ func (disabledSender) SendContentReview(context.Context, ContentReviewMessage) e
 	return ErrDisabled
 }
 
+func (disabledSender) SendFeedbackSubmitted(context.Context, FeedbackSubmittedMessage) error {
+	return ErrDisabled
+}
+
 type smtpSender struct {
 	cfg Config
 }
@@ -233,6 +251,26 @@ func applicationDecisionContent(message ApplicationDecisionMessage) (string, str
 		body += fmt.Sprintf("\r\n皮肤站邀请码：%s\r\n", code)
 	}
 	return cleanText(message.Organization) + " 的申请处理结果", body
+}
+
+func (s *smtpSender) SendFeedbackSubmitted(ctx context.Context, message FeedbackSubmittedMessage) error {
+	recipient, err := mail.ParseAddress(strings.TrimSpace(message.RecipientEmail))
+	if err != nil || recipient.Address == "" {
+		return errors.New("recipient address is invalid")
+	}
+	organization := cleanText(message.Organization)
+	kindLabel := "网页缺陷"
+	if message.Kind == "feature" {
+		kindLabel = "功能建议"
+	}
+	greeting := "你好"
+	if name := cleanText(message.RecipientName); name != "" {
+		greeting += " " + name
+	}
+	pageURL := fallbackText(cleanText(message.PageURL), "未填写")
+	submittedAt := message.SubmittedAt.UTC().Format(time.RFC3339)
+	body := fmt.Sprintf("%s：\r\n\r\n%s 收到一条新的问题报告。\r\n\r\n类型：%s\r\n标题：%s\r\n页面：%s\r\n联系人：%s\r\n联系邮箱：%s\r\n提交时间：%s\r\n\r\n描述：\r\n%s\r\n\r\n请登录管理工作台查看，或直接回复联系人。\r\n", greeting, organization, kindLabel, cleanText(message.Title), pageURL, cleanText(message.ContactName), cleanText(message.ContactEmail), submittedAt, fallbackText(cleanText(message.Description), "无"))
+	return s.sendText(ctx, recipient.Address, fmt.Sprintf("【%s】收到新的问题报告：%s", organization, cleanText(message.Title)), body)
 }
 
 func (s *smtpSender) SendContentReview(ctx context.Context, message ContentReviewMessage) error {

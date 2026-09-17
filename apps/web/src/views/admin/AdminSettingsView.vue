@@ -369,6 +369,7 @@ async function retryNotification(item: NotificationOutbox) {
 function notificationEventLabel(eventType: string) {
   return ({
     'application.submitted': '新申请提醒',
+    'feedback.submitted': '问题报告提醒',
     'application.approved': '申请通过通知',
     'application.rejected': '申请拒绝通知',
     'content.review_submitted': '内容待审核提醒',

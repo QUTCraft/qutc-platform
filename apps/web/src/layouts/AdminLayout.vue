@@ -147,6 +147,9 @@ onMounted(loadOrganizations)
         </div>
 
         <div class="admin-topbar-actions">
+          <RouterLink class="admin-report-link" :to="{ name: 'report-issue', query: { from: route.fullPath } }">
+            <el-button text>报告问题</el-button>
+          </RouterLink>
           <el-select
             v-model="selectedOrganizationId"
             class="organization-switcher"

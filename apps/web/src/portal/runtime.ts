@@ -4,7 +4,7 @@ import type { PortalManifest } from '@/api/types'
 // 门户配置和入口探测都设置短超时：公开首页应优先可用，外部定制门户异常时回退默认界面。
 const runtimeTimeoutMs = 1800
 const fallbackStorageKey = 'qutc.portal.runtime_fallback'
-const platformPaths = ['/admin', '/login', '/register', '/invite', '/apply']
+const platformPaths = ['/admin', '/login', '/register', '/invite', '/apply', '/report']
 
 export interface PortalFallbackRecord {
   portal_id: string

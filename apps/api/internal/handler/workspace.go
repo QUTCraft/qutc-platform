@@ -2397,6 +2397,55 @@ func (h *WorkspaceHandler) SubmitApplication(c *gin.Context) {
 	respond(c, http.StatusCreated, gin.H{"id": application.ID, "status": application.Status, "submitted_at": application.CreatedAt})
 }
 
+// SubmitFeedback 接收门户或后台提交的缺陷/功能建议，并给审核员写入邮件提醒。
+func (h *WorkspaceHandler) SubmitFeedback(c *gin.Context) {
+	var body service.FeedbackInput
+	if err := c.ShouldBindJSON(&body); err != nil {
+		fail(c, http.StatusBadRequest, "feedback.validation_failed", "问题报告格式不正确。")
+		return
+	}
+	normalized, err := service.NormalizeFeedbackInput(body)
+	if err != nil {
+		fail(c, http.StatusBadRequest, "feedback.validation_failed", "请完整填写报告类型、标题、描述和有效联系方式。")
+		return
+	}
+	var organization model.Organization
+	if err := h.db.Where("slug = ? AND is_public = ?", c.Param("slug"), true).First(&organization).Error; err != nil {
+		fail(c, http.StatusNotFound, "portal.organization_not_found", "组织不存在或未公开。")
+		return
+	}
+	reporterUserID := ""
+	if principal, ok := middleware.PrincipalFromContext(c); ok && principal.OrganizationID == organization.ID {
+		reporterUserID = principal.UserID
+	}
+	feedback := model.SiteFeedback{
+		ID: uuid.NewString(), OrganizationID: organization.ID, ReporterUserID: reporterUserID,
+		Kind: normalized.Kind, Title: normalized.Title, Description: normalized.Description,
+		ContactName: normalized.ContactName, ContactEmail: normalized.ContactEmail,
+		PageURL: normalized.PageURL, Status: service.FeedbackStatusOpen,
+	}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&feedback).Error; err != nil {
+			return err
+		}
+		if err := writeAudit(tx, c, organization.ID, reporterUserID, "feedback.submitted", "feedback", feedback.ID); err != nil {
+			return err
+		}
+		if h.notifications == nil {
+			return nil
+		}
+		recipients, err := permissionRecipientEmails(tx, organization.ID, "application:approve", "")
+		if err != nil {
+			return err
+		}
+		return h.notifications.EnqueueFeedbackSubmitted(tx, feedback, recipients)
+	}); err != nil {
+		fail(c, http.StatusInternalServerError, "feedback.create_failed", "问题报告暂时无法提交，请稍后重试。")
+		return
+	}
+	respond(c, http.StatusCreated, gin.H{"id": feedback.ID, "status": feedback.Status, "submitted_at": feedback.CreatedAt})
+}
+
 // AdminApplications 分页列出组织申请，并支持按状态和类型过滤。
 func (h *WorkspaceHandler) AdminApplications(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)

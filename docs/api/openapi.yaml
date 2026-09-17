@@ -250,6 +250,28 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+  /api/v1/portal/organizations/{organization_slug}/feedback:
+    post:
+      tags: [Portal]
+      operationId: submitPortalFeedback
+      summary: 提交网页缺陷或功能建议
+      description: 公开门户与后台共用此接口。报告与面向当前组织 `application:approve` 审核员的邮件提醒 Outbox 在同一事务中写入；SMTP 由后台异步投递。可选携带登录会话以记录提交人，不返回审核员邮箱或通知详情。
+      parameters:
+        - $ref: '#/components/parameters/OrganizationSlug'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PortalFeedbackRequest' }
+      responses:
+        '201':
+          description: 问题报告已受理
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortalFeedbackResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /api/v1/auth/register:
     post:
       tags: [Auth]
@@ -2700,6 +2722,32 @@ components:
       required: [data, meta]
       properties:
         data: { $ref: '#/components/schemas/PortalApplicationReceipt' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    PortalFeedbackKind:
+      type: string
+      enum: [bug, feature]
+    PortalFeedbackRequest:
+      type: object
+      required: [kind, title, description, contact_name, contact_email]
+      properties:
+        kind: { $ref: '#/components/schemas/PortalFeedbackKind' }
+        title: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, minLength: 1, maxLength: 2000 }
+        contact_name: { type: string, minLength: 1, maxLength: 80 }
+        contact_email: { type: string, format: email, maxLength: 254 }
+        page_url: { type: string, maxLength: 500, description: '可选，仅允许站点内相对路径，例如 /posts。' }
+    PortalFeedbackReceipt:
+      type: object
+      required: [id, status, submitted_at]
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [open] }
+        submitted_at: { type: string, format: date-time }
+    PortalFeedbackResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/PortalFeedbackReceipt' }
         meta: { $ref: '#/components/schemas/Meta' }
     AdminContentType:
       type: string

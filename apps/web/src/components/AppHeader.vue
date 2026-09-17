@@ -27,6 +27,7 @@ watch(organizationLogo, () => {
 const goToLogin = () => router.push({ name: 'login', query: { redirect: route.fullPath } })
 const goToRegister = () => router.push({ name: 'register' })
 const goToWorkspace = () => router.push({ name: 'admin-dashboard' })
+const goToReport = () => router.push({ name: 'report-issue', query: { from: route.fullPath } })
 async function logout() {
   await signOut()
   if (route.path.startsWith('/admin')) await router.replace('/')
@@ -71,6 +72,7 @@ onMounted(() => {
     </nav>
 
     <div class="header-actions">
+      <el-button class="header-report-btn" text aria-label="报告问题" @click="goToReport">报告问题</el-button>
       <a
         v-if="isQutcraftPortal"
         class="header-skin-link"
@@ -99,6 +101,7 @@ onMounted(() => {
   <el-drawer v-model="mobileOpen" append-to-body direction="rtl" size="min(86vw, 360px)" title="导航">
     <nav class="mobile-nav" aria-label="移动端公开门户导航">
       <RouterLink v-for="link in links" :key="link.to" :to="link.to" @click="mobileOpen = false">{{ link.label }}</RouterLink>
+      <RouterLink :to="{ name: 'report-issue', query: { from: route.fullPath } }" @click="mobileOpen = false">报告问题</RouterLink>
       <a
         v-if="isQutcraftPortal"
         class="mobile-external-link"

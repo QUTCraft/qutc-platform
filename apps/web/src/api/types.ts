@@ -721,3 +721,12 @@ export interface ApplicationPayload {
   email: string
   note?: string
 }
+
+export interface SiteFeedbackPayload {
+  kind: 'bug' | 'feature'
+  title: string
+  description: string
+  contact_name: string
+  contact_email: string
+  page_url?: string
+}

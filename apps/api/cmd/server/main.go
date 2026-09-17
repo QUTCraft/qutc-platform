@@ -268,6 +268,7 @@ func main() {
 	portal.GET("/knowledge/articles", workspaceHandler.PortalKnowledge)
 	portal.GET("/knowledge/directories", workspaceHandler.PortalKnowledgeDirectories)
 	portal.POST("/apply", publicWriteRateLimiter.Middleware(), workspaceHandler.SubmitApplication)
+	portal.POST("/feedback", publicWriteRateLimiter.Middleware(), workspaceHandler.SubmitFeedback)
 	portal.GET("/assets/:id/download", workspaceHandler.DownloadAsset)
 
 	appLogger.Info("qutcraft api listening", "address", cfg.HTTPAddr)

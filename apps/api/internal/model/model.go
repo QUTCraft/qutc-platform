@@ -276,6 +276,23 @@ type Application struct {
 	UpdatedAt      time.Time
 }
 
+type SiteFeedback struct {
+	ID             string `gorm:"primaryKey;type:char(36)"`
+	OrganizationID string `gorm:"index;type:char(36);not null"`
+	ReporterUserID string `gorm:"index;type:char(36);not null;default:''"`
+	Kind           string `gorm:"index;size:24;not null"`
+	Title          string `gorm:"size:120;not null"`
+	Description    string `gorm:"type:text;not null"`
+	ContactName    string `gorm:"size:80;not null"`
+	ContactEmail   string `gorm:"size:254;not null"`
+	PageURL        string `gorm:"size:500;not null;default:''"`
+	Status         string `gorm:"index;size:24;not null;default:open"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+func (SiteFeedback) TableName() string { return "site_feedback" }
+
 type PortalConfiguration struct {
 	ID                 string     `gorm:"primaryKey;type:char(36)"`
 	OrganizationID     string     `gorm:"uniqueIndex;type:char(36);not null"`
