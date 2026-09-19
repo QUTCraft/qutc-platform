@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Collection, DataAnalysis, Document, DocumentChecked, Files, Folder, MagicStick, Promotion, Setting, SwitchButton, Tickets, UserFilled } from '@element-plus/icons-vue'
+import { ArrowLeft, ChatDotRound, Collection, DataAnalysis, Document, DocumentChecked, Files, Folder, MagicStick, Promotion, Setting, SwitchButton, Tickets, UserFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { authApi } from '@/api/auth'
 import type { OrganizationMembership } from '@/api/types'
@@ -23,6 +23,7 @@ const navigationItems = [
   { label: '项目管理', to: '/admin/projects', icon: Folder, permission: 'project:read' },
   { label: '成员管理', to: '/admin/users', icon: UserFilled, permission: 'membership:read' },
   { label: '申请审核', to: '/admin/reviews', icon: DocumentChecked, permission: 'application:read' },
+  { label: '问题报告', to: '/admin/feedback', icon: ChatDotRound, permission: 'application:read' },
   { label: '审计记录', to: '/admin/audit', icon: Tickets, permission: 'audit:read' },
   { label: '活动策划', to: '/admin/activity-planner', icon: Promotion, permission: 'ai:use' },
   { label: 'AI 咨询', to: '/admin/assistant', icon: MagicStick, permission: 'ai:use' },

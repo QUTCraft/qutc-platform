@@ -233,6 +233,8 @@ func main() {
 	admin.PATCH("/projects/:id/milestones/:milestone_id", middleware.RequirePermission(authService, "project:manage"), workspaceHandler.AdminUpdateProjectMilestone)
 	admin.DELETE("/projects/:id/milestones/:milestone_id", middleware.RequirePermission(authService, "project:manage"), workspaceHandler.AdminDeleteProjectMilestone)
 	admin.GET("/applications", middleware.RequirePermission(authService, "application:read"), workspaceHandler.AdminApplications)
+	admin.GET("/feedback", middleware.RequirePermission(authService, "application:read"), workspaceHandler.AdminFeedback)
+	admin.PATCH("/feedback/:id", middleware.RequirePermission(authService, "application:approve"), workspaceHandler.AdminUpdateFeedback)
 	admin.POST("/applications/:id/approve", middleware.RequirePermission(authService, "application:approve"), workspaceHandler.AdminApplicationDecision)
 	admin.POST("/applications/:id/reject", middleware.RequirePermission(authService, "application:approve"), workspaceHandler.AdminApplicationDecision)
 	admin.DELETE("/applications/:id", middleware.RequirePermission(authService, "application:approve"), workspaceHandler.AdminDeleteApplication)

@@ -449,6 +449,26 @@ Operation ID：`submitPortalApplication`
 
 `membership` 申请只要求姓名和邮箱，可用 `note` 描述申请方向；`whitelist` 申请仍要求班级/专业、Minecraft 游戏 ID 和 QQ。成功返回 `201`，数据为 `id`、`status=pending`、`submitted_at`。同一组织中 membership 按邮箱、whitelist 按邮箱或游戏 ID 检测待审批重复时返回 `409 application.duplicate_pending`；请求字段不合法返回 `400`。若组织没有活跃审核员则不创建提醒，但不影响申请提交；邮件禁用或投递失败时 Outbox 保留可见状态与重试入口。申请列表、姓名详情、QQ 和邮箱只在受保护 Admin API 中提供。
 
+### 5.7 提交问题报告
+
+`POST /api/v1/portal/organizations/{organization_slug}/feedback`  
+Operation ID：`submitPortalFeedback`
+
+该接口不要求登录，用于门户和后台共用的「报告问题」页。报告会写入当前组织工作台收件箱，并在同一事务中为持有 `application:approve` 的活跃审核员写入 `feedback.submitted` 邮件 Outbox。响应只返回 `id`、`status=open` 和 `submitted_at`，不返回审核员邮箱或通知详情。
+
+请求体：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `kind` | enum | `bug`（网页缺陷）或 `feature`（功能建议）。 |
+| `title` | string，1–120 字符 | 简短标题。 |
+| `description` | string，1–2000 字符 | 复现步骤、期望结果或功能说明。 |
+| `contact_name` | string，1–80 字符 | 联系人称呼。 |
+| `contact_email` | email | 必要时回访的邮箱。 |
+| `page_url` | string，可选，最多 500 字符 | 仅允许站点内相对路径，例如 `/posts`。 |
+
+字段不合法返回 `400`；组织不存在返回 `404`。邮件禁用或投递失败不影响报告入库。全文只通过 Admin 收件箱读取。
+
 ## 7. Admin API（受认证后台）
 
 公共前缀：`/api/v1/admin`。本节所有接口均要求 `Authorization: Bearer <JWT>`，并可能返回 `401` 或 `403`。
@@ -668,6 +688,26 @@ Operation ID：`rejectAdminApplication`
 
 完整字段表、状态机、成功/失败响应、错误码与审计规范见 [申请审批 API 规范](application-review.md)。
 
+### 7.5.1 问题报告收件箱
+
+`GET /api/v1/admin/feedback`  
+Operation ID：`listAdminFeedback`
+
+列出当前组织收到的网页缺陷与功能建议全文，供工作台查看，不依赖邮件。需要 `application:read`。筛选在 `organization_id` 约束内执行。
+
+| 查询参数 | 可选值/限制 | 说明 |
+| --- | --- | --- |
+| `page` | 大于等于 1 | 页码，默认 1。 |
+| `page_size` | 1–100 | 每页数量，默认 20。 |
+| `status` | `open`、`resolved` | 按处理状态筛选。 |
+| `kind` | `bug`、`feature` | 按报告类型筛选。 |
+| `query` | 最多 80 字符 | 模糊匹配标题、描述、联系人和页面路径。 |
+
+`PATCH /api/v1/admin/feedback/{feedback_id}`  
+Operation ID：`updateAdminFeedback`
+
+将报告标记为 `open` 或 `resolved`，需要 `application:approve`。状态变化写入 `feedback.resolved` 或 `feedback.reopened` 审计；相同状态直接返回当前记录。报告不存在返回 `404`。
+
 ### 7.6 成员邀请规范
 
 成员邀请由 Admin 创建、公开链接预览，随后由邀请邮箱对应的账户接受。创建邀请时会同时预创建不可登录的账户与 `invited` 成员关系，使管理员可以立即在成员列表确认名额、角色和状态：
@@ -796,6 +836,7 @@ Operation ID：`listAdminAuditEvents`
 | `/invite/:token` | 成员邀请 | 公开读取邀请状态；登录后接受邀请。 |
 | `/register` | 注册账户 | 可携带邀请 token 完成注册并加入组织。 |
 | `/login` | 管理端登录 | 登录、刷新与当前会话接口。 |
+| `/report` | 网页缺陷与功能建议 | `POST /portal/organizations/{slug}/feedback`。 |
 | `/admin` | 后台概览 | `GET /admin/dashboard`。 |
 | `/admin/content` | 内容工作区 | 内容创建、编辑、发布/下线与正文内资源上传。 |
 | `/admin/assets` | 资源文件 | 独立批量上传、文件搜索、受控下载、未关联文件清理，以及一键归档发布到门户资源中心。 |
@@ -803,6 +844,7 @@ Operation ID：`listAdminAuditEvents`
 | `/admin/users` | 成员与权限 | `GET/PATCH /admin/users`、单个/批量邀请、邀请列表/撤销及邮件失败重试。 |
 | `/admin/projects` | 项目管理 | 项目、项目成员和里程碑管理接口。 |
 | `/admin/reviews` | 申请审核 | 所有组织可处理成员或服务申请并查看审核记录。 |
+| `/admin/feedback` | 问题报告 | `GET/PATCH /admin/feedback`，查看全文并标记已处理。 |
 | `/admin/activity-planner` | AI 活动策划 | 结构化活动需求、知识引用、历史方案、五维评分和人工批准。 |
 | `/admin/audit` | 审计记录 | `GET /admin/audit`，按组织、权限和筛选条件查询。 |
 | `/admin/ai` | 智能体配置 | 读取脱敏供应商状态；组织所有者保存接口地址、模型名、API Key 和运行策略。 |

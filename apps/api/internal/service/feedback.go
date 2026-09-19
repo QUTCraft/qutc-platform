@@ -7,9 +7,10 @@ import (
 )
 
 const (
-	FeedbackKindBug     = "bug"
-	FeedbackKindFeature = "feature"
-	FeedbackStatusOpen  = "open"
+	FeedbackKindBug        = "bug"
+	FeedbackKindFeature    = "feature"
+	FeedbackStatusOpen     = "open"
+	FeedbackStatusResolved = "resolved"
 )
 
 var (
@@ -73,6 +74,10 @@ func FeedbackKindLabel(kind string) string {
 		return "功能建议"
 	}
 	return "网页缺陷"
+}
+
+func IsFeedbackStatus(value string) bool {
+	return value == FeedbackStatusOpen || value == FeedbackStatusResolved
 }
 
 func validFeedbackEmail(value string) bool {

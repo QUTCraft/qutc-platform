@@ -97,6 +97,7 @@ http://localhost:8082
 | `/projects` | 公开项目 |
 | `/resources` | 资源中心 |
 | `/knowledge` | 知识库 |
+| `/report` | 网页缺陷与功能建议 |
 | `/invite/:token` | 成员邀请预览与接受 |
 | `/register` | 注册账户并接受邀请 |
 | `/admin` | 管理工作台概览 |
@@ -106,6 +107,7 @@ http://localhost:8082
 | `/admin/projects` | 项目、成员与里程碑 |
 | `/admin/users` | 成员与权限 |
 | `/admin/reviews` | 申请审核与服务器适配 |
+| `/admin/feedback` | 问题报告收件箱，查看全文并标记已处理 |
 | `/admin/activity-planner` | AI 活动策划、历史方案与人工评分 |
 | `/admin/ai` | 智能体供应商与组织策略 |
 | `/admin/audit` | 审计查询 |

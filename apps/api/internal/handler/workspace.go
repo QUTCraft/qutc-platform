@@ -2446,6 +2446,118 @@ func (h *WorkspaceHandler) SubmitFeedback(c *gin.Context) {
 	respond(c, http.StatusCreated, gin.H{"id": feedback.ID, "status": feedback.Status, "submitted_at": feedback.CreatedAt})
 }
 
+func feedbackAdminItem(item model.SiteFeedback) gin.H {
+	return gin.H{
+		"id": item.ID, "kind": item.Kind, "title": item.Title, "description": item.Description,
+		"contact_name": item.ContactName, "contact_email": item.ContactEmail, "page_url": item.PageURL,
+		"status": item.Status, "reporter_user_id": item.ReporterUserID, "submitted_at": item.CreatedAt,
+	}
+}
+
+// AdminFeedback 分页列出当前组织收到的问题报告。
+func (h *WorkspaceHandler) AdminFeedback(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	page, pageSize, ok := listMeta(c, 0)
+	if !ok {
+		return
+	}
+	status := strings.TrimSpace(c.Query("status"))
+	if status != "" && !service.IsFeedbackStatus(status) {
+		fail(c, http.StatusBadRequest, "feedback.invalid_status_filter", "status 仅支持 open 或 resolved。")
+		return
+	}
+	kind := strings.TrimSpace(c.Query("kind"))
+	if kind != "" && kind != service.FeedbackKindBug && kind != service.FeedbackKindFeature {
+		fail(c, http.StatusBadRequest, "feedback.invalid_kind_filter", "kind 仅支持 bug 或 feature。")
+		return
+	}
+	search, ok := queryMax(c, "query", 80)
+	if !ok {
+		return
+	}
+	query := h.db.Model(&model.SiteFeedback{}).Where("organization_id = ?", principal.OrganizationID)
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if kind != "" {
+		query = query.Where("kind = ?", kind)
+	}
+	if search != "" {
+		term := "%" + search + "%"
+		query = query.Where("(title LIKE ? OR description LIKE ? OR contact_name LIKE ? OR contact_email LIKE ? OR page_url LIKE ?)", term, term, term, term, term)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "feedback.list_failed", "问题报告暂时无法加载。")
+		return
+	}
+	var items []model.SiteFeedback
+	if err := query.Order("created_at DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&items).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "feedback.list_failed", "问题报告暂时无法加载。")
+		return
+	}
+	payload := make([]gin.H, 0, len(items))
+	for _, item := range items {
+		payload = append(payload, feedbackAdminItem(item))
+	}
+	respondWithMeta(c, http.StatusOK, payload, gin.H{"page": page, "page_size": pageSize, "total": total})
+}
+
+type feedbackStatusRequest struct {
+	Status string `json:"status"`
+}
+
+// AdminUpdateFeedback 将问题报告标记为待处理或已处理。
+func (h *WorkspaceHandler) AdminUpdateFeedback(c *gin.Context) {
+	principal, ok := middleware.PrincipalFromContext(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "auth.token_missing", "缺少访问令牌。")
+		return
+	}
+	var body feedbackStatusRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		fail(c, http.StatusBadRequest, "feedback.status_invalid", "请指定报告状态。")
+		return
+	}
+	status := strings.TrimSpace(body.Status)
+	if !service.IsFeedbackStatus(status) {
+		fail(c, http.StatusBadRequest, "feedback.status_invalid", "status 仅支持 open 或 resolved。")
+		return
+	}
+	var item model.SiteFeedback
+	if err := h.db.Where("id = ? AND organization_id = ?", c.Param("id"), principal.OrganizationID).First(&item).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fail(c, http.StatusNotFound, "feedback.not_found", "问题报告不存在。")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "feedback.update_failed", "问题报告暂时无法更新。")
+		return
+	}
+	if item.Status == status {
+		respond(c, http.StatusOK, feedbackAdminItem(item))
+		return
+	}
+	item.Status = status
+	action := "feedback.resolved"
+	if status == service.FeedbackStatusOpen {
+		action = "feedback.reopened"
+	}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&item).Update("status", status).Error; err != nil {
+			return err
+		}
+		return writeAudit(tx, c, principal.OrganizationID, principal.UserID, action, "feedback", item.ID)
+	}); err != nil {
+		fail(c, http.StatusInternalServerError, "feedback.update_failed", "问题报告暂时无法更新。")
+		return
+	}
+	respond(c, http.StatusOK, feedbackAdminItem(item))
+}
+
 // AdminApplications 分页列出组织申请，并支持按状态和类型过滤。
 func (h *WorkspaceHandler) AdminApplications(c *gin.Context) {
 	principal, ok := middleware.PrincipalFromContext(c)

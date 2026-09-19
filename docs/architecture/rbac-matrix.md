@@ -62,6 +62,7 @@
 | `/admin/users` | `membership:read` | 拒绝访问，不能只隐藏邮箱列。 |
 | `/admin/projects` | `project:read` / `project:manage` | 拒绝访问，服务端继续校验项目归属。 |
 | `/admin/reviews` | `application:read` 或 `server:read_status` | 仅显示被授权分区，服务端继续过滤。 |
+| `/admin/feedback` | `application:read`；标记已处理需 `application:approve` | 隐藏导航并拒绝 API。 |
 | `/admin/activity-planner` | `ai:use`；生成另需 `knowledge:read` | 无 AI 权限时拒绝；批准按钮不能代替服务端权限交集。 |
 | `/admin/ai` | `ai:use` | 可查看脱敏状态；保存配置仍要求 `organization:configure`。 |
 | `/admin/audit` | `audit:read` | 拒绝访问并保持当前组织范围。 |
@@ -69,6 +70,6 @@
 
 ## 4. 强制审计事件
 
-下列操作无论成功或失败都应写入 `AuditEvent`：登录与会话撤销、角色变更、成员停用、内容提交审核/退回/发布/申请下线/下线、资源下载授权、申请审批、门户版本切换和服务适配器配置变更。
+下列操作无论成功或失败都应写入 `AuditEvent`：登录与会话撤销、角色变更、成员停用、内容提交审核/退回/发布/申请下线/下线、资源下载授权、申请审批、问题报告提交/处理、门户版本切换和服务适配器配置变更。
 
 审计最小字段：`id`、`organization_id`、`actor_user_id`、`action`、`target_type`、`target_id`、`result`、`request_id`、`created_at`。命令或申请说明等敏感字段仅保存经过最小化处理的摘要，且按权限可见。

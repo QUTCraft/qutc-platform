@@ -730,3 +730,24 @@ export interface SiteFeedbackPayload {
   contact_email: string
   page_url?: string
 }
+
+export interface AdminFeedback {
+  id: string
+  kind: SiteFeedbackPayload['kind']
+  title: string
+  description: string
+  contact_name: string
+  contact_email: string
+  page_url: string
+  status: 'open' | 'resolved'
+  reporter_user_id?: string
+  submitted_at: string
+}
+
+export interface AdminFeedbackFilters {
+  page?: number
+  page_size?: number
+  status?: AdminFeedback['status'] | ''
+  kind?: AdminFeedback['kind'] | ''
+  query?: string
+}

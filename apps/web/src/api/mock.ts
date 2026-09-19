@@ -6,6 +6,7 @@ import type {
   AdminApplication,
   AdminContent,
   AdminDashboard,
+  AdminFeedback,
   AdminInvitation,
   AdminKnowledgeDirectory,
   AdminProject,
@@ -391,6 +392,55 @@ let applications: AdminApplication[] = [
   { id: 'application_003', applicant: 'Kite', type: 'whitelist', submitted_at: '2026-07-15T08:00:00Z', note: '已参加过新生联机活动。', status: 'approved', decision_reason: '资料符合要求。', skin_invite_code: '' },
 ]
 
+const mockFeedbackKey = 'qutc.mock_site_feedback'
+
+function defaultSiteFeedback(): AdminFeedback[] {
+  return [
+    {
+      id: 'feedback_demo_bug',
+      kind: 'bug',
+      title: '门户顶栏在窄屏重叠',
+      description: '手机横屏时顶栏按钮叠在一起，无法点到报告问题。',
+      contact_name: '林沐',
+      contact_email: 'linmu@example.com',
+      page_url: '/',
+      status: 'open',
+      submitted_at: '2026-09-18T08:20:00Z',
+    },
+    {
+      id: 'feedback_demo_feature',
+      kind: 'feature',
+      title: '希望增加夜间模式',
+      description: '门户和后台都希望能跟随系统外观切换夜间模式。',
+      contact_name: 'Nova',
+      contact_email: 'nova@example.com',
+      page_url: '/posts',
+      status: 'resolved',
+      submitted_at: '2026-09-16T11:00:00Z',
+    },
+  ]
+}
+
+function restoreMockFeedback(): AdminFeedback[] {
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(mockFeedbackKey) ?? 'null') as AdminFeedback[] | null
+    if (Array.isArray(saved)) return saved
+  } catch {
+    window.sessionStorage.removeItem(mockFeedbackKey)
+  }
+  return defaultSiteFeedback()
+}
+
+function persistMockFeedback() {
+  try {
+    window.sessionStorage.setItem(mockFeedbackKey, JSON.stringify(siteFeedback))
+  } catch {
+    // Session storage may be unavailable in private browsing; keep the in-memory inbox.
+  }
+}
+
+let siteFeedback = restoreMockFeedback()
+
 const defaultPortalManifest: PortalManifest = {
   schema: 'qutc.portal/v1',
   id: 'qutcraft-md3',
@@ -604,6 +654,21 @@ export async function mockGet<T>(path: string): Promise<T> {
   const projectMilestonesMatch = path.match(/\/admin\/projects\/([^/]+)\/milestones$/)
   if (projectMilestonesMatch) return page(adminProjectMilestones[projectMilestonesMatch[1]] ?? []) as T
   if (path.endsWith('/admin/projects')) return page(adminProjects) as T
+  if (new URL(path, 'http://mock.local').pathname.endsWith('/admin/feedback')) {
+    const status = requestUrl.searchParams.get('status')
+    const kind = requestUrl.searchParams.get('kind')
+    const query = requestUrl.searchParams.get('query')?.trim().toLowerCase() ?? ''
+    const pageNumber = Math.max(1, Number(requestUrl.searchParams.get('page') ?? 1))
+    const pageSize = Math.min(100, Math.max(1, Number(requestUrl.searchParams.get('page_size') ?? 20)))
+    const filtered = siteFeedback.filter((item) => {
+      if (status && item.status !== status) return false
+      if (kind && item.kind !== kind) return false
+      if (query && ![item.title, item.description, item.contact_name, item.contact_email, item.page_url].some((value) => value.toLowerCase().includes(query))) return false
+      return true
+    })
+    const start = (pageNumber - 1) * pageSize
+    return { items: filtered.slice(start, start + pageSize), page: pageNumber, page_size: pageSize, total: filtered.length } as T
+  }
   if (new URL(path, 'http://mock.local').pathname.endsWith('/admin/applications')) {
     const status = requestUrl.searchParams.get('status')
     const applicationType = requestUrl.searchParams.get('type')
@@ -732,12 +797,27 @@ export async function mockPost<T>(path: string, body?: unknown): Promise<T> {
 		return result as T
 	}
 	if (path.endsWith('/apply')) return { id: `application_${Date.now()}`, status: 'pending', submitted_at: new Date().toISOString() } as T
-	if (path.endsWith('/feedback')) {
+	if (path.includes('/portal/') && path.endsWith('/feedback')) {
 		const payload = body as { kind?: string; title?: string; description?: string; contact_name?: string; contact_email?: string; page_url?: string }
-		if (!payload?.kind || !payload.title?.trim() || !payload.description?.trim() || !payload.contact_name?.trim() || !payload.contact_email?.trim()) {
+		if (!payload?.kind || !['bug', 'feature'].includes(payload.kind) || !payload.title?.trim() || !payload.description?.trim() || !payload.contact_name?.trim() || !payload.contact_email?.trim()) {
 			throw new Error('请完整填写报告类型、标题、描述和有效联系方式。')
 		}
-		return { id: `feedback_${Date.now()}`, status: 'open', submitted_at: new Date().toISOString() } as T
+		const submittedAt = new Date().toISOString()
+		const item: AdminFeedback = {
+			id: `feedback_${Date.now()}`,
+			kind: payload.kind as AdminFeedback['kind'],
+			title: payload.title.trim(),
+			description: payload.description.trim(),
+			contact_name: payload.contact_name.trim(),
+			contact_email: payload.contact_email.trim(),
+			page_url: payload.page_url?.trim() ?? '',
+			status: 'open',
+			reporter_user_id: mockUser?.id,
+			submitted_at: submittedAt,
+		}
+		siteFeedback = [item, ...siteFeedback]
+		persistMockFeedback()
+		return { id: item.id, status: item.status, submitted_at: submittedAt } as T
 	}
 	if (path.includes('/admin/')) requireMockAdmin()
 	const publishAssetMatch = path.match(/\/admin\/assets\/([^/]+)\/publish$/)
@@ -1277,6 +1357,16 @@ export async function mockPatch<T>(path: string, body: unknown): Promise<T> {
 		return structuredClone(personalAIConfiguration) as T
 	}
   requireMockAdmin()
+  const feedbackMatch = path.match(/\/admin\/feedback\/([^/]+)$/)
+  if (feedbackMatch) {
+    const item = siteFeedback.find((entry) => entry.id === feedbackMatch[1])
+    if (!item) throw new Error('问题报告不存在。')
+    const status = String((body as { status?: string })?.status ?? '').trim()
+    if (status !== 'open' && status !== 'resolved') throw new Error('status 仅支持 open 或 resolved。')
+    item.status = status
+    persistMockFeedback()
+    return structuredClone(item) as T
+  }
 	if (path.endsWith('/admin/organization')) {
 		const currentOrganization = mockUser?.organization_id === campusOrganization.id ? campusOrganization : organization
 		Object.assign(currentOrganization, body as Partial<Organization>, { updated_at: new Date().toISOString() })

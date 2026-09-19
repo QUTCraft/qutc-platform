@@ -15,6 +15,15 @@ func TestNormalizeFeedbackInput(t *testing.T) {
 	}
 }
 
+func TestIsFeedbackStatus(t *testing.T) {
+	if !IsFeedbackStatus(FeedbackStatusOpen) || !IsFeedbackStatus(FeedbackStatusResolved) {
+		t.Fatal("open and resolved should be accepted")
+	}
+	if IsFeedbackStatus("pending") || IsFeedbackStatus("") {
+		t.Fatal("unknown statuses should be rejected")
+	}
+}
+
 func TestNormalizeFeedbackInputRejectsUnsafePageURL(t *testing.T) {
 	_, err := NormalizeFeedbackInput(FeedbackInput{
 		Kind: FeedbackKindFeature, Title: "夜间模式", Description: "希望增加夜间模式。",

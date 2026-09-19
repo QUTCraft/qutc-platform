@@ -29,6 +29,7 @@ const router = createRouter({
     { path: '/admin/projects', name: 'admin-projects', component: () => import('@/views/admin/AdminProjectsView.vue'), meta: { layout: 'admin', requiresAuth: true, permission: 'project:read' } },
     { path: '/admin/users', name: 'admin-users', component: () => import('@/views/admin/AdminUsersView.vue'), meta: { layout: 'admin', requiresAuth: true, permission: 'membership:read' } },
     { path: '/admin/reviews', name: 'admin-reviews', component: () => import('@/views/admin/AdminReviewsView.vue'), meta: { layout: 'admin', requiresAuth: true, permission: 'application:read' } },
+    { path: '/admin/feedback', name: 'admin-feedback', component: () => import('@/views/admin/AdminFeedbackView.vue'), meta: { layout: 'admin', requiresAuth: true, permission: 'application:read' } },
     { path: '/admin/audit', name: 'admin-audit', component: () => import('@/views/admin/AdminAuditView.vue'), meta: { layout: 'admin', requiresAuth: true, permission: 'audit:read' } },
     { path: '/admin/ai', name: 'admin-ai', component: () => import('@/views/admin/AdminAISettingsView.vue'), meta: { layout: 'admin', requiresAuth: true, permission: 'ai:use' } },
     { path: '/admin/activity-planner', name: 'admin-activity-planner', component: () => import('@/views/admin/AdminActivityPlannerView.vue'), meta: { layout: 'admin', requiresAuth: true, permission: 'ai:use' } },

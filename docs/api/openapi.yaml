@@ -255,7 +255,7 @@ paths:
       tags: [Portal]
       operationId: submitPortalFeedback
       summary: 提交网页缺陷或功能建议
-      description: 公开门户与后台共用此接口。报告与面向当前组织 `application:approve` 审核员的邮件提醒 Outbox 在同一事务中写入；SMTP 由后台异步投递。可选携带登录会话以记录提交人，不返回审核员邮箱或通知详情。
+      description: 公开门户与后台共用此接口。报告会写入当前组织工作台收件箱，并同时为 `application:approve` 审核员写入邮件提醒 Outbox；SMTP 由后台异步投递。可选携带登录会话以记录提交人，不返回审核员邮箱或通知详情。
       parameters:
         - $ref: '#/components/parameters/OrganizationSlug'
       requestBody:
@@ -2129,6 +2129,63 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/feedback:
+    get:
+      tags: [Admin]
+      operationId: listAdminFeedback
+      summary: 获取门户问题报告
+      description: 列出当前组织收到的网页缺陷与功能建议全文，便于在工作台查看而不依赖邮件。
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          description: 按处理状态筛选。
+          schema: { $ref: '#/components/schemas/AdminFeedbackStatus' }
+        - name: kind
+          in: query
+          description: 按报告类型筛选。
+          schema: { $ref: '#/components/schemas/PortalFeedbackKind' }
+        - name: query
+          in: query
+          description: 在标题、描述、联系人和页面路径中模糊搜索。
+          schema: { type: string, maxLength: 80 }
+      responses:
+        '200':
+          description: 问题报告列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminFeedbackListResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/feedback/{feedback_id}:
+    patch:
+      tags: [Admin]
+      operationId: updateAdminFeedback
+      summary: 更新问题报告处理状态
+      security: [{ BearerAuth: [] }, { AccessCookie: [] }]
+      parameters:
+        - name: feedback_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateAdminFeedbackRequest' }
+      responses:
+        '200':
+          description: 问题报告已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminFeedbackResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/admin/applications/{application_id}/approve:
     post:
       tags: [Admin]
@@ -2749,6 +2806,40 @@ components:
       properties:
         data: { $ref: '#/components/schemas/PortalFeedbackReceipt' }
         meta: { $ref: '#/components/schemas/Meta' }
+    AdminFeedbackStatus:
+      type: string
+      enum: [open, resolved]
+    AdminFeedback:
+      type: object
+      required: [id, kind, title, description, contact_name, contact_email, page_url, status, reporter_user_id, submitted_at]
+      properties:
+        id: { type: string }
+        kind: { $ref: '#/components/schemas/PortalFeedbackKind' }
+        title: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 2000 }
+        contact_name: { type: string, maxLength: 80 }
+        contact_email: { type: string, format: email, maxLength: 254 }
+        page_url: { type: string, maxLength: 500 }
+        status: { $ref: '#/components/schemas/AdminFeedbackStatus' }
+        reporter_user_id: { type: string }
+        submitted_at: { type: string, format: date-time }
+    AdminFeedbackListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AdminFeedback' } }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    AdminFeedbackResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { $ref: '#/components/schemas/AdminFeedback' }
+        meta: { $ref: '#/components/schemas/Meta' }
+    UpdateAdminFeedbackRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/AdminFeedbackStatus' }
     AdminContentType:
       type: string
       enum: [news, resource, knowledge]

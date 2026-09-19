@@ -331,6 +331,7 @@ func TestS1MemberCannotSeeApprovals(t *testing.T) {
 
 	memberToken := loginWithCredentials(t, client, cfg, user.Email, password)
 	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/applications", memberToken, nil, http.StatusForbidden)
+	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/feedback", memberToken, nil, http.StatusForbidden)
 	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/content", memberToken, nil, http.StatusForbidden)
 	responseBody := request(t, client, http.MethodGet, cfg.apiURL+"/api/v1/admin/dashboard", memberToken, nil, http.StatusOK)
 	var envelope apiEnvelope[map[string]any]

@@ -1,6 +1,6 @@
 import { del, get, getPage, patch, post, put, upload } from '@/api/client'
 import type { PersonalAIConfiguration, EditorChatInput, EditorChatResult } from '@/api/personal-ai-types'
-import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminInvitation, AdminInvitationSummary, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIConfigurationUpdate, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, BatchInvitationResponse, ContentRevision, EmailAdapterStatus, IntegrationSettings, IntegrationSettingsUpdate, IntegrationTestResult, Invitation, InvitationRole, InvitationStatus, InvitationTemplate, MediaAsset, NotificationOutbox, Organization, PortalConfiguration, PortalManifest, PublishAssetResourceInput } from '@/api/types'
+import type { ActivityPlan, ActivityPlanApprovalResult, ActivityPlanEvaluation, ActivityPlanEvaluationSummary, ActivityPlanSummary, AdminApplication, AdminApplicationFilters, AdminContent, AdminDashboard, AdminFeedback, AdminFeedbackFilters, AdminInvitation, AdminInvitationSummary, AdminKnowledgeDirectory, AdminMembershipWriteState, AdminProject, AdminProjectMember, AdminProjectMilestone, AdminUser, AIAgentCatalog, AIAgentRun, AIConfiguration, AIConfigurationUpdate, AIKnowledgeResult, AISourceReference, AuditEvent, AuditEventFilters, BatchInvitationResponse, ContentRevision, EmailAdapterStatus, IntegrationSettings, IntegrationSettingsUpdate, IntegrationTestResult, Invitation, InvitationRole, InvitationStatus, InvitationTemplate, MediaAsset, NotificationOutbox, Organization, PortalConfiguration, PortalManifest, PublishAssetResourceInput } from '@/api/types'
 
 // adminBase 集中声明受 RBAC 保护的管理端 API 前缀，避免各领域接口硬编码不一致。
 const adminBase = '/api/v1/admin'
@@ -127,6 +127,8 @@ export const adminApi = {
   approveApplication: (id: string, reason = '', skinInviteCode = '') => post<AdminApplication>(`${adminBase}/applications/${id}/approve`, { reason, skin_invite_code: skinInviteCode }),
   rejectApplication: (id: string, reason: string) => post<AdminApplication>(`${adminBase}/applications/${id}/reject`, { reason }),
   deleteApplication: (id: string) => del<{ removed: boolean; id: string }>(`${adminBase}/applications/${id}`),
+  getFeedback: (filters: AdminFeedbackFilters = {}) => getPage<AdminFeedback>(withQuery(`${adminBase}/feedback`, filters)),
+  updateFeedback: (id: string, payload: { status: AdminFeedback['status'] }) => patch<AdminFeedback>(`${adminBase}/feedback/${id}`, payload),
   getPortalConfiguration: () => get<PortalConfiguration>(`${adminBase}/portal/config`),
   savePortalDraft: (manifest: PortalManifest) => patch<PortalConfiguration>(`${adminBase}/portal/config`, { manifest }),
   enablePortalConfiguration: () => post<PortalConfiguration>(`${adminBase}/portal/config/enable`),

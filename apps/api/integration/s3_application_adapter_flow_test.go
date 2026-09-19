@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -88,6 +89,62 @@ func TestS3ApplicationApprovalWorkflow(t *testing.T) {
 	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/server/commands", ownerToken, map[string]string{"command": "list"}, http.StatusNotFound)
 	requireStatus(t, client, http.MethodPost, cfg.apiURL+"/api/v1/admin/applications/"+applicationID+"/server-sync/retry", ownerToken, nil, http.StatusNotFound)
 	requireStatus(t, client, http.MethodGet, cfg.apiURL+"/api/v1/portal/organizations/"+cfg.organizationSlug+"/server-status", "", nil, http.StatusNotFound)
+}
+
+func TestS3FeedbackInboxWorkflow(t *testing.T) {
+	cfg := loadIntegrationConfig(t)
+	client := &http.Client{Timeout: 10 * time.Second}
+	db := openIntegrationDB(t, cfg.mysqlDSN)
+	ownerToken := loginAsOwner(t, client, cfg)
+
+	title := "S3 工作台报告 " + strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
+	description := "集成测试：管理员应能在工作台看到完整描述。"
+	createdBody := request(t, client, http.MethodPost, cfg.apiURL+"/api/v1/portal/organizations/"+cfg.organizationSlug+"/feedback", "", map[string]string{
+		"kind": "bug", "title": title, "description": description,
+		"contact_name": "S3 Reporter", "contact_email": "s3-feedback@integration.invalid", "page_url": "/report",
+	}, http.StatusCreated)
+	var createdEnvelope apiEnvelope[struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}]
+	decodeJSON(t, createdBody, &createdEnvelope)
+	if createdEnvelope.Data.ID == "" || createdEnvelope.Data.Status != "open" {
+		t.Fatalf("submitted feedback = %+v", createdEnvelope.Data)
+	}
+	feedbackID := createdEnvelope.Data.ID
+	t.Cleanup(func() { cleanupFeedbackFixture(t, db, feedbackID) })
+
+	var listedEnvelope apiEnvelope[[]struct {
+		ID          string `json:"id"`
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		Status      string `json:"status"`
+		Kind        string `json:"kind"`
+	}]
+	listURL := cfg.apiURL + "/api/v1/admin/feedback?status=open&kind=bug&page=1&page_size=20&query=" + url.QueryEscape(title)
+	decodeJSON(t, request(t, client, http.MethodGet, listURL, ownerToken, nil, http.StatusOK), &listedEnvelope)
+	if len(listedEnvelope.Data) != 1 || listedEnvelope.Data[0].ID != feedbackID || listedEnvelope.Data[0].Description != description {
+		t.Fatalf("listed feedback = %+v, want %s", listedEnvelope.Data, feedbackID)
+	}
+
+	var updatedEnvelope apiEnvelope[struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}]
+	decodeJSON(t, request(t, client, http.MethodPatch, cfg.apiURL+"/api/v1/admin/feedback/"+feedbackID, ownerToken, map[string]string{"status": "resolved"}, http.StatusOK), &updatedEnvelope)
+	if updatedEnvelope.Data.Status != "resolved" {
+		t.Fatalf("updated feedback = %+v", updatedEnvelope.Data)
+	}
+
+	var auditCount int64
+	if err := db.Model(&model.AuditEvent{}).
+		Where("target_type = ? AND target_id = ? AND action = ?", "feedback", feedbackID, "feedback.resolved").
+		Count(&auditCount).Error; err != nil {
+		t.Fatalf("count feedback audit: %v", err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("feedback resolved audit count = %d, want 1", auditCount)
+	}
 }
 
 func notificationRecipientsInclude(items []model.NotificationOutbox, email string) bool {
@@ -283,6 +340,22 @@ func submitApplicationFixture(t *testing.T, client *http.Client, cfg integration
 		t.Fatal("submitted application did not return id")
 	}
 	return envelope.Data.ID
+}
+
+func cleanupFeedbackFixture(t *testing.T, db *gorm.DB, feedbackID string) {
+	t.Helper()
+	if feedbackID == "" {
+		return
+	}
+	for description, result := range map[string]*gorm.DB{
+		"notification outbox": db.Where("target_type = ? AND target_id = ?", "feedback", feedbackID).Delete(&model.NotificationOutbox{}),
+		"audit events":        db.Where("target_type = ? AND target_id = ?", "feedback", feedbackID).Delete(&model.AuditEvent{}),
+		"site feedback":       db.Where("id = ?", feedbackID).Delete(&model.SiteFeedback{}),
+	} {
+		if result.Error != nil {
+			t.Errorf("cleanup %s: %v", description, result.Error)
+		}
+	}
 }
 
 func cleanupApplicationFixture(t *testing.T, db *gorm.DB, applicationID string) {

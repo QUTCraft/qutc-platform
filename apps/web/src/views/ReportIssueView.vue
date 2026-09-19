@@ -5,7 +5,7 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { useRoute } from 'vue-router'
 import { portalApi } from '@/api/portal'
 import type { SiteFeedbackPayload } from '@/api/types'
-import { session } from '@/stores/session'
+import { hasPermission, session } from '@/stores/session'
 
 const route = useRoute()
 const formRef = ref<FormInstance>()
@@ -34,6 +34,7 @@ const rules: FormRules = {
 }
 
 const kindLabel = computed(() => form.kind === 'feature' ? '功能建议' : '网页缺陷')
+const canReadInbox = computed(() => hasPermission('application:read'))
 
 async function submit() {
   if (!formRef.value || !(await formRef.value.validate().catch(() => false))) return
@@ -61,15 +62,16 @@ async function submit() {
   <section class="page-intro">
     <div class="eyebrow">SITE FEEDBACK</div>
     <h1>报告问题</h1>
-    <p>发现网页缺陷，或希望平台增加新功能，都可以在这里告诉我们。提交后会邮件提醒管理员，和入服申请使用同一套通知通道。</p>
+    <p>发现网页缺陷，或希望平台增加新功能，都可以在这里告诉我们。提交后会写入工作台「问题报告」，并邮件提醒管理员。</p>
   </section>
 
   <article v-if="submitted" class="surface-panel report-success">
     <el-icon class="report-success-icon"><CircleCheck /></el-icon>
     <h2>已经收到你的{{ kindLabel }}</h2>
-    <p>管理员会通过邮件收到提醒。如需补充细节，可再次提交一份新的报告。</p>
+    <p>管理员可在工作台「问题报告」查看全文；同时会收到邮件提醒。如需补充细节，可再次提交一份新的报告。</p>
     <div class="report-success-actions">
       <RouterLink to="/"><el-button round>返回门户</el-button></RouterLink>
+      <RouterLink v-if="canReadInbox" to="/admin/feedback"><el-button round>打开工作台收件箱</el-button></RouterLink>
       <el-button type="primary" round @click="submitted = false">继续提交</el-button>
     </div>
   </article>

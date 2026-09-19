@@ -11,11 +11,11 @@
 ```text
 访客
   └─ Portal Layout（公开、只读）
-       └─ /, /posts, /projects, /resources, /knowledge, /apply
+       └─ /, /posts, /projects, /resources, /knowledge, /apply, /report
 
 组织成员
   └─ Admin Layout（认证、RBAC）
-       └─ /admin, /admin/content, /admin/assets, /admin/knowledge, /admin/projects, /admin/users, /admin/reviews, /admin/activity-planner, /admin/audit, /admin/ai, /admin/settings
+       └─ /admin, /admin/content, /admin/assets, /admin/knowledge, /admin/projects, /admin/users, /admin/reviews, /admin/feedback, /admin/activity-planner, /admin/audit, /admin/ai, /admin/settings
 ```
 
 门户不出现成员邮箱、角色、审核队列、草稿或“后台管理”入口。后台可提供“查看门户”链接，但不得把它作为权限绕过手段。
@@ -30,6 +30,7 @@
 | `/resources` | 资源筛选与受控下载 | `Resource[]` | 不暴露对象键、长期 URL 或存储凭据。 |
 | `/knowledge` | 知识库文章目录 | `KnowledgeArticle[]` | 不显示草稿与未公开文章。 |
 | `/apply` | 成员/白名单公开申请表单 | `ApplicationCreate` | 只允许提交；不能读取审批队列、审核人或服务器内部状态。已由 Portal API 持久化进入后台待审批队列。 |
+| `/report` | 网页缺陷与功能建议提交页 | `POST .../feedback` | 只允许提交；不能读取管理员收件箱或通知收件人。 |
 | `/login` | 账户登录 | Auth API | 登录不是门户管理入口；成功后按权限进入独立工作台。 |
 | `/:pathMatch(.*)*` | 公开 404 | 无 | 不泄露内部路由是否存在。 |
 
@@ -48,6 +49,7 @@
 | `/admin/projects` | 项目、公开范围、成员与里程碑 | projects / members / milestones endpoints | `project:read`；写操作需要 `project:manage`，成员/里程碑 UI 已接入。 |
 | `/admin/users` | 成员、角色/状态、单个/批量邀请与投递结果 | Users / Invitations API | `membership:read`；成员与邀请写操作需要 `membership:manage`。 |
 | `/admin/reviews` | 申请审核、服务器状态、受限命令 | applications / server endpoints | `application:read`、`server:read_status`。 |
+| `/admin/feedback` | 问题报告全文收件箱，可标记已处理 | `GET/PATCH /admin/feedback` | `application:read`；标记已处理需要 `application:approve`。 |
 | `/admin/activity-planner` | 结构化活动需求、知识引用、历史方案、人工评分与受控批准 | Activity Plan / Evaluation API | 生成/读取需要 `ai:use`；生成同时需要 `knowledge:read`；批准还需 `project:manage` 与 `content:create`。 |
 | `/admin/audit` | 管理操作审计与 Request ID 排错 | `GET /api/v1/admin/audit` | `audit:read`，服务端强制当前组织范围。 |
 | `/admin/ai` | 智能体供应商状态与组织运行策略 | `GET/PATCH /api/v1/admin/ai/config`、`GET /api/v1/admin/ai/agents` | 查看需要 `ai:use`；保存需要 `organization:configure`。 |
