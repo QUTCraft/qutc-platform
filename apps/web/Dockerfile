@@ -1,8 +1,9 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 RUN corepack enable
+ARG NPM_REGISTRY=https://registry.npmjs.org/
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --registry=$NPM_REGISTRY --frozen-lockfile
 COPY . .
 ARG VITE_API_MODE=remote
 ARG VITE_ORGANIZATION_SLUG=qutcraft

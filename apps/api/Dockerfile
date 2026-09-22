@@ -1,5 +1,7 @@
 FROM golang:1.22-alpine AS build
 WORKDIR /src
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=$GOPROXY
 COPY go.mod ./
 RUN go mod download
 COPY . .
