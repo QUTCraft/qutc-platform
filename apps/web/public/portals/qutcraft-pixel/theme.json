@@ -1,0 +1,17 @@
+{
+  "schema": "qutc.portal-theme/v1",
+  "color": {
+    "primary": "#d94f16",
+    "on_primary": "#ffffff",
+    "surface": "#fff8f0",
+    "on_surface": "#26170f"
+  },
+  "shape": {
+    "small": 0,
+    "medium": 0,
+    "large": 0
+  },
+  "typography": {
+    "body_family": "Fusion Pixel 12px Proportional zh_hans, Press Start 2P, PingFang SC, Microsoft YaHei, sans-serif"
+  }
+}

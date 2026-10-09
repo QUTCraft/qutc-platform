@@ -1,0 +1,19 @@
+{
+  "schema": "qutc.portal/v1",
+  "id": "qutcraft-pixel",
+  "version": "0.1.0",
+  "display_name": "QUTCraft 像素门户",
+  "entry": "/portals/qutcraft-pixel/index.html",
+  "theme": {
+    "mode": "custom",
+    "tokens": "/portals/qutcraft-pixel/theme.json"
+  },
+  "capabilities": [
+    "organization.read",
+    "public_content.read",
+    "projects.read",
+    "assets.read",
+    "knowledge.read"
+  ],
+  "fallback": "md3"
+}

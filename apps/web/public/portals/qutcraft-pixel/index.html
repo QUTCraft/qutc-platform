@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN" data-time="day" data-easter="standard">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- 门户运行时探测标记：必须与生效 Manifest 的 id 完全一致 -->
+  <meta name="qutc-portal-id" content="qutcraft-pixel">
+  <title>QUTCraft · 计算机像素艺术创作协会</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#view">跳到主要内容</a>
+
+  <header class="topbar" id="topbar"></header>
+
+  <main id="view" class="view" tabindex="-1"></main>
+
+  <footer class="footer" id="footer"></footer>
+
+  <div id="toast-root" aria-live="polite"></div>
+  <div id="loader-root"></div>
+
+  <!-- 同源静态门户包：无内联脚本、无远程字体（CSP script-src/font-src 'self'） -->
+  <script src="./theme.js"></script>
+  <script src="./sprites.js"></script>
+  <script src="./panorama.js"></script>
+  <script src="./components.js"></script>
+  <script src="./vendor/marked.umd.js"></script>
+  <script src="./vendor/purify.min.js"></script>
+  <script src="./markdown.js"></script>
+  <script src="./api.js"></script>
+  <script src="./views-home.js"></script>
+  <script src="./views-lists.js"></script>
+  <script src="./views-apply.js"></script>
+  <script src="./views-misc.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
