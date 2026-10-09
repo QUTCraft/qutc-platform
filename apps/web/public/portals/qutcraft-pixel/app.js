@@ -44,7 +44,12 @@
         '<a class="nav-link" href="' + platformHref('/login') + '">登录</a>' +
         '<a class="nav-link" href="' + platformHref('/admin') + '">工作台</a>' +
         '<a class="px-btn px-btn--primary px-btn--sm btn-join" href="#/apply">加入协会</a>' +
-      '</nav>'
+      '</nav>' +
+      '<a class="btn-skin" href="https://skin.qutcraft.cn/" target="_blank" rel="noopener noreferrer" aria-label="打开 QUTC Skin 皮肤站">' +
+        '<span class="btn-skin-full">QUTC Skin</span>' +
+        '<span class="btn-skin-short">皮肤站</span>' +
+        '<span class="btn-skin-mark" aria-hidden="true">↗</span>' +
+      '</a>'
 
     var hotbar = document.createElement('nav')
     hotbar.className = 'hotbar'
