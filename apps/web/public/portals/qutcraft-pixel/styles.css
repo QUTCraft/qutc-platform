@@ -69,7 +69,7 @@
 
 /* ---------- 1. Reset & 基础 ---------- */
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; overflow-x: clip; }
 body {
   margin: 0;
   font-family: var(--font-body);
@@ -77,6 +77,7 @@ body {
   line-height: 1.75;
   color: var(--px-text);
   background: var(--px-bg);
+  overflow-x: clip;
   transition: background-color 240ms steps(6), color 240ms steps(6);
 }
 h1, h2, h3, h4 { margin: 0 0 0.5em; line-height: 1.35; font-weight: 800; }
@@ -97,10 +98,13 @@ img { image-rendering: pixelated; max-width: 100%; }
 html { scrollbar-color: var(--px-panel-2) var(--px-surface); }
 
 .skip-link {
-  position: absolute; left: -9999px; top: 0; z-index: 200;
+  position: absolute; left: 8px; top: 8px; z-index: 200;
+  width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
   background: var(--px-primary); color: var(--px-on-primary); padding: 8px 16px;
 }
-.skip-link:focus { left: 8px; top: 8px; }
+.skip-link:focus {
+  width: auto; height: auto; clip-path: none;
+}
 
 /* 像素精灵图（sprites.js 渲染）：box-shadow 逐像素绘制 */
 .pxs-wrap { display: inline-block; position: relative; vertical-align: middle; flex: none; }
@@ -374,8 +378,8 @@ html[data-easter="subtle"] .splash { display: none; }
 
 /* ---------- 10. 区块与卡片 ---------- */
 .section { padding: 44px 0 8px; }
-.section-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 18px; }
-.section-head h2 { font-size: 22px; letter-spacing: 3px; margin: 0; }
+.section-head { display: flex; align-items: baseline; gap: 10px 14px; margin-bottom: 18px; flex-wrap: wrap; }
+.section-head h2 { font-size: 22px; letter-spacing: 3px; margin: 0; min-width: 0; }
 .section-head .en { font-family: var(--font-pixel); font-size: 9px; color: var(--px-text-2); }
 .section-head .more { margin-left: auto; font-weight: 700; font-size: 13px; }
 
@@ -393,10 +397,10 @@ html[data-easter="subtle"] .splash { display: none; }
   transition: transform 100ms steps(3), box-shadow 100ms steps(3);
 }
 a.card:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.22); }
-.card-head { display: flex; align-items: center; gap: 10px; }
-.card-title { font-size: 16px; font-weight: 800; margin: 0; }
+.card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.card-title { font-size: 16px; font-weight: 800; margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .card-excerpt { font-size: 13px; color: var(--px-text-2); margin: 0; flex: 1; }
-.card-meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--px-text-2); font-family: var(--font-pixel); }
+.card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--px-text-2); font-family: var(--font-pixel); }
 .card-meta .zh { font-family: var(--font-body); font-weight: 700; }
 .card .tags { display: flex; flex-wrap: wrap; gap: 6px; }
 
@@ -580,30 +584,7 @@ html[data-easter="subtle"] .footer .f-creeper { opacity: 0.25; }
 /* ---------- 15. 反馈页 ---------- */
 .kind-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
 
-/* ---------- 16. 移动端：底部 hotbar ---------- */
 .hotbar { display: none; }
-@media (max-width: 760px) {
-  .topbar .nav { display: none; }
-  .topbar .btn-join { display: none; }
-  .view { padding-bottom: 96px; }
-  .hotbar {
-    display: flex; position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%);
-    z-index: 120; gap: 4px; padding: 5px;
-    background: rgba(16, 16, 20, 0.82);
-    border: 3px solid var(--px-ink);
-    box-shadow: inset 2px 2px 0 rgba(255,255,255,.14), 5px 5px 0 rgba(0,0,0,.4);
-  }
-  .hotbar .nav-slot { min-width: 50px; width: 50px; height: 50px; padding: 0; font-size: 11px; flex-direction: column; gap: 3px; }
-  .hotbar .nav-slot .hb-ico { display: block; }
-  .grid--3 { grid-template-columns: 1fr 1fr; }
-  .form-split { grid-template-columns: 1fr; }
-  .char-card { position: static; order: -1; }
-}
-@media (max-width: 520px) {
-  .grid--3, .grid--2, .type-cards, .kind-cards { grid-template-columns: 1fr; }
-  .hero-inner { min-height: 44vh; }
-  .brand-sub { display: none; }
-}
 
 /* ---------- 18. 分页器（§2b-1 · 像素按钮 + 禁用态） ---------- */
 .px-pager { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 24px; }
@@ -634,7 +615,7 @@ html[data-easter="subtle"] .footer .f-creeper { opacity: 0.25; }
   animation: recruit-blink 1s steps(2) infinite;
 }
 @keyframes recruit-blink { 50% { opacity: 0.3; } }
-.recruit-info { flex: 1; min-width: 220px; }
+.recruit-info { flex: 1; min-width: 0; }
 .recruit-info strong { display: block; font-size: 16px; letter-spacing: 2px; }
 .recruit-info span { font-size: 13px; color: var(--px-text-2); }
 
@@ -679,6 +660,86 @@ html[data-easter="subtle"] .footer .f-creeper { opacity: 0.25; }
   margin-bottom: 16px; padding: 8px 12px; font-size: 12px;
 }
 .auth-alt { text-align: center; font-size: 13px; color: var(--px-text-2); margin: 14px 0 0; }
+
+/* ---------- 16. 移动端：底部 hotbar + 窄屏排版（放在组件规则之后，避免被覆盖） ---------- */
+@media (max-width: 760px) {
+  .topbar { padding: 0 12px; gap: 10px; }
+  .topbar .nav { display: none; }
+  .topbar .btn-join { display: none; }
+  .brand-name { font-size: 13px; letter-spacing: 0; }
+  .container { padding: 0 max(14px, env(safe-area-inset-right, 0px)) 0 max(14px, env(safe-area-inset-left, 0px)); }
+  .section { padding: 28px 0 8px; }
+  body {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+  .view {
+    flex: 1 0 auto;
+    min-height: 0;
+    padding-bottom: 24px;
+  }
+  .footer {
+    margin-top: auto;
+    padding-bottom: calc(24px + 64px + env(safe-area-inset-bottom, 0px));
+  }
+  .hotbar {
+    display: flex; position: fixed;
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    z-index: 120; gap: 3px; padding: 4px;
+    background: rgba(16, 16, 20, 0.9);
+    border: 3px solid var(--px-ink);
+    box-shadow: inset 2px 2px 0 rgba(255,255,255,.14), 4px 4px 0 rgba(0,0,0,.4);
+  }
+  .hotbar .nav-slot {
+    flex: 1 1 0; min-width: 0; width: auto; height: 52px; padding: 0 1px;
+    font-size: 10px; flex-direction: column; gap: 2px; letter-spacing: 0;
+  }
+  .hotbar .nav-slot .hb-ico { display: block; transform: scale(0.9); }
+  .grid--3 { grid-template-columns: 1fr 1fr; }
+  .stat-strip { grid-template-columns: 1fr; gap: 10px; }
+  .form-split { grid-template-columns: 1fr; }
+  .char-card { position: static; order: -1; }
+  .hero-wordmark {
+    display: flex; flex-direction: column; align-items: center;
+    letter-spacing: 1px; font-size: clamp(16px, 7vw, 28px);
+    white-space: nowrap;
+  }
+  .splash {
+    position: static; margin-top: 10px; right: auto; top: auto;
+    max-width: 90vw; white-space: normal; text-align: center;
+    transform: rotate(-6deg);
+    animation: splash-pulse-sm 480ms steps(2) infinite alternate;
+  }
+  .hero-cn { letter-spacing: 2px; font-size: clamp(16px, 5vw, 22px); }
+  .hero-tagline { letter-spacing: 0; font-size: 13px; }
+  .hero-cta { width: 100%; flex-direction: column; align-items: stretch; }
+  .hero-cta .px-btn { flex: none; width: 100%; }
+  .recruit-card { align-items: stretch; }
+  .recruit-card .px-btn { width: 100%; }
+  .section-head h2 { font-size: 18px; letter-spacing: 1px; }
+  .section-head .en { display: none; }
+  .wizard-top { flex-wrap: wrap; gap: 10px; }
+  .wizard-title { font-size: 18px; letter-spacing: 1px; }
+  .px-input, .px-textarea { font-size: 16px; }
+  .px-panel { padding: 16px; }
+  #toast-root { left: 12px; right: 12px; }
+  .ach-toast { min-width: 0; max-width: none; width: 100%; }
+  [data-tip]::after { display: none; }
+  .f3-line { padding: 0 4px; }
+  .attach-card .ac-info { min-width: 0; }
+}
+@keyframes splash-pulse-sm { to { transform: rotate(-6deg) scale(1.08); } }
+@media (max-width: 520px) {
+  .grid--3, .grid--2, .type-cards, .kind-cards { grid-template-columns: 1fr; }
+  .hero-inner { min-height: 44vh; padding: 40px 16px 32px; }
+  .brand-sub { display: none; }
+  .stat-tile { padding: 12px 14px; }
+  .craft-wrap { gap: 14px; }
+  .craft-grid { grid-template-columns: repeat(3, 52px); grid-auto-rows: 52px; }
+}
 
 /* ---------- 22. 减弱动效 ---------- */
 @media (prefers-reduced-motion: reduce) {
