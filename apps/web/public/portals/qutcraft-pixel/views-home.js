@@ -23,7 +23,7 @@
       '<section class="hero">' +
         '<canvas class="hero-pano" id="hero-pano" aria-hidden="true"></canvas>' +
         '<div class="hero-inner">' +
-          '<div class="hero-wordmark">QUTCRAFT' +
+          '<div class="hero-wordmark"><span class="hero-logo">QUTCRAFT</span>' +
             '<span class="splash" id="splash"></span>' +
           '</div>' +
           '<div class="hero-cn">计算机像素艺术创作协会</div>' +
